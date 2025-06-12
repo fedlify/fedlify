@@ -14,8 +14,8 @@ By simplifying federated learning, Fedlify empowers privacy-preserving AI develo
 
 We're actively building toward our first public release. For now:
 
-* [Frontend (this repo)](https://github.com/fedlify/fedlify-frontend): React-based UI for the platform
-* [Backend (coming soon)](https://github.com/fedlify/fedlify-backend): API and orchestration layer for training and collaboration
+* [Frontend](https://github.com/fedlify/fedlify-frontend): React-based UI for the platform
+* [Backend](https://github.com/fedlify/fedlify-backend): API and orchestration layer for training and collaboration
 * Deployment: Visit [https://ww.fedlify.com](https://www.fedlify.com) for the latest build
 
 👉 **Coming Soon**: Complete developer setup instructions, starter templates, and backend SDKs.
