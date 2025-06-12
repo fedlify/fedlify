@@ -1,16 +1,21 @@
-## Hi there 👋
+## What is Fedlify?
 
-<!--
-**fedlify/fedlify** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+**Fedlify** is an open, intelligent platform that enables teams and institutions to collaboratively train machine learning models **without sharing raw data**.
+By simplifying federated learning, Fedlify empowers privacy-preserving AI development that’s scalable, reproducible, and ethical.
 
-Here are some ideas to get you started:
+## Who is Fedlify for?
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+* **Researchers** working with sensitive or distributed datasets (e.g., in healthcare or education)
+* **Organizations** that want to collaborate across data silos while maintaining control over their data
+* **Developers** building privacy-focused AI applications
+* **Institutions** aiming to adopt secure, decentralized model training workflows
+
+## How to Get Started
+
+We're actively building toward our first public release. For now:
+
+* [Frontend (this repo)](https://github.com/fedlify/fedlify-frontend): React-based UI for the platform
+* [Backend (coming soon)](https://github.com/fedlify/fedlify-backend): API and orchestration layer for training and collaboration
+* Deployment: Visit [https://ww.fedlify.com](https://www.fedlify.com) for the latest build
+
+👉 **Coming Soon**: Complete developer setup instructions, starter templates, and backend SDKs.
