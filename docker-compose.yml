@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fedlify
+      POSTGRES_USER: fedlify
+      POSTGRES_PASSWORD: fedlify
+    ports:
+      - "5432:5432"
+    volumes:
+      - fedlify-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fedlify -d fedlify"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: fedlify
+      MINIO_ROOT_PASSWORD: fedlify-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - fedlify-minio:/data
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  fedlify-postgres:
+  fedlify-minio:

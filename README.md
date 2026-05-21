@@ -1,0 +1,27 @@
+# Fedlify
+
+Fedlify is a regulated health AI collaboration control plane for multi-institution federated learning studies. It keeps raw clinical data at hospital sites, manages study governance and ethics approval, and generates human-approved NVFLARE participant kits.
+
+## Local Development
+
+```sh
+cp .env.example .env
+docker compose up -d postgres minio mailpit
+pnpm install
+pnpm prisma:generate
+pnpm --filter @fedlify/web prisma:migrate
+pnpm dev
+```
+
+Open `http://localhost:3000`.
+
+## Workspace
+
+- `apps/web`: Next.js, refine, Ant Design, Auth.js, Prisma, RBAC, audit, and API routes.
+- `services/agent-worker`: Python NVFLARE kit-generation worker and deterministic local fallback.
+- `deploy/k8s`: Kubernetes and Argo Workflow manifests for GitOps deployment.
+- `IaC`: existing Compute Canada/OpenStack/Kubernetes/GitOps infrastructure.
+
+## Tutorials
+
+- [Two-site Fedlify study tutorial](docs/two-site-study-tutorial.md): coordinator plus two site operators, from protocol setup through a completed federated run and log review.

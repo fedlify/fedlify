@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fedlify
+
+resources:
+  - namespace.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - web-ingress.yaml
+  - agent-workflow-template.yaml
+
+images:
+  - name: harbor.fedlify.local/fedlify/web
+    newTag: latest
+  - name: harbor.fedlify.local/fedlify/agent-worker
+    newTag: latest

@@ -1,0 +1,15 @@
+.git
+IaC/.git
+node_modules
+**/node_modules
+.next
+**/.next
+coverage
+.env
+fl-papers
+artifacts
+uploads
+tmp
+__pycache__
+.pytest_cache
+.venv

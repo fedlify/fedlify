@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fedlify
+  labels:
+    app.kubernetes.io/name: fedlify
+    app.kubernetes.io/part-of: fedlify-platform

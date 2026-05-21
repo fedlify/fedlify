@@ -1,0 +1,1230 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformRole {
+  USER
+  PLATFORM_ADMIN
+  AUDITOR
+}
+
+enum OrgRole {
+  ORG_ADMIN
+  MEMBER
+  AUDITOR
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum StudyRole {
+  PRINCIPAL_INVESTIGATOR
+  STUDY_OWNER
+  STUDY_COORDINATOR
+  CLINICAL_LEAD
+  ETHICS_REVIEWER
+  DATA_SCIENTIST
+  PIPELINE_DEVELOPER
+  PRIVACY_SECURITY_OFFICER
+  RELEASE_APPROVER
+  SITE_ADMIN
+  AUDITOR
+}
+
+enum StudyStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum GovernanceStatus {
+  INCOMPLETE
+  PENDING_APPROVAL
+  APPROVED
+  BLOCKED
+}
+
+enum StudyRiskLevel {
+  LOW
+  MODERATE
+  HIGH
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum EthicsStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum DocumentKind {
+  REQUIREMENTS_PDF
+  ETHICS_APPROVAL
+  DATA_PROCESSING_AGREEMENT
+  SITE_POLICY
+  OTHER
+}
+
+enum DocumentScanStatus {
+  PENDING
+  CLEAN
+  WARNING
+  BLOCKED
+}
+
+enum NeedSubmissionStatus {
+  DRAFT
+  SUBMITTED
+  SUPERSEDED
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  DRAFT_READY
+  VALIDATED
+  FAILED
+  APPROVED
+  REJECTED
+}
+
+enum ReleaseStatus {
+  DRAFT
+  APPROVED
+  REVOKED
+}
+
+enum ArtifactKind {
+  SERVER_KIT
+  SITE_KIT
+  ADMIN_KIT
+  HELM_CHART
+  SOURCE_BUNDLE
+  CHECKSUM_MANIFEST
+  SIGNATURE
+  LOG_BUNDLE
+}
+
+enum ModelArtifactKind {
+  AGGREGATED_MODEL
+  METRICS
+  LOG
+  META
+  MANIFEST
+}
+
+enum ComputeMode {
+  SITE_LOCAL
+  CENTRAL_SANDBOX
+}
+
+enum ComputeRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum SiteStatus {
+  INVITED
+  KIT_RELEASED
+  CONNECTED
+  DEGRADED
+  OFFLINE
+  DISABLED
+}
+
+enum SiteRole {
+  SITE_PI
+  SITE_ADMIN
+  SITE_DATA_STEWARD
+  SITE_ENGINEER
+  SITE_REVIEWER
+}
+
+enum SiteJoinPackageKind {
+  STARTUP_KIT
+}
+
+enum SiteJoinPackageStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum ReadinessStatus {
+  PENDING
+  PASSED
+  WARNING
+  FAILED
+}
+
+enum PipelineVersionStatus {
+  DRAFT
+  VALIDATING
+  VALIDATED
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum AgentProposalStatus {
+  DRAFT
+  OPEN
+  MERGED
+  REJECTED
+  CLOSED
+}
+
+enum TemplateProposalKind {
+  NEW_TEMPLATE
+  CHANGE_TEMPLATE
+}
+
+enum TemplateScope {
+  PUBLIC_TEMPLATE
+  STUDY_TEMPLATE
+  STUDY_PIPELINE
+}
+
+enum GiteaWorkspaceStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+enum TemplateAgentSessionMode {
+  FROM_PUBLIC_TEMPLATE
+  FROM_STUDY_TEMPLATE
+  FROM_SCRATCH
+  REVIEW_TEMPLATE_SOURCE
+}
+
+enum TemplateAgentSessionStatus {
+  INTAKE
+  CODING
+  DRAFT_READY
+  APPLIED
+  FAILED
+}
+
+enum CIValidationStatus {
+  QUEUED
+  RUNNING
+  PASSED
+  FAILED
+  CANCELLED
+}
+
+enum NvflareDeploymentStatus {
+  DRAFT
+  PROVISIONED
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+enum NvflareJobStatus {
+  DRAFT
+  SUBMITTED
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  FAILED
+  ABORTED
+  REJECTED
+}
+
+enum NvflareJobEventType {
+  SUBMITTED
+  SCHEDULED
+  STARTED
+  SITE_UPDATE
+  METRIC_UPDATE
+  LOG_AVAILABLE
+  COMPLETED
+  FAILED
+  ABORTED
+  REJECTED
+}
+
+model User {
+  id                         String                    @id @default(cuid())
+  name                       String?
+  email                      String?                   @unique
+  emailVerified              DateTime?
+  image                      String?
+  passwordHash               String?
+  platformRole               PlatformRole              @default(USER)
+  mfaEnabled                 Boolean                   @default(false)
+  profile                    Profile?
+  accounts                   Account[]
+  sessions                   Session[]
+  orgMemberships             OrgMembership[]
+  studyMembers               StudyMember[]
+  siteMembers                SiteMember[]
+  createdStudies             Study[]                   @relation("StudyCreatedBy")
+  createdOrgs                Organization[]            @relation("OrgCreatedBy")
+  createdTemplates           PipelineTemplate[]        @relation("PipelineTemplateCreatedBy")
+  requestedTemplateProposals TemplateProposal[]        @relation("TemplateProposalRequestedBy")
+  approvedTemplateVersions   PipelineTemplateVersion[] @relation("PipelineTemplateVersionApprovedBy")
+  createdGiteaWorkspaces     GiteaWorkspace[]          @relation("GiteaWorkspaceCreatedBy")
+  templateAgentSessions      TemplateAgentSession[]    @relation("TemplateAgentSessionRequestedBy")
+  requestedAgentProposals    AgentProposal[]           @relation("AgentProposalRequestedBy")
+  approvedPipelineVersions   PipelineVersion[]         @relation("PipelineVersionApprovedBy")
+  submittedNvflareJobs       NvflareJob[]              @relation("NvflareJobSubmittedBy")
+  syncedNvflareJobResults    NvflareJobResult[]        @relation("NvflareJobResultSyncedBy")
+  createdModelReleases       ModelRelease[]            @relation("ModelReleaseCreatedBy")
+  approvedModelReleases      ModelRelease[]            @relation("ModelReleaseApprovedBy")
+  readinessChecks            SiteReadinessCheck[]      @relation("SiteReadinessCheckedBy")
+  generatedSiteJoinPackages  SiteJoinPackage[]         @relation("SiteJoinPackageGeneratedBy")
+  uploadedDocs               Document[]                @relation("DocumentUploadedBy")
+  auditEvents                AuditEvent[]              @relation("AuditActor")
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  displayName String
+  title       String?
+  institution String?
+  phone       String?
+  timezone    String   @default("America/Toronto")
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Organization {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  domain      String?
+  createdById String
+  createdBy   User            @relation("OrgCreatedBy", fields: [createdById], references: [id])
+  memberships OrgMembership[]
+  studies     Study[]
+  invitations Invitation[]
+  sites       Site[]
+  studySites  StudySite[]
+  auditEvents AuditEvent[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model OrgMembership {
+  id           String           @id @default(cuid())
+  orgId        String
+  userId       String
+  role         OrgRole
+  status       MembershipStatus @default(ACTIVE)
+  addedById    String?
+  organization Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([orgId, userId])
+  @@index([userId, role])
+}
+
+model Study {
+  id                    String                 @id @default(cuid())
+  orgId                 String
+  title                 String
+  slug                  String
+  description           String?
+  goal                  String?
+  researchQuestion      String?
+  clinicalUseCase       String?
+  population            String?
+  dataModalities        String?
+  primaryOutcome        String?
+  riskLevel             StudyRiskLevel         @default(MODERATE)
+  intendedUse           String?
+  governanceStatus      GovernanceStatus       @default(INCOMPLETE)
+  status                StudyStatus            @default(DRAFT)
+  defaultStudy          Boolean                @default(false)
+  resourcePolicy        Json?
+  createdById           String
+  organization          Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy             User                   @relation("StudyCreatedBy", fields: [createdById], references: [id])
+  members               StudyMember[]
+  invitations           Invitation[]
+  sites                 Site[]
+  studySites            StudySite[]
+  ethics                EthicsApproval[]
+  documents             Document[]
+  needs                 NeedSubmission[]
+  agentRuns             AgentRun[]
+  pipelineProjects      PipelineProject[]
+  nvflareDeployments    NvflareDeployment[]
+  nvflareJobs           NvflareJob[]
+  nvflareJobResults     NvflareJobResult[]
+  modelReleases         ModelRelease[]
+  giteaWorkspace        GiteaWorkspace?
+  studyTemplates        PipelineTemplate[]
+  templateAgentSessions TemplateAgentSession[]
+  nvflareJobEvents      NvflareJobEvent[]
+  siteLogArtifacts      SiteLogArtifact[]
+  releases              KitRelease[]
+  computeRuns           ComputeRun[]
+  resourceGrants        ResourceGrant[]
+  auditEvents           AuditEvent[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([createdById])
+}
+
+model StudyMember {
+  id          String    @id @default(cuid())
+  studyId     String
+  userId      String
+  role        StudyRole
+  invitedById String?
+  study       Study     @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([studyId, userId, role])
+  @@index([userId, role])
+}
+
+model Invitation {
+  id           String           @id @default(cuid())
+  studyId      String
+  orgId        String
+  email        String
+  role         StudyRole
+  roles        StudyRole[]      @default([])
+  tokenHash    String           @unique
+  status       InvitationStatus @default(PENDING)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  invitedById  String
+  study        Study            @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([studyId, status])
+  @@index([email, status])
+}
+
+model Site {
+  id                String              @id @default(cuid())
+  studyId           String
+  organizationId    String
+  name              String
+  code              String
+  institutionName   String
+  nvflareClientName String
+  operatorUserId    String?
+  apiTokenHash      String?
+  status            SiteStatus          @default(INVITED)
+  study             Study               @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  artifacts         KitArtifact[]
+  heartbeats        SiteHeartbeat[]
+  studySite         StudySite?
+  nvflareStatuses   NvflareSiteStatus[]
+  logArtifacts      SiteLogArtifact[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([studyId, code])
+  @@index([organizationId])
+}
+
+model StudySite {
+  id                    String               @id @default(cuid())
+  studyId               String
+  siteId                String?              @unique
+  organizationId        String
+  code                  String
+  name                  String
+  institutionName       String
+  participationStatus   SiteStatus           @default(INVITED)
+  principalInvestigator String?
+  study                 Study                @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  site                  Site?                @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  resourceProfile       SiteResourceProfile?
+  dataProfile           SiteDataProfile?
+  members               SiteMember[]
+  readinessChecks       SiteReadinessCheck[]
+  joinPackages          SiteJoinPackage[]
+  nvflareStatuses       NvflareSiteStatus[]
+  logArtifacts          SiteLogArtifact[]
+  nvflareEvents         NvflareJobEvent[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@unique([studyId, code])
+  @@index([organizationId])
+  @@index([studyId, participationStatus])
+}
+
+model SiteResourceProfile {
+  id                   String    @id @default(cuid())
+  studySiteId          String    @unique
+  cpuCores             Int?
+  gpuCount             Int?
+  gpuModel             String?
+  ramGb                Int?
+  storageGb            Int?
+  networkBandwidthMbps Int?
+  runtimeConstraints   String?
+  dependencySummary    String?
+  allowByoc            Boolean   @default(false)
+  studySite            StudySite @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model SiteDataProfile {
+  id                      String    @id @default(cuid())
+  studySiteId             String    @unique
+  modality                String?
+  datasetDescription      String?
+  cohortSizeRange         String?
+  inclusionCriteria       String?
+  exclusionCriteria       String?
+  dataResidency           String?
+  deidentificationSummary String?
+  studySite               StudySite @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+
+model SiteMember {
+  id          String    @id @default(cuid())
+  studySiteId String
+  userId      String
+  role        SiteRole
+  invitedById String?
+  studySite   StudySite @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([studySiteId, userId, role])
+  @@index([userId, role])
+}
+
+model SiteReadinessCheck {
+  id                   String          @id @default(cuid())
+  studySiteId          String
+  checkedById          String?
+  connectivityVerified Boolean         @default(false)
+  kitInstalled         Boolean         @default(false)
+  dependenciesVerified Boolean         @default(false)
+  policyAccepted       Boolean         @default(false)
+  policyAcceptedById   String?
+  policyAcceptedAt     DateTime?
+  status               ReadinessStatus @default(PENDING)
+  notes                String?
+  studySite            StudySite       @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  checkedBy            User?           @relation("SiteReadinessCheckedBy", fields: [checkedById], references: [id])
+  createdAt            DateTime        @default(now())
+
+  @@index([studySiteId, createdAt])
+  @@index([status])
+}
+
+model SiteJoinPackage {
+  id            String                @id @default(cuid())
+  studySiteId   String
+  generatedById String
+  kind          SiteJoinPackageKind   @default(STARTUP_KIT)
+  status        SiteJoinPackageStatus @default(ACTIVE)
+  filename      String
+  contentType   String                @default("application/json")
+  storageKey    String                @unique
+  checksum      String
+  sizeBytes     BigInt                @default(0)
+  expiresAt     DateTime
+  downloadCount Int                   @default(0)
+  studySite     StudySite             @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  generatedBy   User                  @relation("SiteJoinPackageGeneratedBy", fields: [generatedById], references: [id])
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([studySiteId, status])
+  @@index([expiresAt])
+}
+
+model ResourceGrant {
+  id            String    @id @default(cuid())
+  studyId       String
+  granteeOrgId  String?
+  granteeUserId String?
+  resourceType  String
+  resourceId    String
+  permission    String
+  expiresAt     DateTime?
+  study         Study     @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+}
+
+model EthicsApproval {
+  id             String       @id @default(cuid())
+  studyId        String
+  status         EthicsStatus
+  approvalNumber String?
+  approvingBody  String?
+  documentId     String?
+  approvedById   String?
+  validFrom      DateTime?
+  validUntil     DateTime?
+  notes          String?
+  study          Study        @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  document       Document?    @relation(fields: [documentId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([studyId, status])
+}
+
+model Document {
+  id            String             @id @default(cuid())
+  studyId       String
+  uploadedById  String
+  kind          DocumentKind
+  filename      String
+  contentType   String
+  sizeBytes     BigInt
+  storageKey    String             @unique
+  version       Int
+  sha256        String?
+  scanStatus    DocumentScanStatus @default(PENDING)
+  extractedText String?
+  phiWarning    Boolean            @default(false)
+  immutable     Boolean            @default(true)
+  study         Study              @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  uploadedBy    User               @relation("DocumentUploadedBy", fields: [uploadedById], references: [id])
+  ethicsLinks   EthicsApproval[]
+  needs         NeedSubmission[]
+  createdAt     DateTime           @default(now())
+
+  @@unique([studyId, kind, version])
+  @@index([studyId, kind])
+}
+
+model NeedSubmission {
+  id               String               @id @default(cuid())
+  studyId          String
+  submittedById    String
+  description      String
+  sourceDocumentId String?
+  status           NeedSubmissionStatus @default(SUBMITTED)
+  study            Study                @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  sourceDocument   Document?            @relation(fields: [sourceDocumentId], references: [id])
+  agentRuns        AgentRun[]
+  createdAt        DateTime             @default(now())
+}
+
+model AgentRun {
+  id                String          @id @default(cuid())
+  studyId           String
+  needSubmissionId  String?
+  requestedById     String
+  status            AgentRunStatus  @default(QUEUED)
+  inputSummary      String
+  modelName         String          @default("nvflare")
+  workflowId        String?
+  gitCommit         String?
+  logsStorageKey    String?
+  validationSummary String?
+  reviewerId        String?
+  reviewedAt        DateTime?
+  reviewDecision    String?
+  study             Study           @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  needSubmission    NeedSubmission? @relation(fields: [needSubmissionId], references: [id])
+  pipelineSpec      PipelineSpec?
+  releases          KitRelease[]
+  computeRuns       ComputeRun[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([studyId, status])
+}
+
+model PipelineSpec {
+  id                 String   @id @default(cuid())
+  agentRunId         String   @unique
+  spec               Json
+  nvflareProjectYaml String?
+  appTemplate        Json?
+  agentRun           AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model PipelineTemplate {
+  id                       String                    @id @default(cuid())
+  name                     String
+  templateKey              String
+  scope                    TemplateScope             @default(PUBLIC_TEMPLATE)
+  studyId                  String?
+  sourceTemplateId         String?
+  sourceTemplateVersionId  String?
+  forkedFromCommit         String?
+  framework                String                    @default("nvflare")
+  description              String?
+  version                  String                    @default("1.0.0")
+  spec                     Json
+  active                   Boolean                   @default(true)
+  status                   PipelineVersionStatus     @default(DRAFT)
+  giteaOwner               String?
+  giteaRepo                String?
+  giteaRepoUrl             String?
+  giteaDefaultBranch       String                    @default("main")
+  currentApprovedVersionId String?
+  currentApprovedVersion   PipelineTemplateVersion?  @relation("CurrentApprovedTemplateVersion", fields: [currentApprovedVersionId], references: [id])
+  study                    Study?                    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  sourceTemplate           PipelineTemplate?         @relation("TemplateForkSource", fields: [sourceTemplateId], references: [id])
+  derivedTemplates         PipelineTemplate[]        @relation("TemplateForkSource")
+  sourceTemplateVersion    PipelineTemplateVersion?  @relation("TemplateVersionForkSource", fields: [sourceTemplateVersionId], references: [id])
+  createdById              String?
+  createdBy                User?                     @relation("PipelineTemplateCreatedBy", fields: [createdById], references: [id])
+  projects                 PipelineProject[]
+  pipelineVersions         PipelineVersion[]
+  templateVersions         PipelineTemplateVersion[]
+  templateProposals        TemplateProposal[]
+  templateAgentSessions    TemplateAgentSession[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  @@index([framework, active])
+  @@index([status, active])
+  @@index([scope, active])
+  @@index([studyId, scope])
+  @@index([templateKey])
+}
+
+model PipelineTemplateVersion {
+  id                  String                @id @default(cuid())
+  templateId          String
+  version             String
+  gitCommit           String
+  gitBranch           String?
+  artifactStorageKey  String?
+  validationStatus    CIValidationStatus    @default(QUEUED)
+  approvalStatus      PipelineVersionStatus @default(DRAFT)
+  approvedById        String?
+  approvedAt          DateTime?
+  immutable           Boolean               @default(false)
+  template            PipelineTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  currentForTemplates PipelineTemplate[]    @relation("CurrentApprovedTemplateVersion")
+  derivedTemplates    PipelineTemplate[]    @relation("TemplateVersionForkSource")
+  approvedBy          User?                 @relation("PipelineTemplateVersionApprovedBy", fields: [approvedById], references: [id])
+  pipelineProjects    PipelineProject[]
+  pipelineVersions    PipelineVersion[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@unique([templateId, version])
+  @@unique([templateId, gitCommit])
+  @@index([approvalStatus, validationStatus])
+}
+
+model PipelineProject {
+  id                 String                   @id @default(cuid())
+  studyId            String
+  templateId         String
+  templateVersionId  String?
+  name               String
+  giteaRepoUrl       String?
+  giteaOwner         String?
+  giteaRepo          String?
+  giteaDefaultBranch String                   @default("main")
+  defaultBranch      String                   @default("main")
+  status             PipelineVersionStatus    @default(DRAFT)
+  study              Study                    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  template           PipelineTemplate         @relation(fields: [templateId], references: [id])
+  templateVersion    PipelineTemplateVersion? @relation(fields: [templateVersionId], references: [id])
+  versions           PipelineVersion[]
+  proposals          AgentProposal[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([studyId, status])
+}
+
+model PipelineVersion {
+  id                 String                   @id @default(cuid())
+  projectId          String
+  templateId         String?
+  templateVersionId  String?
+  version            String
+  gitCommit          String?
+  gitBranch          String?
+  jobWorkspacePath   String?
+  artifactStorageKey String?
+  validationStatus   CIValidationStatus       @default(QUEUED)
+  approvalStatus     PipelineVersionStatus    @default(DRAFT)
+  approvedById       String?
+  approvedAt         DateTime?
+  immutable          Boolean                  @default(false)
+  project            PipelineProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template           PipelineTemplate?        @relation(fields: [templateId], references: [id])
+  templateVersion    PipelineTemplateVersion? @relation(fields: [templateVersionId], references: [id])
+  approvedBy         User?                    @relation("PipelineVersionApprovedBy", fields: [approvedById], references: [id])
+  ciRuns             CIValidationRun[]
+  nvflareJobs        NvflareJob[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@unique([projectId, version])
+  @@unique([projectId, gitCommit])
+  @@index([approvalStatus, validationStatus])
+}
+
+model TemplateProposal {
+  id                     String               @id @default(cuid())
+  templateId             String
+  requestedById          String
+  kind                   TemplateProposalKind
+  intakeAnswers          Json
+  prompt                 String
+  branchName             String
+  giteaPullRequestUrl    String?
+  giteaPullRequestNumber Int?
+  giteaHeadCommit        String?
+  giteaBaseBranch        String?
+  status                 AgentProposalStatus  @default(OPEN)
+  validationStatus       CIValidationStatus   @default(QUEUED)
+  resultSummary          String?
+  template               PipelineTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  requestedBy            User                 @relation("TemplateProposalRequestedBy", fields: [requestedById], references: [id])
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  @@index([templateId, status])
+  @@index([validationStatus])
+}
+
+model GiteaWorkspace {
+  id          String               @id @default(cuid())
+  studyId     String               @unique
+  owner       String               @unique
+  url         String?
+  status      GiteaWorkspaceStatus @default(PENDING)
+  lastError   String?
+  createdById String?
+  study       Study                @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  createdBy   User?                @relation("GiteaWorkspaceCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([status])
+}
+
+model TemplateAgentSession {
+  id                  String                     @id @default(cuid())
+  studyId             String?
+  templateId          String?
+  requestedById       String
+  mode                TemplateAgentSessionMode
+  status              TemplateAgentSessionStatus @default(INTAKE)
+  intake              Json                       @default("{}")
+  messages            Json                       @default("[]")
+  generatedFiles      Json?
+  resultSummary       String?
+  giteaOwner          String?
+  giteaRepo           String?
+  branchName          String?
+  giteaPullRequestUrl String?
+  giteaHeadCommit     String?
+  study               Study?                     @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  template            PipelineTemplate?          @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  requestedBy         User                       @relation("TemplateAgentSessionRequestedBy", fields: [requestedById], references: [id])
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([studyId, status])
+  @@index([templateId, status])
+  @@index([requestedById, createdAt])
+}
+
+model AgentProposal {
+  id                     String              @id @default(cuid())
+  projectId              String
+  requestedById          String
+  prompt                 String
+  branchName             String
+  giteaPullRequestUrl    String?
+  giteaPullRequestNumber Int?
+  giteaHeadCommit        String?
+  giteaBaseBranch        String?
+  status                 AgentProposalStatus @default(OPEN)
+  resultSummary          String?
+  project                PipelineProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy            User                @relation("AgentProposalRequestedBy", fields: [requestedById], references: [id])
+  ciRuns                 CIValidationRun[]
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([projectId, status])
+}
+
+model CIValidationRun {
+  id                String             @id @default(cuid())
+  pipelineVersionId String?
+  agentProposalId   String?
+  provider          String             @default("argo")
+  workflowId        String?
+  status            CIValidationStatus @default(QUEUED)
+  summary           String?
+  logsStorageKey    String?
+  pipelineVersion   PipelineVersion?   @relation(fields: [pipelineVersionId], references: [id], onDelete: Cascade)
+  agentProposal     AgentProposal?     @relation(fields: [agentProposalId], references: [id], onDelete: Cascade)
+  startedAt         DateTime           @default(now())
+  completedAt       DateTime?
+
+  @@index([status, startedAt])
+  @@index([pipelineVersionId])
+}
+
+model KitRelease {
+  id            String        @id @default(cuid())
+  studyId       String
+  agentRunId    String
+  version       String
+  status        ReleaseStatus @default(DRAFT)
+  approvedById  String?
+  approvedAt    DateTime?
+  checksum      String?
+  signature     String?
+  storagePrefix String
+  immutable     Boolean       @default(true)
+  releaseNotes  String?
+  study         Study         @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  agentRun      AgentRun      @relation(fields: [agentRunId], references: [id])
+  artifacts     KitArtifact[]
+  computeRuns   ComputeRun[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([studyId, version])
+  @@index([agentRunId])
+}
+
+model KitArtifact {
+  id            String       @id @default(cuid())
+  releaseId     String
+  kind          ArtifactKind
+  siteId        String?
+  filename      String
+  contentType   String
+  storageKey    String
+  checksum      String
+  sizeBytes     BigInt
+  downloadCount Int          @default(0)
+  release       KitRelease   @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  site          Site?        @relation(fields: [siteId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  @@unique([releaseId, storageKey])
+  @@index([siteId])
+}
+
+model ComputeRun {
+  id            String           @id @default(cuid())
+  studyId       String
+  agentRunId    String?
+  releaseId     String?
+  mode          ComputeMode
+  status        ComputeRunStatus @default(QUEUED)
+  workflowId    String?
+  syntheticOnly Boolean          @default(true)
+  startedById   String
+  startedAt     DateTime         @default(now())
+  completedAt   DateTime?
+  study         Study            @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  agentRun      AgentRun?        @relation(fields: [agentRunId], references: [id])
+  release       KitRelease?      @relation(fields: [releaseId], references: [id])
+  heartbeats    SiteHeartbeat[]
+
+  @@index([studyId, status])
+}
+
+model SiteHeartbeat {
+  id           String      @id @default(cuid())
+  siteId       String
+  computeRunId String?
+  status       SiteStatus
+  version      String?
+  ipHash       String?
+  metadata     Json?
+  site         Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  computeRun   ComputeRun? @relation(fields: [computeRunId], references: [id])
+  createdAt    DateTime    @default(now())
+
+  @@index([siteId, createdAt])
+}
+
+model NvflareDeployment {
+  id                         String                  @id @default(cuid())
+  studyId                    String
+  name                       String
+  dashboardUrl               String?
+  serverStartupKitStorageKey String?
+  adminStartupKitStorageKey  String?
+  serverStartupPath          String?
+  adminStartupPath           String?
+  clientStartupPaths         Json?
+  activeAdminEmail           String?
+  runtimeMode                String?
+  serverAddress              String?
+  adminAddress               String?
+  composeProject             String?
+  workspacePath              String?
+  ports                      Json?
+  lastError                  String?
+  startedAt                  DateTime?
+  stoppedAt                  DateTime?
+  status                     NvflareDeploymentStatus @default(DRAFT)
+  active                     Boolean                 @default(false)
+  study                      Study                   @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  jobs                       NvflareJob[]
+  siteStatuses               NvflareSiteStatus[]
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  @@index([studyId, active])
+}
+
+model NvflareJob {
+  id                String             @id @default(cuid())
+  studyId           String
+  deploymentId      String?
+  pipelineVersionId String
+  submittedById     String
+  nvflareJobId      String?
+  status            NvflareJobStatus   @default(DRAFT)
+  selectedSites     Json?
+  commandSummary    String?
+  logsStorageKey    String?
+  submittedAt       DateTime?
+  completedAt       DateTime?
+  study             Study              @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  deployment        NvflareDeployment? @relation(fields: [deploymentId], references: [id])
+  pipelineVersion   PipelineVersion    @relation(fields: [pipelineVersionId], references: [id])
+  submittedBy       User               @relation("NvflareJobSubmittedBy", fields: [submittedById], references: [id])
+  events            NvflareJobEvent[]
+  logArtifacts      SiteLogArtifact[]
+  result            NvflareJobResult?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([studyId, status])
+  @@index([nvflareJobId])
+}
+
+model NvflareJobResult {
+  id             String          @id @default(cuid())
+  studyId        String
+  jobId          String          @unique
+  syncedById     String?
+  resultPath     String?
+  storagePrefix  String
+  checksum       String?
+  modelPath      String?
+  modelShape     Json?
+  modelDtype     String?
+  modelSizeBytes BigInt          @default(0)
+  manifest       Json?
+  study          Study           @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  job            NvflareJob      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  syncedBy       User?           @relation("NvflareJobResultSyncedBy", fields: [syncedById], references: [id])
+  artifacts      ModelArtifact[]
+  modelRelease   ModelRelease?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([studyId, createdAt])
+}
+
+model ModelRelease {
+  id             String           @id @default(cuid())
+  studyId        String
+  sourceResultId String           @unique
+  createdById    String
+  approvedById   String?
+  version        String
+  status         ReleaseStatus    @default(DRAFT)
+  checksum       String?
+  storagePrefix  String
+  releaseNotes   String?
+  immutable      Boolean          @default(false)
+  approvedAt     DateTime?
+  study          Study            @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  sourceResult   NvflareJobResult @relation(fields: [sourceResultId], references: [id], onDelete: Cascade)
+  createdBy      User             @relation("ModelReleaseCreatedBy", fields: [createdById], references: [id])
+  approvedBy     User?            @relation("ModelReleaseApprovedBy", fields: [approvedById], references: [id])
+  artifacts      ModelArtifact[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([studyId, version])
+  @@index([studyId, status])
+}
+
+model ModelArtifact {
+  id            String            @id @default(cuid())
+  resultId      String
+  releaseId     String?
+  kind          ModelArtifactKind
+  filename      String
+  contentType   String
+  storageKey    String            @unique
+  checksum      String
+  sizeBytes     BigInt
+  downloadCount Int               @default(0)
+  result        NvflareJobResult  @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  release       ModelRelease?     @relation(fields: [releaseId], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+
+  @@index([resultId])
+  @@index([releaseId])
+}
+
+model NvflareSiteStatus {
+  id                String             @id @default(cuid())
+  deploymentId      String?
+  studySiteId       String
+  siteId            String?
+  nvflareClientName String
+  status            SiteStatus         @default(OFFLINE)
+  currentJobId      String?
+  details           Json?
+  observedAt        DateTime           @default(now())
+  deployment        NvflareDeployment? @relation(fields: [deploymentId], references: [id])
+  studySite         StudySite          @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  site              Site?              @relation(fields: [siteId], references: [id])
+
+  @@index([studySiteId, observedAt])
+  @@index([deploymentId, status])
+}
+
+model NvflareJobEvent {
+  id          String              @id @default(cuid())
+  jobId       String
+  studyId     String
+  studySiteId String?
+  eventType   NvflareJobEventType
+  message     String?
+  metadata    Json?
+  job         NvflareJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  study       Study               @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  studySite   StudySite?          @relation(fields: [studySiteId], references: [id])
+  createdAt   DateTime            @default(now())
+
+  @@index([jobId, createdAt])
+  @@index([studyId, eventType])
+}
+
+model SiteLogArtifact {
+  id            String      @id @default(cuid())
+  studyId       String
+  studySiteId   String?
+  siteId        String?
+  nvflareJobId  String?
+  kind          String
+  filename      String
+  storageKey    String
+  contentType   String
+  sizeBytes     BigInt
+  checksum      String?
+  retainedUntil DateTime?
+  study         Study       @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  studySite     StudySite?  @relation(fields: [studySiteId], references: [id])
+  site          Site?       @relation(fields: [siteId], references: [id])
+  nvflareJob    NvflareJob? @relation(fields: [nvflareJobId], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@index([studyId, createdAt])
+  @@index([studySiteId, createdAt])
+  @@index([nvflareJobId])
+}
+
+model AuditEvent {
+  id           String        @id @default(cuid())
+  actorUserId  String?
+  orgId        String?
+  studyId      String?
+  action       String
+  targetType   String
+  targetId     String?
+  metadata     Json?
+  ipHash       String?
+  userAgent    String?
+  actor        User?         @relation("AuditActor", fields: [actorUserId], references: [id])
+  organization Organization? @relation(fields: [orgId], references: [id])
+  study        Study?        @relation(fields: [studyId], references: [id])
+  createdAt    DateTime      @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([orgId, createdAt])
+  @@index([studyId, createdAt])
+  @@index([action])
+}

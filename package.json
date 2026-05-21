@@ -1,0 +1,20 @@
+{
+  "name": "fedlify-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fedlify regulated health AI collaboration platform.",
+  "packageManager": "pnpm@8.6.12",
+  "scripts": {
+    "dev": "pnpm --filter @fedlify/web dev",
+    "build": "pnpm --filter @fedlify/web build",
+    "lint": "pnpm --filter @fedlify/web lint",
+    "e2e": "pnpm --filter @fedlify/web e2e",
+    "test": "pnpm --filter @fedlify/web test && PYTHONPATH=services/agent-worker python3 -m unittest discover -s services/agent-worker/tests",
+    "prisma:generate": "pnpm --filter @fedlify/web prisma:generate",
+    "prisma:migrate": "pnpm --filter @fedlify/web prisma:migrate",
+    "agent:test": "PYTHONPATH=services/agent-worker python3 -m unittest discover -s services/agent-worker/tests",
+    "fresh:start": "bash scripts/fresh-test-start.sh",
+    "fresh:test": "bash scripts/fresh-test-reset.sh reset",
+    "fresh:down": "bash scripts/fresh-test-reset.sh down"
+  }
+}

@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: fedlify-agent-kit-generation
+  labels:
+    app.kubernetes.io/name: fedlify-agent-worker
+spec:
+  entrypoint: generate
+  serviceAccountName: fedlify-agent-worker
+  ttlStrategy:
+    secondsAfterCompletion: 86400
+  podGC:
+    strategy: OnWorkflowCompletion
+  arguments:
+    parameters:
+      - name: request-json
+      - name: callback-url
+  templates:
+    - name: generate
+      inputs:
+        parameters:
+          - name: request-json
+          - name: callback-url
+      outputs:
+        artifacts:
+          - name: fedlify-kits
+            path: /work/out
+      container:
+        image: harbor.fedlify.local/fedlify/agent-worker:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            mkdir -p /work/in /work/out
+            cat > /work/in/request.json <<'JSON'
+            {{inputs.parameters.request-json}}
+            JSON
+            fedlify-agent-worker --input /work/in/request.json --output /work/out | tee /work/out/manifest.log
+        env:
+          - name: FEDLIFY_REQUIRE_NVFLARE
+            value: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fedlify-agent-worker
