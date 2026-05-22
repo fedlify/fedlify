@@ -5,19 +5,46 @@ const completeProtocol = {
   title: "Cross-site sepsis model",
   goal: "Validate a governed federated workflow.",
   researchQuestion: "Can local sites train without moving raw data?",
+  studyDesign: "Prospective federated health AI validation study.",
   clinicalUseCase: "Sepsis risk prediction",
   population: "Adult ICU cohort",
+  eligibilityCriteria: "Adults admitted to participating ICUs with locally available sepsis risk features.",
   dataModalities: "EHR, labs",
   primaryOutcome: "AUROC",
+  primaryEndpointDetails: "AUROC measured on held-out site-local validation cohorts.",
+  analysisPlan: "Compare aggregate AUROC and calibration summaries across sites after federated training.",
+  dataHandlingPlan: "Participant-level data remains local to each site; only aggregate outputs and logs are shared.",
   intendedUse: "Research validation"
 };
 
 describe("governance gates", () => {
-  it("requires protocol metadata before activation", () => {
+  it("requires core study protocol fields before activation", () => {
     expect(missingProtocolFields({ title: "Only title" })).toContain("goal");
   });
 
-  it("allows activation only after metadata, site, and ethics clearance", () => {
+  it("requires Health AI core fields before activation", () => {
+    expect(missingProtocolFields({ ...completeProtocol, analysisPlan: "" })).toContain("analysisPlan");
+    expect(missingProtocolFields({ ...completeProtocol, dataHandlingPlan: null })).toContain("dataHandlingPlan");
+  });
+
+  it("does not require optional best-practice fields before activation", () => {
+    const gate = activationGate({
+      ...completeProtocol,
+      hypothesis: "",
+      secondaryObjectives: "",
+      secondaryOutcomes: "",
+      sampleSizeRationale: "",
+      humanAiWorkflow: "",
+      fairnessPlan: "",
+      disseminationPlan: "",
+      ethics: [{ status: "APPROVED" }],
+      studySites: [{ id: "site-1" }]
+    });
+
+    expect(gate.allowed).toBe(true);
+  });
+
+  it("allows activation only after study design, site, and ethics clearance", () => {
     const gate = activationGate({
       ...completeProtocol,
       ethics: [{ status: "APPROVED" }],

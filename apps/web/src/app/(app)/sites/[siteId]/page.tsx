@@ -13,7 +13,7 @@ import {
 import { Alert, Button, Checkbox, Form, Input, Select, Space, Tabs, Typography, message } from "antd";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
+import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { CardGrid, EntityCard } from "@/components/DataCards";
 import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
@@ -398,10 +398,6 @@ export default function SiteOnboardingPage() {
                 label: "Governance",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Governance summary"
-                      description="Study-level protocol state this site must review before joining."
-                    />
                     <div className="fedlify-governance-grid">
                       <div className="fedlify-governance-field">
                         <span className="fedlify-governance-label">Study status</span>
@@ -432,15 +428,14 @@ export default function SiteOnboardingPage() {
                 label: "Startup kit",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Startup kit"
-                      description="Download the site-specific runner package. The runner checks Docker, writes the token, starts the local services, and reports heartbeat."
-                      actions={
+                    <div className="fedlify-tab-toolbar">
+                      <div />
+                      <div className="fedlify-tab-toolbar-actions">
                         <Button icon={<CopyOutlined />} onClick={() => void navigator.clipboard.writeText(runnerCommand)}>
                           Copy runner command
                         </Button>
-                      }
-                    />
+                      </div>
+                    </div>
                     <CardGrid>
                       <EntityCard
                         title="Aggregator deployment"
@@ -505,10 +500,6 @@ export default function SiteOnboardingPage() {
                 label: "Data profile",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Local data profile"
-                      description="Describe the site-local cohort and modality without entering row-level clinical data."
-                    />
                     <div className="fedlify-inline-create-card">
                       <Form
                         key={site.dataProfile?.id ?? "data-profile"}
@@ -574,10 +565,6 @@ export default function SiteOnboardingPage() {
                 label: "Readiness",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Readiness checklist"
-                      description="Confirm local installation, connectivity, dependencies, and policy acceptance."
-                    />
                     <div className="fedlify-inline-create-card">
                       <Form
                         key={latestReadiness?.id ?? "readiness"}
@@ -633,10 +620,6 @@ export default function SiteOnboardingPage() {
                 label: "Pipeline review",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Pipeline code review"
-                      description="Review approved or validated source bundles before local participation."
-                    />
                     {dashboard.pipelineVersions.length === 0 && sourceArtifacts.length === 0 ? (
                       <EmptyState
                         icon={<FileTextOutlined />}
@@ -688,10 +671,6 @@ export default function SiteOnboardingPage() {
                 label: "Staff, logs & audit",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Site staff and logs"
-                      description="Review site-scoped assignments, retained operational logs, and onboarding audit events."
-                    />
                     <CardGrid>
                       <EntityCard
                         title="Assigned staff"
@@ -707,7 +686,6 @@ export default function SiteOnboardingPage() {
                       />
                     </CardGrid>
 
-                    <SectionHeader title="Audit trail" />
                     {dashboard.auditEvents.length === 0 ? (
                       <EmptyState icon={<SafetyCertificateOutlined />} title="No site audit events" description="Site onboarding actions will be recorded here." />
                     ) : (

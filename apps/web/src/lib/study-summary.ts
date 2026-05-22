@@ -92,9 +92,9 @@ export function submittedExperimentRuns(study: StudySummaryInput) {
 }
 
 export function protocolReadinessDetail(study: StudySummaryInput) {
-  if (studyProtocolReady(study)) return "Protocol metadata and ethics are ready for runtime.";
+  if (studyProtocolReady(study)) return "Study design and ethics decision are ready for runtime.";
   if (!studyEthicsReady(study)) return "Ethics approval or exemption is required before runtime.";
-  return `Protocol status is ${displayEnum(study.governanceStatus, "Incomplete")}; activate the study when metadata is complete.`;
+  return `Study protocol is ${displayEnum(study.governanceStatus, "Incomplete")}; activate the study when the design is complete.`;
 }
 
 function allSubmitGatesReady(study: StudySummaryInput) {
@@ -119,9 +119,9 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if (!studyProtocolReady(study)) {
     return {
-      title: studyEthicsReady(study) ? "Complete protocol metadata" : "Complete ethics review",
+      title: studyEthicsReady(study) ? "Complete study design" : "Record ethics decision",
       detail: protocolReadinessDetail(study),
-      buttonLabel: "Fix protocol",
+      buttonLabel: "Open study protocol",
       section: "protocol",
       state: "needs_attention"
     };
@@ -212,9 +212,9 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
   return [
     {
       key: "protocol",
-      label: "Protocol",
+      label: "Study protocol",
       detail: protocolReadinessDetail(study),
-      buttonLabel: studyProtocolReady(study) ? "Review protocol" : "Fix protocol",
+      buttonLabel: studyProtocolReady(study) ? "Review study protocol" : "Open study protocol",
       section: "protocol",
       state: studyProtocolReady(study) ? "ready" : "needs_attention"
     },
@@ -243,7 +243,7 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
           : allSubmitGatesReady(study)
             ? "Ready to submit an approved federated run."
             : deploymentReady
-              ? "Submit after protocol, pipeline, and sites are ready."
+              ? "Submit after study protocol, pipeline, and sites are ready."
               : "Start the aggregator before submitting a federated run.",
       buttonLabel: submittedRuns.length > 0 ? "View run" : "Open run",
       section: "run",

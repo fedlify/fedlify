@@ -11,16 +11,30 @@ import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 const optionalNullableGovernanceString = (max: number) =>
   z.preprocess((value) => normalizeNullableMultiSelectValue(value), z.string().trim().max(max).nullable().optional());
 
+const optionalNullableText = (max: number) => z.string().trim().max(max).nullable().optional();
+
 const patchStudySchema = z.object({
   action: z.enum(["updateDetails", "activate", "archive", "reactivate"]),
   title: z.string().trim().min(3).max(200).optional(),
-  description: z.string().trim().max(4000).nullable().optional(),
-  goal: z.string().trim().max(4000).nullable().optional(),
-  researchQuestion: z.string().trim().max(2000).nullable().optional(),
+  description: optionalNullableText(8000),
+  goal: optionalNullableText(8000),
+  researchQuestion: optionalNullableText(8000),
+  hypothesis: optionalNullableText(8000),
+  secondaryObjectives: optionalNullableText(8000),
   clinicalUseCase: optionalNullableGovernanceString(1000),
+  studyDesign: optionalNullableText(8000),
   population: z.string().trim().max(2000).nullable().optional(),
+  eligibilityCriteria: optionalNullableText(8000),
   dataModalities: optionalNullableGovernanceString(1000),
   primaryOutcome: z.string().trim().max(2000).nullable().optional(),
+  primaryEndpointDetails: optionalNullableText(8000),
+  secondaryOutcomes: optionalNullableText(8000),
+  sampleSizeRationale: optionalNullableText(8000),
+  analysisPlan: optionalNullableText(8000),
+  dataHandlingPlan: optionalNullableText(8000),
+  humanAiWorkflow: optionalNullableText(8000),
+  fairnessPlan: optionalNullableText(8000),
+  disseminationPlan: optionalNullableText(8000),
   riskLevel: z.enum(["LOW", "MODERATE", "HIGH"]).optional(),
   intendedUse: optionalNullableGovernanceString(2000)
 });
@@ -163,10 +177,30 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
           goal: parsed.data.goal !== undefined ? parsed.data.goal : current.goal,
           researchQuestion:
             parsed.data.researchQuestion !== undefined ? parsed.data.researchQuestion : current.researchQuestion,
+          hypothesis: parsed.data.hypothesis !== undefined ? parsed.data.hypothesis : current.hypothesis,
+          secondaryObjectives:
+            parsed.data.secondaryObjectives !== undefined ? parsed.data.secondaryObjectives : current.secondaryObjectives,
           clinicalUseCase: parsed.data.clinicalUseCase !== undefined ? parsed.data.clinicalUseCase : current.clinicalUseCase,
+          studyDesign: parsed.data.studyDesign !== undefined ? parsed.data.studyDesign : current.studyDesign,
           population: parsed.data.population !== undefined ? parsed.data.population : current.population,
+          eligibilityCriteria:
+            parsed.data.eligibilityCriteria !== undefined ? parsed.data.eligibilityCriteria : current.eligibilityCriteria,
           dataModalities: parsed.data.dataModalities !== undefined ? parsed.data.dataModalities : current.dataModalities,
           primaryOutcome: parsed.data.primaryOutcome !== undefined ? parsed.data.primaryOutcome : current.primaryOutcome,
+          primaryEndpointDetails:
+            parsed.data.primaryEndpointDetails !== undefined ? parsed.data.primaryEndpointDetails : current.primaryEndpointDetails,
+          secondaryOutcomes:
+            parsed.data.secondaryOutcomes !== undefined ? parsed.data.secondaryOutcomes : current.secondaryOutcomes,
+          sampleSizeRationale:
+            parsed.data.sampleSizeRationale !== undefined ? parsed.data.sampleSizeRationale : current.sampleSizeRationale,
+          analysisPlan: parsed.data.analysisPlan !== undefined ? parsed.data.analysisPlan : current.analysisPlan,
+          dataHandlingPlan:
+            parsed.data.dataHandlingPlan !== undefined ? parsed.data.dataHandlingPlan : current.dataHandlingPlan,
+          humanAiWorkflow:
+            parsed.data.humanAiWorkflow !== undefined ? parsed.data.humanAiWorkflow : current.humanAiWorkflow,
+          fairnessPlan: parsed.data.fairnessPlan !== undefined ? parsed.data.fairnessPlan : current.fairnessPlan,
+          disseminationPlan:
+            parsed.data.disseminationPlan !== undefined ? parsed.data.disseminationPlan : current.disseminationPlan,
           riskLevel: parsed.data.riskLevel ?? current.riskLevel,
           intendedUse: parsed.data.intendedUse !== undefined ? parsed.data.intendedUse : current.intendedUse
         }
@@ -176,10 +210,15 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
     title: updateData.title,
     goal: updateData.goal,
     researchQuestion: updateData.researchQuestion,
+    studyDesign: updateData.studyDesign,
     clinicalUseCase: updateData.clinicalUseCase,
     population: updateData.population,
+    eligibilityCriteria: updateData.eligibilityCriteria,
     dataModalities: updateData.dataModalities,
     primaryOutcome: updateData.primaryOutcome,
+    primaryEndpointDetails: updateData.primaryEndpointDetails,
+    analysisPlan: updateData.analysisPlan,
+    dataHandlingPlan: updateData.dataHandlingPlan,
     intendedUse: updateData.intendedUse,
     ethics: current.ethics,
     studySites: current.studySites
@@ -196,10 +235,22 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
           ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
           ...(parsed.data.goal !== undefined ? { goal: parsed.data.goal } : {}),
           ...(parsed.data.researchQuestion !== undefined ? { researchQuestion: parsed.data.researchQuestion } : {}),
+          ...(parsed.data.hypothesis !== undefined ? { hypothesis: parsed.data.hypothesis } : {}),
+          ...(parsed.data.secondaryObjectives !== undefined ? { secondaryObjectives: parsed.data.secondaryObjectives } : {}),
           ...(parsed.data.clinicalUseCase !== undefined ? { clinicalUseCase: parsed.data.clinicalUseCase } : {}),
+          ...(parsed.data.studyDesign !== undefined ? { studyDesign: parsed.data.studyDesign } : {}),
           ...(parsed.data.population !== undefined ? { population: parsed.data.population } : {}),
+          ...(parsed.data.eligibilityCriteria !== undefined ? { eligibilityCriteria: parsed.data.eligibilityCriteria } : {}),
           ...(parsed.data.dataModalities !== undefined ? { dataModalities: parsed.data.dataModalities } : {}),
           ...(parsed.data.primaryOutcome !== undefined ? { primaryOutcome: parsed.data.primaryOutcome } : {}),
+          ...(parsed.data.primaryEndpointDetails !== undefined ? { primaryEndpointDetails: parsed.data.primaryEndpointDetails } : {}),
+          ...(parsed.data.secondaryOutcomes !== undefined ? { secondaryOutcomes: parsed.data.secondaryOutcomes } : {}),
+          ...(parsed.data.sampleSizeRationale !== undefined ? { sampleSizeRationale: parsed.data.sampleSizeRationale } : {}),
+          ...(parsed.data.analysisPlan !== undefined ? { analysisPlan: parsed.data.analysisPlan } : {}),
+          ...(parsed.data.dataHandlingPlan !== undefined ? { dataHandlingPlan: parsed.data.dataHandlingPlan } : {}),
+          ...(parsed.data.humanAiWorkflow !== undefined ? { humanAiWorkflow: parsed.data.humanAiWorkflow } : {}),
+          ...(parsed.data.fairnessPlan !== undefined ? { fairnessPlan: parsed.data.fairnessPlan } : {}),
+          ...(parsed.data.disseminationPlan !== undefined ? { disseminationPlan: parsed.data.disseminationPlan } : {}),
           ...(parsed.data.riskLevel ? { riskLevel: parsed.data.riskLevel } : {}),
           ...(parsed.data.intendedUse !== undefined ? { intendedUse: parsed.data.intendedUse } : {}),
           governanceStatus: gate.status
@@ -211,7 +262,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
           : { status: "DRAFT" as const };
 
   if (parsed.data.action === "updateDetails" && Object.keys(data).length === 0) {
-    return problem(400, "Provide a title or description to update.");
+    return problem(400, "Provide study details to update.");
   }
 
   const study = await prisma.study.update({

@@ -35,7 +35,7 @@ describe("study workspace navigation", () => {
 
   it("resolves the summary next action from the first blocking runtime gate", () => {
     expect(resolveStudyNextAction({ status: "DRAFT", governanceStatus: "INCOMPLETE", ethics: [] })).toMatchObject({
-      title: "Complete ethics review",
+      title: "Record ethics decision",
       section: "protocol"
     });
 
@@ -77,7 +77,7 @@ describe("study workspace navigation", () => {
     });
 
     expect(items.map((item) => item.label)).toEqual([
-      "Protocol",
+      "Study protocol",
       "Sites",
       "Pipeline",
       "Run",

@@ -30,6 +30,7 @@ type EntityDetailViewProps = {
   onBack: () => void;
   children: ReactNode;
   technicalMetadata?: unknown;
+  bodyOnly?: boolean;
 };
 
 type FieldGridProps = {
@@ -90,29 +91,31 @@ export function EntityActionMenu({ items, label = "Actions" }: EntityActionMenuP
   );
 }
 
-export function EntityDetailView({ title, subtitle, status, actions, onBack, children, technicalMetadata }: EntityDetailViewProps) {
+export function EntityDetailView({ title, subtitle, status, actions, onBack, children, technicalMetadata, bodyOnly = false }: EntityDetailViewProps) {
   return (
-    <div className="fedlify-entity-detail">
-      <div className="fedlify-entity-detail-header">
-        <div className="fedlify-title-row">
-          <Button
-            type="text"
-            className="fedlify-back-link"
-            icon={<ArrowLeftOutlined />}
-            aria-label="Back to list"
-            title="Back to list"
-            onClick={onBack}
-          />
-          <div className="fedlify-title-copy">
-            <div className="fedlify-entity-detail-title-row">
-              <Typography.Title level={2}>{title}</Typography.Title>
-              {status}
+    <div className={["fedlify-entity-detail", bodyOnly ? "is-body-only" : ""].filter(Boolean).join(" ")}>
+      {bodyOnly ? null : (
+        <div className="fedlify-entity-detail-header">
+          <div className="fedlify-title-row">
+            <Button
+              type="text"
+              className="fedlify-back-link"
+              icon={<ArrowLeftOutlined />}
+              aria-label="Back to list"
+              title="Back to list"
+              onClick={onBack}
+            />
+            <div className="fedlify-title-copy">
+              <div className="fedlify-entity-detail-title-row">
+                <Typography.Title level={2}>{title}</Typography.Title>
+                {status}
+              </div>
+              {subtitle ? <Typography.Text className="fedlify-muted">{subtitle}</Typography.Text> : null}
             </div>
-            {subtitle ? <Typography.Text className="fedlify-muted">{subtitle}</Typography.Text> : null}
           </div>
+          {actions ? <Space wrap>{actions}</Space> : null}
         </div>
-        {actions ? <Space wrap>{actions}</Space> : null}
-      </div>
+      )}
       {children}
       {technicalMetadata !== undefined ? (
         <details className="fedlify-technical-metadata">

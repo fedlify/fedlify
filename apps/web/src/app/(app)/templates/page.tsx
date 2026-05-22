@@ -1,6 +1,6 @@
 "use client";
 
-import { CodeOutlined, GithubOutlined, PlusOutlined } from "@ant-design/icons";
+import { CodeOutlined, GithubOutlined, PlusOutlined, RobotOutlined } from "@ant-design/icons";
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Tabs, Typography, message } from "antd";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -79,8 +79,8 @@ export default function TemplateCatalogPage() {
         subtitle="Review reusable NVFLARE template source, propose updates, and publish approved commits that studies can select."
         actions={
           <Space wrap>
-            <Button icon={<CodeOutlined />} onClick={() => router.push("/template-agent?mode=FROM_SCRATCH")}>
-              {WORKFLOW_TERMS.createOrEditWithAi}
+            <Button icon={<RobotOutlined />} onClick={() => router.push("/template-agent?mode=FROM_SCRATCH")}>
+              Template Agent
             </Button>
             <Button type="primary" className="fedlify-dark-action" icon={<PlusOutlined />} onClick={() => setFormOpen((current) => !current)}>
               New reusable template proposal

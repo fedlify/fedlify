@@ -188,13 +188,13 @@ export default function ManageStudiesPage() {
       const ok = await patchStudy(
         editingStudy.id,
         { action: "updateDetails", title: values.title, description: values.description ?? null },
-        "Study metadata updated."
+        "Study details updated."
       );
       if (ok) {
         setEditingStudy(null);
         editForm.resetFields();
       } else {
-        setEditError("The study metadata could not be updated. Check your permissions and try again.");
+        setEditError("The study details could not be updated. Check your permissions and try again.");
       }
     } finally {
       setEditSubmitting(false);
@@ -212,7 +212,7 @@ export default function ManageStudiesPage() {
       {
         key: "edit",
         icon: <EditOutlined />,
-        label: "Edit metadata",
+        label: "Edit study details",
         onClick: () => {
           setEditingStudy(study);
           editForm.setFieldsValue({ title: study.title, description: study.description ?? "" });
@@ -252,7 +252,7 @@ export default function ManageStudiesPage() {
               <IntakeSteps
                 steps={[
                   { title: "Method", description: "Manual entry", state: "complete" },
-                  { title: "Definition", description: "Workspace metadata", state: "current" },
+                  { title: "Definition", description: "Study details", state: "current" },
                   { title: "Governance", description: "Confirm boundary" }
                 ]}
               />
@@ -271,10 +271,10 @@ export default function ManageStudiesPage() {
                   <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
                     <Input size="large" placeholder="Enter study title" />
                   </Form.Item>
-                  <Form.Item name="description" label="Study objective" className="fedlify-intake-full">
+                  <Form.Item name="description" label="Study summary" className="fedlify-intake-full">
                     <Input.TextArea rows={3} placeholder="Summarize the scientific or operational objective for this federated study." />
                   </Form.Item>
-                  <Form.Item name="goal" label="Goal" className="fedlify-intake-full" rules={[{ required: true }]}>
+                  <Form.Item name="goal" label="Primary objective" className="fedlify-intake-full" rules={[{ required: true }]}>
                     <Input.TextArea rows={2} placeholder="What should this study enable or prove?" />
                   </Form.Item>
                   <Form.Item name="researchQuestion" label="Research question" className="fedlify-intake-full" rules={[{ required: true }]}>
@@ -299,7 +299,7 @@ export default function ManageStudiesPage() {
                       placeholder="Select modalities"
                     />
                   </Form.Item>
-                  <Form.Item name="primaryOutcome" label="Primary outcome" rules={[{ required: true }]}>
+                  <Form.Item name="primaryOutcome" label="Primary endpoint / outcome" rules={[{ required: true }]}>
                     <Input placeholder="Primary model or operational outcome" />
                   </Form.Item>
                   <Form.Item name="riskLevel" label="Risk level" initialValue="MODERATE">
@@ -346,7 +346,7 @@ export default function ManageStudiesPage() {
           <>
             <AppPageHeader
               title="Edit study"
-              subtitle="Update study metadata without changing membership, approvals, or releases."
+              subtitle="Update study details without changing membership, approvals, or releases."
               backLabel="Study management"
               onBack={() => {
                 setEditingStudy(null);
@@ -356,12 +356,12 @@ export default function ManageStudiesPage() {
 
             <div className="fedlify-inline-create-card">
               <Form form={editForm} layout="vertical" onFinish={saveEdit} className="fedlify-inline-create-form">
-                <FormError title="Study metadata was not updated" message={editError} />
+                <FormError title="Study details were not updated" message={editError} />
                 <div className="fedlify-intake-field-grid">
                   <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
                     <Input />
                   </Form.Item>
-                  <Form.Item name="description" label="Study objective" className="fedlify-intake-full">
+                  <Form.Item name="description" label="Study summary" className="fedlify-intake-full">
                     <Input.TextArea rows={3} />
                   </Form.Item>
                 </div>

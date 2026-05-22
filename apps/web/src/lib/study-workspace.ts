@@ -8,8 +8,8 @@ export const STUDY_WORKSPACE_SECTIONS = [
   {
     key: "protocol",
     label: "Protocol",
-    title: "Protocol",
-    subtitle: "Manage protocol metadata, ethics decisions, governed documents, intended use, and activation gates."
+    title: "Study protocol",
+    subtitle: "Define the study design, ethics decision, governed documents, participant sites, and activation readiness."
   },
   {
     key: "sites",
