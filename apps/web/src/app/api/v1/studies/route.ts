@@ -13,6 +13,8 @@ import { slugify } from "@/lib/slug";
 const optionalGovernanceString = (max: number) =>
   z.preprocess((value) => normalizeMultiSelectValue(value), z.string().trim().max(max).optional());
 
+const optionalText = (max: number) => z.string().trim().max(max).optional();
+
 const seededEthicsNotes = new Set([
   "Ethics status must be recorded before release approval.",
   "Ethics approval must be completed before generated kits can be released."
@@ -37,13 +39,25 @@ function isSeededEthicsPlaceholder(record: {
 const createStudySchema = z.object({
   orgId: z.string().min(1),
   title: z.string().trim().min(3).max(200),
-  description: z.string().trim().max(4000).optional(),
-  goal: z.string().trim().max(4000).optional(),
-  researchQuestion: z.string().trim().max(2000).optional(),
+  description: optionalText(8000),
+  goal: optionalText(8000),
+  researchQuestion: optionalText(8000),
+  hypothesis: optionalText(8000),
+  secondaryObjectives: optionalText(8000),
   clinicalUseCase: optionalGovernanceString(1000),
+  studyDesign: optionalText(8000),
   population: z.string().trim().max(2000).optional(),
+  eligibilityCriteria: optionalText(8000),
   dataModalities: optionalGovernanceString(1000),
   primaryOutcome: z.string().trim().max(2000).optional(),
+  primaryEndpointDetails: optionalText(8000),
+  secondaryOutcomes: optionalText(8000),
+  sampleSizeRationale: optionalText(8000),
+  analysisPlan: optionalText(8000),
+  dataHandlingPlan: optionalText(8000),
+  humanAiWorkflow: optionalText(8000),
+  fairnessPlan: optionalText(8000),
+  disseminationPlan: optionalText(8000),
   riskLevel: z.enum(["LOW", "MODERATE", "HIGH"]).default("MODERATE"),
   intendedUse: optionalGovernanceString(2000)
 });
@@ -115,20 +129,37 @@ export async function POST(request: NextRequest) {
         description: parsed.data.description,
         goal: parsed.data.goal,
         researchQuestion: parsed.data.researchQuestion,
+        hypothesis: parsed.data.hypothesis,
+        secondaryObjectives: parsed.data.secondaryObjectives,
         clinicalUseCase: parsed.data.clinicalUseCase,
+        studyDesign: parsed.data.studyDesign,
         population: parsed.data.population,
+        eligibilityCriteria: parsed.data.eligibilityCriteria,
         dataModalities: parsed.data.dataModalities,
         primaryOutcome: parsed.data.primaryOutcome,
+        primaryEndpointDetails: parsed.data.primaryEndpointDetails,
+        secondaryOutcomes: parsed.data.secondaryOutcomes,
+        sampleSizeRationale: parsed.data.sampleSizeRationale,
+        analysisPlan: parsed.data.analysisPlan,
+        dataHandlingPlan: parsed.data.dataHandlingPlan,
+        humanAiWorkflow: parsed.data.humanAiWorkflow,
+        fairnessPlan: parsed.data.fairnessPlan,
+        disseminationPlan: parsed.data.disseminationPlan,
         riskLevel: parsed.data.riskLevel,
         intendedUse: parsed.data.intendedUse,
         governanceStatus: activationGate({
           title: parsed.data.title,
           goal: parsed.data.goal,
           researchQuestion: parsed.data.researchQuestion,
+          studyDesign: parsed.data.studyDesign,
           clinicalUseCase: parsed.data.clinicalUseCase,
           population: parsed.data.population,
+          eligibilityCriteria: parsed.data.eligibilityCriteria,
           dataModalities: parsed.data.dataModalities,
           primaryOutcome: parsed.data.primaryOutcome,
+          primaryEndpointDetails: parsed.data.primaryEndpointDetails,
+          analysisPlan: parsed.data.analysisPlan,
+          dataHandlingPlan: parsed.data.dataHandlingPlan,
           intendedUse: parsed.data.intendedUse,
           ethics: [],
           studySites: []

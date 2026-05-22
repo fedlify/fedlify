@@ -76,10 +76,27 @@ export async function ensureUserDefaults(prisma: PrismaClient, userId: string): 
         description: "Default governed study workspace.",
         goal: "Define a governed health-AI federated learning pilot.",
         researchQuestion: "Can participating sites coordinate a reproducible FL workflow without moving raw clinical data?",
+        hypothesis: "A governed federated workflow can coordinate reproducible health-AI training without centralizing raw clinical data.",
+        secondaryObjectives: "Assess site onboarding, pipeline approval, run monitoring, and governed release promotion.",
         clinicalUseCase: "Health AI research workflow validation",
+        studyDesign: "Federated health-AI validation study using site-local data and governed model training workflows.",
         population: "Site-described patient cohorts remain local to each institution.",
+        eligibilityCriteria:
+          "Participating sites enroll site-described cohorts that match the study population and apply local inclusion and exclusion rules before contributing to federated training.",
         dataModalities: "Site-provided modality summary",
         primaryOutcome: "Operational readiness and reproducible job execution",
+        primaryEndpointDetails:
+          "Operational readiness and reproducible job execution are assessed from approved run logs and aggregate outputs without transferring participant-level data.",
+        secondaryOutcomes: "Site readiness, policy acceptance, pipeline validation, and release auditability.",
+        sampleSizeRationale:
+          "Pilot sample size is determined by participating site availability and local cohort suitability rather than centralized record transfer.",
+        analysisPlan:
+          "Analyze federated run logs, validation metrics, and approved aggregate artifacts against the primary endpoint and pre-specified operational checks.",
+        dataHandlingPlan:
+          "Participant-level data remains at each site. Fedlify stores governance metadata, approved pipeline artifacts, logs, and aggregate outputs only.",
+        humanAiWorkflow: "Study teams review pipeline versions, run outputs, and releases before promotion.",
+        fairnessPlan: "Sites should review cohort representation and subgroup performance before promoting releases.",
+        disseminationPlan: "Share approved aggregate results and governed artifacts through Fedlify releases.",
         intendedUse: "Research and platform validation only",
         defaultStudy: true,
         createdById: user.id

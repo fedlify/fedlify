@@ -383,50 +383,62 @@ model OrgMembership {
 }
 
 model Study {
-  id                    String                 @id @default(cuid())
-  orgId                 String
-  title                 String
-  slug                  String
-  description           String?
-  goal                  String?
-  researchQuestion      String?
-  clinicalUseCase       String?
-  population            String?
-  dataModalities        String?
-  primaryOutcome        String?
-  riskLevel             StudyRiskLevel         @default(MODERATE)
-  intendedUse           String?
-  governanceStatus      GovernanceStatus       @default(INCOMPLETE)
-  status                StudyStatus            @default(DRAFT)
-  defaultStudy          Boolean                @default(false)
-  resourcePolicy        Json?
-  createdById           String
-  organization          Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  createdBy             User                   @relation("StudyCreatedBy", fields: [createdById], references: [id])
-  members               StudyMember[]
-  invitations           Invitation[]
-  sites                 Site[]
-  studySites            StudySite[]
-  ethics                EthicsApproval[]
-  documents             Document[]
-  needs                 NeedSubmission[]
-  agentRuns             AgentRun[]
-  pipelineProjects      PipelineProject[]
-  nvflareDeployments    NvflareDeployment[]
-  nvflareJobs           NvflareJob[]
-  nvflareJobResults     NvflareJobResult[]
-  modelReleases         ModelRelease[]
-  giteaWorkspace        GiteaWorkspace?
-  studyTemplates        PipelineTemplate[]
-  templateAgentSessions TemplateAgentSession[]
-  nvflareJobEvents      NvflareJobEvent[]
-  siteLogArtifacts      SiteLogArtifact[]
-  releases              KitRelease[]
-  computeRuns           ComputeRun[]
-  resourceGrants        ResourceGrant[]
-  auditEvents           AuditEvent[]
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  id                     String                 @id @default(cuid())
+  orgId                  String
+  title                  String
+  slug                   String
+  description            String?
+  goal                   String?
+  researchQuestion       String?
+  hypothesis             String?
+  secondaryObjectives    String?
+  clinicalUseCase        String?
+  studyDesign            String?
+  population             String?
+  eligibilityCriteria    String?
+  dataModalities         String?
+  primaryOutcome         String?
+  primaryEndpointDetails String?
+  secondaryOutcomes      String?
+  sampleSizeRationale    String?
+  analysisPlan           String?
+  dataHandlingPlan       String?
+  humanAiWorkflow        String?
+  fairnessPlan           String?
+  disseminationPlan      String?
+  riskLevel              StudyRiskLevel         @default(MODERATE)
+  intendedUse            String?
+  governanceStatus       GovernanceStatus       @default(INCOMPLETE)
+  status                 StudyStatus            @default(DRAFT)
+  defaultStudy           Boolean                @default(false)
+  resourcePolicy         Json?
+  createdById            String
+  organization           Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy              User                   @relation("StudyCreatedBy", fields: [createdById], references: [id])
+  members                StudyMember[]
+  invitations            Invitation[]
+  sites                  Site[]
+  studySites             StudySite[]
+  ethics                 EthicsApproval[]
+  documents              Document[]
+  needs                  NeedSubmission[]
+  agentRuns              AgentRun[]
+  pipelineProjects       PipelineProject[]
+  nvflareDeployments     NvflareDeployment[]
+  nvflareJobs            NvflareJob[]
+  nvflareJobResults      NvflareJobResult[]
+  modelReleases          ModelRelease[]
+  giteaWorkspace         GiteaWorkspace?
+  studyTemplates         PipelineTemplate[]
+  templateAgentSessions  TemplateAgentSession[]
+  nvflareJobEvents       NvflareJobEvent[]
+  siteLogArtifacts       SiteLogArtifact[]
+  releases               KitRelease[]
+  computeRuns            ComputeRun[]
+  resourceGrants         ResourceGrant[]
+  auditEvents            AuditEvent[]
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
   @@unique([orgId, slug])
   @@index([createdById])

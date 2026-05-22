@@ -60,8 +60,165 @@ type ActionCardProps = {
   onClick?: () => void;
 };
 
+type WorkspaceCardTone = "default" | "ready" | "needs_attention" | "blocked" | "optional" | "active" | "muted";
+
+type WorkspaceCardGridProps = {
+  children: ReactNode;
+  className?: string;
+};
+
+type WorkspaceBaseCardProps = {
+  icon: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  status?: ReactNode;
+  meta?: ReactNode[];
+  actionsMenu?: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  tone?: WorkspaceCardTone;
+  ariaLabel?: string;
+};
+
+type WorkspaceReviewCardProps = WorkspaceBaseCardProps & {
+  stateLabel?: ReactNode;
+};
+
 export function CardGrid({ children, className = "fedlify-entity-grid" }: CardGridProps) {
   return <div className={className}>{children}</div>;
+}
+
+export function WorkspaceCardGrid({ children, className }: WorkspaceCardGridProps) {
+  return <div className={["fedlify-workspace-card-grid", className].filter(Boolean).join(" ")}>{children}</div>;
+}
+
+function workspaceClickProps(onClick?: () => void, disabled = false, ariaLabel?: string) {
+  if (!onClick || disabled) {
+    return {
+      "aria-disabled": disabled || undefined,
+      "aria-label": ariaLabel
+    };
+  }
+
+  return {
+    role: "button",
+    tabIndex: 0,
+    onClick,
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => runKeyboardAction(event, onClick),
+    "aria-label": ariaLabel
+  };
+}
+
+function workspaceCardClass(baseClass: string, tone: WorkspaceCardTone = "default", disabled = false, className?: string) {
+  return [baseClass, `is-${tone}`, disabled ? "is-disabled" : "", className].filter(Boolean).join(" ");
+}
+
+function WorkspaceCardMain({ icon, title, description }: { icon: ReactNode; title: ReactNode; description?: ReactNode }) {
+  return (
+    <span className="fedlify-workspace-card-main">
+      <span className="fedlify-workspace-card-icon">{icon}</span>
+      <span className="fedlify-workspace-card-copy">
+        <strong>{title}</strong>
+        {description ? <span>{description}</span> : null}
+      </span>
+    </span>
+  );
+}
+
+export function WorkspaceActionCard({
+  icon,
+  title,
+  description,
+  status,
+  onClick,
+  disabled = false,
+  tone = "default",
+  ariaLabel
+}: WorkspaceBaseCardProps) {
+  return (
+    <article
+      className={workspaceCardClass("fedlify-workspace-action-card", tone, disabled)}
+      {...workspaceClickProps(onClick, disabled, ariaLabel)}
+    >
+      <WorkspaceCardMain icon={icon} title={title} description={description} />
+      <span className="fedlify-workspace-card-meta" aria-hidden={!status}>
+        {status ?? <ArrowRightOutlined />}
+      </span>
+    </article>
+  );
+}
+
+export function WorkspaceRecordCard({
+  icon,
+  title,
+  description,
+  status,
+  meta = [],
+  actionsMenu,
+  onClick,
+  disabled = false,
+  tone = "default",
+  ariaLabel
+}: WorkspaceBaseCardProps) {
+  return (
+    <article
+      className={workspaceCardClass("fedlify-workspace-record-card", tone, disabled)}
+      {...workspaceClickProps(onClick, disabled, ariaLabel)}
+    >
+      <WorkspaceCardMain icon={icon} title={title} description={description} />
+      {status || actionsMenu ? (
+        <span className="fedlify-workspace-card-meta">
+          {status}
+          {actionsMenu}
+        </span>
+      ) : null}
+      {meta.length > 0 ? (
+        <span className="fedlify-workspace-card-data">
+          {meta.map((item, index) => (
+            <span key={index}>{item}</span>
+          ))}
+        </span>
+      ) : null}
+    </article>
+  );
+}
+
+export function WorkspaceReviewCard({
+  icon,
+  title,
+  description,
+  status,
+  onClick,
+  disabled = false,
+  tone = "default",
+  ariaLabel,
+  stateLabel = "State"
+}: WorkspaceReviewCardProps) {
+  return (
+    <article
+      className={workspaceCardClass("fedlify-workspace-review-card", tone, disabled)}
+      {...workspaceClickProps(onClick, disabled, ariaLabel)}
+    >
+      <WorkspaceCardMain icon={icon} title={title} description={description} />
+      <span className="fedlify-workspace-review-state-row">
+        <span>{stateLabel}</span>
+        {status}
+      </span>
+    </article>
+  );
+}
+
+export function WorkspaceEmptyCard({
+  icon,
+  title,
+  description,
+  tone = "muted"
+}: Pick<WorkspaceBaseCardProps, "icon" | "title" | "description" | "tone">) {
+  return (
+    <article className={workspaceCardClass("fedlify-workspace-empty-card", tone)}>
+      <WorkspaceCardMain icon={icon} title={title} description={description} />
+    </article>
+  );
 }
 
 export function StatCard({ label, value, icon, onClick }: StatCardProps) {

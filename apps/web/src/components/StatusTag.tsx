@@ -1,23 +1,57 @@
 "use client";
 
 import { Tag } from "antd";
+import type { ReactNode } from "react";
 
-const colors: Record<string, string> = {
-  APPROVED: "green",
-  NOT_REQUIRED: "cyan",
-  PENDING: "gold",
-  REJECTED: "red",
-  EXPIRED: "volcano",
-  DRAFT_READY: "blue",
-  VALIDATED: "green",
-  QUEUED: "gold",
-  RUNNING: "processing",
-  FAILED: "red",
-  ACTIVE: "green",
-  DRAFT: "blue",
-  CONNECTED: "green",
-  OFFLINE: "red",
-  DEGRADED: "orange"
+type StatusTone = "success" | "warning" | "danger" | "info" | "neutral" | "muted";
+
+const tones: Record<string, StatusTone> = {
+  ACCEPTED: "success",
+  ACTIVE: "success",
+  APPROVED: "success",
+  CLEAN: "success",
+  COMPLETED: "success",
+  CONNECTED: "success",
+  DONE: "success",
+  MERGED: "success",
+  NOT_REQUIRED: "success",
+  PASSED: "success",
+  READY: "success",
+  VALIDATED: "success",
+
+  DEGRADED: "warning",
+  EXPIRED: "warning",
+  NEEDS_ATTENTION: "warning",
+  PENDING: "warning",
+  QUEUED: "warning",
+  SCHEDULED: "warning",
+  WARNING: "warning",
+
+  ABORTED: "danger",
+  BLOCKED: "danger",
+  DISABLED: "danger",
+  FAILED: "danger",
+  OFFLINE: "danger",
+  REJECTED: "danger",
+
+  CODING: "info",
+  DRAFT_READY: "info",
+  KIT_RELEASED: "info",
+  NEXT: "info",
+  PROVISIONED: "info",
+  RUNNING: "info",
+  SUBMITTED: "info",
+
+  ARCHIVED: "muted",
+  OPTIONAL: "muted",
+
+  DRAFT: "neutral",
+  EVENT: "neutral",
+  INTAKE: "neutral",
+  INVITED: "neutral",
+  NOT_CREATED: "neutral",
+  NOT_STARTED: "neutral",
+  PENDING_CHANGES: "neutral"
 };
 
 function formatStatus(value: string) {
@@ -27,7 +61,15 @@ function formatStatus(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function StatusTag({ value }: { value?: string | null }) {
-  if (!value) return <Tag>Unknown</Tag>;
-  return <Tag color={colors[value] ?? "default"}>{formatStatus(value)}</Tag>;
+function normalizeStatus(value?: string | null) {
+  return String(value ?? "UNKNOWN").trim().toUpperCase().replace(/\s+/g, "_");
+}
+
+export function StatusTag({ value, label }: { value?: string | null; label?: ReactNode }) {
+  const normalized = normalizeStatus(value);
+  return (
+    <Tag className="fedlify-status-tag" data-status={normalized} data-tone={tones[normalized] ?? "neutral"}>
+      {label ?? formatStatus(normalized)}
+    </Tag>
+  );
 }

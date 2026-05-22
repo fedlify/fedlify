@@ -7,7 +7,6 @@ import {
   ClusterOutlined,
   CodeOutlined,
   EditOutlined,
-  ExclamationCircleOutlined,
   EyeOutlined,
   FileTextOutlined,
   MailOutlined,
@@ -22,15 +21,26 @@ import {
 import { Alert, Button, Form, Input, InputNumber, Select, Space, Tabs, Typography, Upload, message } from "antd";
 import type { UploadFile } from "antd";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
 import { CodeReviewPanel } from "@/components/CodeReviewPanel";
-import { CardGrid, EntityCard, NavigationCard, NextActionCard, StatCard } from "@/components/DataCards";
+import {
+  CardGrid,
+  EntityCard,
+  StatCard,
+  WorkspaceActionCard,
+  WorkspaceCardGrid,
+  WorkspaceEmptyCard,
+  WorkspaceRecordCard,
+  WorkspaceReviewCard
+} from "@/components/DataCards";
 import { ArtifactList, EntityActionMenu, EntityDetailView, FieldGrid, FieldRow, TimelineList } from "@/components/EntityDetail";
 import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
+import { normalizeRichTextValue, RichTextContent, RichTextEditor, richTextHasText } from "@/components/RichTextEditor";
 import { StatusTag } from "@/components/StatusTag";
 import { GateChecklist, WorkflowRail, type GateItem, type WorkflowStep } from "@/components/WorkflowRail";
+import { missingProtocolFields as missingCoreProtocolFields } from "@/lib/governance";
 import {
   CLINICAL_USE_CASE_OPTIONS,
   DATA_MODALITY_OPTIONS,
@@ -54,8 +64,7 @@ import {
   resolveStudyNextAction,
   studyEthicsReady,
   studyProtocolReady,
-  summaryReadinessItems,
-  type SummaryReadinessState
+  summaryReadinessItems
 } from "@/lib/study-summary";
 import { chooseSelectedStudy, SELECTED_STUDY_EVENT, SELECTED_STUDY_STORAGE_KEY, type StudySummary } from "@/lib/studies";
 import {
@@ -68,6 +77,14 @@ import {
 } from "@/lib/workflow-copy";
 
 type EntityRecord = Record<string, any>;
+
+type DetailPageMeta = {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  status?: ReactNode;
+  actions?: ReactNode;
+  backLabel?: string;
+};
 
 type JobLogsPayload = {
   job?: EntityRecord;
@@ -87,10 +104,22 @@ type StudyDetail = {
   description?: string;
   goal?: string;
   researchQuestion?: string;
+  hypothesis?: string;
+  secondaryObjectives?: string;
   clinicalUseCase?: string;
+  studyDesign?: string;
   population?: string;
+  eligibilityCriteria?: string;
   dataModalities?: string;
   primaryOutcome?: string;
+  primaryEndpointDetails?: string;
+  secondaryOutcomes?: string;
+  sampleSizeRationale?: string;
+  analysisPlan?: string;
+  dataHandlingPlan?: string;
+  humanAiWorkflow?: string;
+  fairnessPlan?: string;
+  disseminationPlan?: string;
   riskLevel?: string;
   intendedUse?: string;
   governanceStatus?: string;
@@ -159,6 +188,11 @@ function groupedStudyMembers(members: StudyDetail["members"]) {
 }
 
 const CREATE_FORM_META = {
+  studyDesign: {
+    title: "Edit study design",
+    subtitle: "Update the study design, scientific question, outcomes, analysis, and AI/federated governance plans.",
+    backLabel: "Study protocol"
+  },
   invite: {
     title: "Add study member",
     subtitle: "Invite one person and assign one or more study roles.",
@@ -167,12 +201,12 @@ const CREATE_FORM_META = {
   ethics: {
     title: "Record ethics decision",
     subtitle: "Document the review status, approval identifier, responsible body, and notes.",
-    backLabel: "Protocol"
+    backLabel: "Study protocol"
   },
   document: {
     title: "Register study document",
-    subtitle: "Add a protocol, ethics, policy, or agreement document for study governance.",
-    backLabel: "Protocol"
+    subtitle: "Add a study protocol, ethics, policy, or agreement document for study governance.",
+    backLabel: "Study protocol"
   },
   site: {
     title: "Register participant site",
@@ -222,6 +256,66 @@ function displayEnum(value: unknown, fallback = "Not set") {
     .replace("Nvflare", "NVFLARE");
 }
 
+const STUDY_PROTOCOL_FIELD_LABELS: Record<string, string> = {
+  title: "Study title",
+  goal: "Primary objective",
+  researchQuestion: "Research question",
+  studyDesign: "Study design",
+  clinicalUseCase: "Clinical use case",
+  population: "Population",
+  eligibilityCriteria: "Eligibility criteria",
+  dataModalities: "Data modalities",
+  primaryOutcome: "Primary endpoint",
+  primaryEndpointDetails: "Endpoint details",
+  analysisPlan: "Analysis plan",
+  dataHandlingPlan: "Data handling plan",
+  intendedUse: "Intended use"
+};
+
+const RICH_STUDY_DESIGN_FIELDS = [
+  "description",
+  "goal",
+  "researchQuestion",
+  "hypothesis",
+  "secondaryObjectives",
+  "studyDesign",
+  "eligibilityCriteria",
+  "primaryEndpointDetails",
+  "secondaryOutcomes",
+  "sampleSizeRationale",
+  "analysisPlan",
+  "dataHandlingPlan",
+  "humanAiWorkflow",
+  "fairnessPlan",
+  "disseminationPlan"
+];
+
+function normalizeStudyDesignPayload(values: Record<string, unknown>) {
+  return RICH_STUDY_DESIGN_FIELDS.reduce(
+    (payload, field) => ({
+      ...payload,
+      [field]: normalizeRichTextValue(values[field])
+    }),
+    { ...values }
+  );
+}
+
+function readableList(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function summarizeMissingLabels(items: string[], maxItems = 3) {
+  if (items.length <= maxItems) return readableList(items);
+  return `${readableList(items.slice(0, maxItems))}, and ${items.length - maxItems} more`;
+}
+
+const REQUIRED_RICH_TEXT_RULE = {
+  validator: (_: unknown, value: unknown) =>
+    richTextHasText(value) ? Promise.resolve() : Promise.reject(new Error("This field is required."))
+};
+
 const STUDY_ROLE_OPTIONS = [
   { value: "PRINCIPAL_INVESTIGATOR", label: "Principal Investigator" },
   { value: "STUDY_COORDINATOR", label: "Study Coordinator" },
@@ -254,11 +348,11 @@ function repoLabel(project: EntityRecord) {
   return text(project.giteaRepoUrl, "Repo not linked");
 }
 
-function renderGovernanceField(label: string, value: unknown, className?: string) {
+function renderGovernanceField(label: string, value: unknown, className?: string, rich = false) {
   return (
     <div className={["fedlify-governance-field", className].filter(Boolean).join(" ")}>
       <span className="fedlify-governance-label">{label}</span>
-      <span className="fedlify-governance-value">{text(value)}</span>
+      {rich ? <RichTextContent value={typeof value === "string" ? value : null} /> : <span className="fedlify-governance-value">{text(value)}</span>}
     </div>
   );
 }
@@ -279,6 +373,15 @@ function renderGovernanceTags(label: string, values: string[]) {
         <span className="fedlify-governance-value">Not set</span>
       )}
     </div>
+  );
+}
+
+function GovernanceSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="fedlify-governance-section">
+      <div className="fedlify-governance-section-title">{title}</div>
+      {children}
+    </section>
   );
 }
 
@@ -402,7 +505,7 @@ function operationsGateItems(study: StudyDetail): GateItem[] {
   const connected = connectedSites(study);
   return [
     {
-      label: "Protocol status",
+      label: "Study protocol",
       detail: protocolReadinessDetail(study),
       passed: study.status === "ACTIVE" && ethicsGatePassed(study)
     },
@@ -424,14 +527,28 @@ function operationsGateItems(study: StudyDetail): GateItem[] {
   ];
 }
 
-function summaryReadinessLabel(state: SummaryReadinessState) {
-  if (state === "done") return "Done";
-  if (state === "ready") return "Ready";
-  return "Needs attention";
+function workflowReviewStatus(state: WorkflowStep["state"]) {
+  if (state === "done") return "READY";
+  if (state === "blocked") return "BLOCKED";
+  if (state === "waiting") return "OPTIONAL";
+  return "NEEDS_ATTENTION";
 }
 
-function summaryReadinessIcon(state: SummaryReadinessState) {
-  return state === "needs_attention" ? <ExclamationCircleOutlined /> : <CheckCircleOutlined />;
+function workflowReviewTone(state: WorkflowStep["state"]) {
+  if (state === "done") return "ready";
+  if (state === "blocked") return "blocked";
+  if (state === "waiting") return "optional";
+  return "needs_attention";
+}
+
+function summaryStateStatus(state: "ready" | "needs_attention" | "done") {
+  if (state === "done") return "DONE";
+  if (state === "ready") return "READY";
+  return "NEEDS_ATTENTION";
+}
+
+function summaryStateTone(state: "ready" | "needs_attention" | "done") {
+  return state === "needs_attention" ? "needs_attention" : "ready";
 }
 
 export default function StudyDetailPage() {
@@ -448,12 +565,11 @@ export default function StudyDetailPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [siteToken, setSiteToken] = useState<string | null>(null);
   const [templates, setTemplates] = useState<EntityRecord[]>([]);
-  const [activeCreate, setActiveCreate] = useState<"invite" | "ethics" | "document" | "site" | "agent" | "job" | null>(null);
-  const [governanceEditing, setGovernanceEditing] = useState(false);
-  const [protocolTab, setProtocolTab] = useState("metadata");
+  const [activeCreate, setActiveCreate] = useState<"studyDesign" | "invite" | "ethics" | "document" | "site" | "agent" | "job" | null>(null);
+  const [protocolTab, setProtocolTab] = useState("review");
   const [teamTab, setTeamTab] = useState("members");
   const [sitesTab, setSitesTab] = useState("sites");
-  const [pipelineTab, setPipelineTab] = useState("versions");
+  const [pipelineTab, setPipelineTab] = useState("review");
   const [runTab, setRunTab] = useState("readiness");
   const [resultsTab, setResultsTab] = useState("models");
   const [ethicsEditingRecord, setEthicsEditingRecord] = useState<EntityRecord | null>(null);
@@ -555,14 +671,13 @@ export default function StudyDetailPage() {
     setActiveCreate(null);
     setFormError(null);
     setSelectedFile(null);
-    setGovernanceEditing(false);
     setEthicsEditingRecord(null);
     setMemberRoleEditingId(null);
     setPipelineTemplateVersionPreset(null);
-    if (activeSection !== "protocol") setProtocolTab("metadata");
+    if (activeSection !== "protocol") setProtocolTab("review");
     if (activeSection !== "team") setTeamTab("members");
     if (activeSection !== "sites") setSitesTab("sites");
-    if (activeSection !== "pipeline") setPipelineTab("versions");
+    if (activeSection !== "pipeline") setPipelineTab("review");
     if (activeSection !== "run") setRunTab("readiness");
     if (activeSection !== "results") setResultsTab("models");
   }, [activeSection]);
@@ -767,49 +882,199 @@ export default function StudyDetailPage() {
   }
   if (!study) return <Alert type="error" message="Study not found or access was denied." />;
   const activeCreateMeta = activeCreate ? CREATE_FORM_META[activeCreate] : null;
+  const activeDetailMeta = !activeCreate && activeDetail ? detailMetaFor(study, activeDetail) : null;
 
   function renderHeaderAction(section: StudyWorkspaceSection) {
-    if (section === "protocol") {
-      return null;
-    }
-
-    if (section === "team") {
-      return (
-        <Button type="primary" className="fedlify-dark-action" icon={<PlusOutlined />} onClick={() => openCreate("invite")}>
-          Add study member
-        </Button>
-      );
-    }
-
-    if (section === "sites") {
-      return (
-        <Button type="primary" className="fedlify-dark-action" icon={<PlusOutlined />} onClick={() => openCreate("site")}>
-          Register site
-        </Button>
-      );
-    }
-
-    if (section === "pipeline") {
-      return (
-        <Button type="primary" className="fedlify-dark-action" icon={<PlayCircleOutlined />} onClick={() => openPipelineCreate()}>
-          {WORKFLOW_TERMS.createPipelineVersion}
-        </Button>
-      );
-    }
-
-    if (section === "run") {
-      return (
-        <Button type="primary" className="fedlify-dark-action" icon={<MonitorOutlined />} onClick={() => openCreate("job")}>
-          {WORKFLOW_TERMS.submitFederatedRun}
-        </Button>
-      );
-    }
-
+    void section;
     return null;
+  }
+
+  function renderStudyDesignEditForm() {
+    const currentStudy = study!;
+    return (
+      <div className="fedlify-inline-create-card">
+        <Form
+          layout="vertical"
+          className="fedlify-inline-create-form"
+          initialValues={{
+            title: currentStudy.title,
+            description: currentStudy.description,
+            goal: currentStudy.goal,
+            researchQuestion: currentStudy.researchQuestion,
+            hypothesis: currentStudy.hypothesis,
+            secondaryObjectives: currentStudy.secondaryObjectives,
+            clinicalUseCase: currentStudy.clinicalUseCase,
+            studyDesign: currentStudy.studyDesign,
+            population: currentStudy.population,
+            eligibilityCriteria: currentStudy.eligibilityCriteria,
+            dataModalities: splitMultiSelectValue(currentStudy.dataModalities),
+            primaryOutcome: currentStudy.primaryOutcome,
+            primaryEndpointDetails: currentStudy.primaryEndpointDetails,
+            secondaryOutcomes: currentStudy.secondaryOutcomes,
+            sampleSizeRationale: currentStudy.sampleSizeRationale,
+            analysisPlan: currentStudy.analysisPlan,
+            dataHandlingPlan: currentStudy.dataHandlingPlan,
+            humanAiWorkflow: currentStudy.humanAiWorkflow,
+            fairnessPlan: currentStudy.fairnessPlan,
+            disseminationPlan: currentStudy.disseminationPlan,
+            riskLevel: currentStudy.riskLevel ?? "MODERATE",
+            intendedUse: currentStudy.intendedUse
+          }}
+          onFinish={async (values) => {
+            const result = await patch(
+              `/api/v1/studies/${studyId}`,
+              {
+                action: "updateDetails",
+                ...normalizeStudyDesignPayload(values),
+                dataModalities: normalizeMultiSelectValue(values.dataModalities)
+              },
+              "Study design saved."
+            );
+            if (result) closeCreate();
+          }}
+        >
+          <FormError title="Study design was not saved" message={formError} />
+          <GovernanceSection title="Overview">
+            <div className="fedlify-intake-field-grid">
+              <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="riskLevel" label="Risk level">
+                <Select
+                  options={[
+                    { value: "LOW", label: "Low" },
+                    { value: "MODERATE", label: "Moderate" },
+                    { value: "HIGH", label: "High" }
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="description" label="Study summary" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Summarize the study rationale, context, and scope." />
+              </Form.Item>
+              <Form.Item name="clinicalUseCase" label="Clinical use case" rules={[{ required: true }]}>
+                <Select
+                  showSearch
+                  options={CLINICAL_USE_CASE_OPTIONS}
+                  optionFilterProp="label"
+                  placeholder="Select clinical use case"
+                />
+              </Form.Item>
+              <Form.Item name="intendedUse" label="Intended use" rules={[{ required: true }]}>
+                <Select
+                  showSearch
+                  options={INTENDED_USE_OPTIONS}
+                  optionFilterProp="label"
+                  placeholder="Select intended use"
+                />
+              </Form.Item>
+            </div>
+          </GovernanceSection>
+          <GovernanceSection title="Scientific question">
+            <div className="fedlify-intake-field-grid">
+              <Form.Item name="goal" label="Primary objective" className="fedlify-intake-full" rules={[REQUIRED_RICH_TEXT_RULE]}>
+                <RichTextEditor minRows={3} placeholder="State the primary scientific or operational objective." />
+              </Form.Item>
+              <Form.Item
+                name="researchQuestion"
+                label="Research question"
+                className="fedlify-intake-full"
+                rules={[REQUIRED_RICH_TEXT_RULE]}
+              >
+                <RichTextEditor minRows={3} placeholder="State the health-AI question this federation should answer." />
+              </Form.Item>
+              <Form.Item name="hypothesis" label="Hypothesis" className="fedlify-intake-full">
+                <RichTextEditor minRows={3} placeholder="Optional: state the hypothesis if this study is hypothesis-driven." />
+              </Form.Item>
+              <Form.Item name="secondaryObjectives" label="Secondary objectives" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Optional: add secondary objectives or exploratory questions." />
+              </Form.Item>
+            </div>
+          </GovernanceSection>
+          <GovernanceSection title="Design and population">
+            <div className="fedlify-intake-field-grid">
+              <Form.Item name="studyDesign" label="Study design" className="fedlify-intake-full" rules={[REQUIRED_RICH_TEXT_RULE]}>
+                <RichTextEditor minRows={4} placeholder="Describe the study type, timing, data flow, and federation design." />
+              </Form.Item>
+              <Form.Item name="population" label="Population" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="dataModalities" label="Data modalities" rules={[{ required: true }]}>
+                <Select
+                  mode="tags"
+                  options={DATA_MODALITY_OPTIONS}
+                  optionFilterProp="label"
+                  placeholder="Select modalities"
+                />
+              </Form.Item>
+              <Form.Item
+                name="eligibilityCriteria"
+                label="Eligibility criteria"
+                className="fedlify-intake-full"
+                rules={[REQUIRED_RICH_TEXT_RULE]}
+              >
+                <RichTextEditor minRows={4} placeholder="Define inclusion, exclusion, site, and cohort criteria." />
+              </Form.Item>
+            </div>
+          </GovernanceSection>
+          <GovernanceSection title="Outcomes and analysis">
+            <div className="fedlify-intake-field-grid">
+              <Form.Item name="primaryOutcome" label="Primary endpoint / outcome" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item
+                name="primaryEndpointDetails"
+                label="Endpoint details"
+                className="fedlify-intake-full"
+                rules={[REQUIRED_RICH_TEXT_RULE]}
+              >
+                <RichTextEditor minRows={4} placeholder="Describe how the primary endpoint is measured and evaluated." />
+              </Form.Item>
+              <Form.Item name="secondaryOutcomes" label="Secondary outcomes" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Optional: list secondary or exploratory outcomes." />
+              </Form.Item>
+              <Form.Item name="sampleSizeRationale" label="Sample size / rationale" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Optional: explain sample size, site count, or cohort availability rationale." />
+              </Form.Item>
+              <Form.Item name="analysisPlan" label="Analysis plan" className="fedlify-intake-full" rules={[REQUIRED_RICH_TEXT_RULE]}>
+                <RichTextEditor minRows={5} placeholder="Describe statistical, model-performance, validation, and aggregation methods." />
+              </Form.Item>
+            </div>
+          </GovernanceSection>
+          <GovernanceSection title="AI/federated governance">
+            <div className="fedlify-intake-field-grid">
+              <Form.Item name="dataHandlingPlan" label="Data handling plan" className="fedlify-intake-full" rules={[REQUIRED_RICH_TEXT_RULE]}>
+                <RichTextEditor minRows={5} placeholder="Describe site-local data handling, privacy boundaries, artifacts, and outputs." />
+              </Form.Item>
+              <Form.Item name="humanAiWorkflow" label="Human-AI workflow" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Optional: describe human review, overrides, and AI-assisted decision points." />
+              </Form.Item>
+              <Form.Item name="fairnessPlan" label="Fairness / subgroup plan" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Optional: describe subgroup checks, fairness risks, and mitigation steps." />
+              </Form.Item>
+              <Form.Item name="disseminationPlan" label="Dissemination plan" className="fedlify-intake-full">
+                <RichTextEditor minRows={4} placeholder="Optional: describe release, reporting, and communication plans." />
+              </Form.Item>
+            </div>
+          </GovernanceSection>
+          <Space className="fedlify-form-actions">
+            <Button onClick={closeCreate} disabled={formSubmitting}>
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={formSubmitting}>
+              Save study design
+            </Button>
+          </Space>
+        </Form>
+      </div>
+    );
   }
 
   function renderInlineCreateForm(mode: NonNullable<typeof activeCreate>) {
     if (activeCreate !== mode) return null;
+
+    if (mode === "studyDesign") {
+      return renderStudyDesignEditForm();
+    }
 
     if (mode === "invite") {
       return (
@@ -1172,6 +1437,32 @@ export default function StudyDetailPage() {
     );
   }
 
+  function protocolStatus(study: StudyDetail) {
+    const missingProtocolFields = missingCoreProtocolFields(study);
+    const missingProtocolFieldLabels = missingProtocolFields.map(
+      (field) => STUDY_PROTOCOL_FIELD_LABELS[field] ?? displayEnum(field)
+    );
+    const protocolMetadataReady = missingProtocolFields.length === 0;
+    const ethicsReady = ethicsGatePassed(study);
+    const participantSiteCount = study.studySites?.length ?? study.sites.length;
+    const hasParticipantSite = participantSiteCount > 0;
+    const missingActivationItems = [
+      ...missingProtocolFieldLabels,
+      ethicsReady ? null : "Ethics decision",
+      hasParticipantSite ? null : "Participant site"
+    ].filter(Boolean) as string[];
+    return {
+      missingProtocolFields,
+      missingProtocolFieldLabels,
+      missingActivationItems,
+      protocolMetadataReady,
+      ethicsReady,
+      participantSiteCount,
+      hasParticipantSite,
+      activationReady: protocolMetadataReady && ethicsReady && hasParticipantSite
+    };
+  }
+
   function detailRecordFor(study: StudyDetail, detail: StudyDetailState): EntityRecord | undefined {
     if (detail.kind === "member") {
       return groupedStudyMembers(study.members).find(
@@ -1192,11 +1483,151 @@ export default function StudyDetailPage() {
     return undefined;
   }
 
+  function detailMetaFor(study: StudyDetail, detail: StudyDetailState): DetailPageMeta {
+    const record = detailRecordFor(study, detail);
+    if (!record) {
+      return {
+        title: "Record not found",
+        subtitle: "This item is no longer available in the current study payload.",
+        backLabel: activeSectionMeta.title
+      };
+    }
+
+    if (detail.kind === "member") {
+      const memberships = Array.isArray(record.memberships) ? record.memberships : [record];
+      const roles = record.roles ?? uniqueValues(memberships.map((membership: EntityRecord) => membership.role));
+      const targetUserId = record.user?.id ?? record.userId ?? memberships[0]?.userId;
+      const isEditingRoles = memberRoleEditingId === String(record.id);
+      return {
+        title: text(record.user?.name, record.user?.email),
+        subtitle: text(record.user?.email),
+        status: <StatusTag value={`${roles.length} study role${roles.length === 1 ? "" : "s"}`} />,
+        actions: targetUserId ? (
+          <Button icon={<EditOutlined />} onClick={() => setMemberRoleEditingId(isEditingRoles ? null : String(record.id))}>
+            {isEditingRoles ? "Close role editor" : "Edit study roles"}
+          </Button>
+        ) : null,
+        backLabel: activeSectionMeta.title
+      };
+    }
+
+    if (detail.kind === "invitation") {
+      return {
+        title: text(record.email, "Invitation"),
+        subtitle: "Study role invitation",
+        status: <StatusTag value={status(record.status, "PENDING")} />,
+        backLabel: activeSectionMeta.title
+      };
+    }
+
+    if (detail.kind === "ethics") {
+      const title = text(record.approvalNumber, record.status === "PENDING" ? "Pending ethics review" : "Ethics decision");
+      return {
+        title,
+        subtitle: text(record.approvingBody, "Review body not recorded"),
+        status: <StatusTag value={status(record.status)} />,
+        actions: (
+          <Button
+            icon={<EditOutlined />}
+            onClick={() => {
+              router.push(sectionUrl("protocol"));
+              openEthicsForm(record);
+            }}
+          >
+            Edit decision
+          </Button>
+        ),
+        backLabel: "Study protocol"
+      };
+    }
+
+    if (detail.kind === "document") {
+      return {
+        title: text(record.filename, "Study document"),
+        subtitle: displayEnum(record.kind, "Document"),
+        status: <StatusTag value={status(record.scanStatus, "PENDING")} />,
+        backLabel: "Study protocol"
+      };
+    }
+
+    if (detail.kind === "site") {
+      return {
+        title: text(record.name, "Participant site"),
+        subtitle: text(record.institutionName, "Institution not recorded"),
+        status: <StatusTag value={status(record.participationStatus, "INVITED")} />,
+        actions: <Button icon={<ClusterOutlined />} onClick={() => router.push(`/sites/${record.id}`)}>Open onboarding dashboard</Button>,
+        backLabel: "Sites and data"
+      };
+    }
+
+    if (detail.kind === "pipelineProject" || detail.kind === "pipelineVersion") {
+      const project = detail.kind === "pipelineProject" ? record : record.project;
+      const versions = detail.kind === "pipelineProject" ? (record.versions ?? []) : [record];
+      const activeVersion = detail.kind === "pipelineVersion" ? record : versions[0];
+      const sourceTemplateVersion = activeVersion?.templateVersion ?? project?.templateVersion ?? project?.template?.currentApprovedVersion;
+      return {
+        title:
+          detail.kind === "pipelineVersion"
+            ? `${text(project?.name, "Pipeline source workspace")} ${text(record.version, "")}`.trim()
+            : text(project?.name, "Pipeline source workspace"),
+        subtitle: templateSourceLabel(project?.template, sourceTemplateVersion),
+        status: <StatusTag value={detail.kind === "pipelineVersion" ? (record.approvalStatus ?? record.validationStatus) : status(project?.status, "DRAFT")} />,
+        backLabel: "Pipeline"
+      };
+    }
+
+    if (detail.kind === "deployment") {
+      return {
+        title: text(record.name, "NVFLARE deployment"),
+        subtitle: text(record.serverAddress, "No server address"),
+        status: <StatusTag value={status(record.status, "DRAFT")} />,
+        backLabel: activeSectionMeta.title
+      };
+    }
+
+    if (detail.kind === "experimentRun") {
+      const payload = jobLogDetail?.job?.id === record.id ? jobLogDetail : null;
+      const state = payload?.state ?? record;
+      return {
+        title: text(record.nvflareJobId, WORKFLOW_TERMS.federatedRun),
+        subtitle: text(record.pipelineVersion?.project?.name, "Pipeline source workspace"),
+        status: <StatusTag value={status(state.fedlifyStatus ?? record.status, "DRAFT")} />,
+        backLabel: "Federated run"
+      };
+    }
+
+    if (detail.kind === "modelRelease") {
+      const sourceJob = record.sourceResult?.job;
+      return {
+        title: `Model release ${text(record.version)}`,
+        subtitle: `Source run ${text(sourceJob?.nvflareJobId, sourceJob?.id)}`,
+        status: <StatusTag value={record.status} />,
+        backLabel: "Results"
+      };
+    }
+
+    if (detail.kind === "codeRelease") {
+      return {
+        title: `Code/kit release ${text(record.version)}`,
+        subtitle: "Startup kits, source bundles, and checksum manifests",
+        status: <StatusTag value={record.status} />,
+        backLabel: "Results"
+      };
+    }
+
+    return {
+      title: text(record.action, "Audit event"),
+      subtitle: formatDate(record.createdAt),
+      status: <StatusTag value={text(record.targetType, "Audit")} />,
+      backLabel: "Audit"
+    };
+  }
+
   function renderEntityDetail(study: StudyDetail, detail: StudyDetailState) {
     const record = detailRecordFor(study, detail);
     if (!record) {
       return (
-        <EntityDetailView title="Record not found" subtitle="This item is no longer available in the current study payload." onBack={closeDetail}>
+        <EntityDetailView bodyOnly title="Record not found" subtitle="This item is no longer available in the current study payload." onBack={closeDetail}>
           <EmptyState icon={<FileTextOutlined />} title="No matching record" description="Return to the list and refresh the workspace." />
         </EntityDetailView>
       );
@@ -1216,6 +1647,7 @@ export default function StudyDetailPage() {
       );
       return (
         <EntityDetailView
+          bodyOnly
           title={text(record.user?.name, record.user?.email)}
           subtitle={text(record.user?.email)}
           status={<StatusTag value={`${roles.length} study role${roles.length === 1 ? "" : "s"}`} />}
@@ -1278,7 +1710,7 @@ export default function StudyDetailPage() {
         </span>
       );
       return (
-        <EntityDetailView title={text(record.email, "Invitation")} subtitle="Study role invitation" status={<StatusTag value={status(record.status, "PENDING")} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={text(record.email, "Invitation")} subtitle="Study role invitation" status={<StatusTag value={status(record.status, "PENDING")} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Email" value={text(record.email)} />
             <FieldRow label="Study roles" value={roleChips} />
@@ -1295,6 +1727,7 @@ export default function StudyDetailPage() {
       const title = text(record.approvalNumber, record.status === "PENDING" ? "Pending ethics review" : "Ethics decision");
       return (
         <EntityDetailView
+          bodyOnly
           title={title}
           subtitle={text(record.approvingBody, "Review body not recorded")}
           status={<StatusTag value={status(record.status)} />}
@@ -1324,7 +1757,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "document") {
       return (
-        <EntityDetailView title={text(record.filename, "Study document")} subtitle={displayEnum(record.kind, "Document")} status={<StatusTag value={status(record.scanStatus, "PENDING")} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={text(record.filename, "Study document")} subtitle={displayEnum(record.kind, "Document")} status={<StatusTag value={status(record.scanStatus, "PENDING")} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Filename" value={text(record.filename)} full />
             <FieldRow label="Document type" value={displayEnum(record.kind)} />
@@ -1341,6 +1774,7 @@ export default function StudyDetailPage() {
     if (detail.kind === "site") {
       return (
         <EntityDetailView
+          bodyOnly
           title={text(record.name, "Participant site")}
           subtitle={text(record.institutionName, "Institution not recorded")}
           status={<StatusTag value={status(record.participationStatus, "INVITED")} />}
@@ -1375,6 +1809,7 @@ export default function StudyDetailPage() {
       const latestProposal = project?.proposals?.[0];
       return (
         <EntityDetailView
+          bodyOnly
           title={
             detail.kind === "pipelineVersion"
               ? `${text(project?.name, "Pipeline source workspace")} ${text(record.version, "")}`.trim()
@@ -1457,7 +1892,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "deployment") {
       return (
-        <EntityDetailView title={text(record.name, "NVFLARE deployment")} subtitle={text(record.serverAddress, "No server address")} status={<StatusTag value={status(record.status, "DRAFT")} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={text(record.name, "NVFLARE deployment")} subtitle={text(record.serverAddress, "No server address")} status={<StatusTag value={status(record.status, "DRAFT")} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Runtime" value={text(record.runtimeMode, "local-docker")} />
             <FieldRow label="Server address" value={text(record.serverAddress)} />
@@ -1479,7 +1914,7 @@ export default function StudyDetailPage() {
       const modelRelease = modelResult?.modelRelease;
       const modelArtifact = modelRelease?.artifacts?.find((artifact: EntityRecord) => artifact.kind === "AGGREGATED_MODEL");
       return (
-        <EntityDetailView title={text(record.nvflareJobId, WORKFLOW_TERMS.federatedRun)} subtitle={text(record.pipelineVersion?.project?.name, "Pipeline source workspace")} status={<StatusTag value={status(state.fedlifyStatus ?? record.status, "DRAFT")} />} onBack={closeDetail} technicalMetadata={payload?.flareMeta?.meta}>
+        <EntityDetailView bodyOnly title={text(record.nvflareJobId, WORKFLOW_TERMS.federatedRun)} subtitle={text(record.pipelineVersion?.project?.name, "Pipeline source workspace")} status={<StatusTag value={status(state.fedlifyStatus ?? record.status, "DRAFT")} />} onBack={closeDetail} technicalMetadata={payload?.flareMeta?.meta}>
           {payload?.message ? <Alert type="info" showIcon message={payload.message} /> : null}
           <FieldGrid>
             <FieldRow label="Fedlify state" value={displayEnum(state.fedlifyStatus ?? record.status)} />
@@ -1538,7 +1973,7 @@ export default function StudyDetailPage() {
     if (detail.kind === "modelRelease") {
       const sourceJob = record.sourceResult?.job;
       return (
-        <EntityDetailView title={`Model release ${text(record.version)}`} subtitle={`Source run ${text(sourceJob?.nvflareJobId, sourceJob?.id)}`} status={<StatusTag value={record.status} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={`Model release ${text(record.version)}`} subtitle={`Source run ${text(sourceJob?.nvflareJobId, sourceJob?.id)}`} status={<StatusTag value={record.status} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Version" value={text(record.version)} />
             <FieldRow label="Approval state" value={displayEnum(record.status)} />
@@ -1556,7 +1991,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "codeRelease") {
       return (
-        <EntityDetailView title={`Code/kit release ${text(record.version)}`} subtitle="Startup kits, source bundles, and checksum manifests" status={<StatusTag value={record.status} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={`Code/kit release ${text(record.version)}`} subtitle="Startup kits, source bundles, and checksum manifests" status={<StatusTag value={record.status} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Version" value={text(record.version)} />
             <FieldRow label="Approval state" value={displayEnum(record.status)} />
@@ -1570,7 +2005,7 @@ export default function StudyDetailPage() {
     }
 
     return (
-      <EntityDetailView title={text(record.action, "Audit event")} subtitle={formatDate(record.createdAt)} status={<StatusTag value={text(record.targetType, "Audit")} />} onBack={closeDetail} technicalMetadata={record.metadata}>
+      <EntityDetailView bodyOnly title={text(record.action, "Audit event")} subtitle={formatDate(record.createdAt)} status={<StatusTag value={text(record.targetType, "Audit")} />} onBack={closeDetail} technicalMetadata={record.metadata}>
         <FieldGrid>
           <FieldRow label="Action" value={text(record.action)} />
           <FieldRow label="Target type" value={text(record.targetType)} />
@@ -1598,116 +2033,110 @@ export default function StudyDetailPage() {
       const totalSites = currentStudy.studySites?.length ?? currentStudy.sites.length;
       const memberGroups = groupedStudyMembers(currentStudy.members);
       const roleAssignmentCount = currentStudy.members.length;
-      const navigationCards = [
+      const readinessByKey = new Map(readinessItems.map((item) => [item.key, item]));
+      const dashboardCards = [
         {
-          label: "Protocol",
-          metric: displayEnum(currentStudy.governanceStatus, "Incomplete"),
-          caption: studyProtocolReady(currentStudy)
-            ? "Ready for runtime provisioning"
-            : studyEthicsReady(currentStudy)
-              ? "Ethics approved; activation needed"
-              : "Ethics approval or exemption required",
+          key: "protocol",
+          label: "Study protocol",
+          description: readinessByKey.get("protocol")?.detail ?? protocolReadinessDetail(currentStudy),
+          state: readinessByKey.get("protocol")?.state ?? "needs_attention",
           section: "protocol" as StudyWorkspaceSection,
-          icon: <SafetyCertificateOutlined />
+          icon: <SafetyCertificateOutlined />,
+          meta: [
+            `Governance: ${displayEnum(currentStudy.governanceStatus, "Incomplete")}`,
+            `Ethics: ${studyEthicsReady(currentStudy) ? displayEnum(latestEthicsStatus(currentStudy), "Ready") : "Needs review"}`
+          ]
         },
         {
+          key: "sites",
           label: "Sites & Data",
-          metric: `${ready.length}/${totalSites} ready`,
-          caption: `${connected.length} connected; data stays site-local`,
+          description: readinessByKey.get("sites")?.detail ?? `${ready.length}/${totalSites} ready, ${connected.length} connected`,
+          state: readinessByKey.get("sites")?.state ?? "needs_attention",
           section: "sites" as StudyWorkspaceSection,
-          icon: <ClusterOutlined />
+          icon: <ClusterOutlined />,
+          meta: [`${totalSites} registered`, `${ready.length} ready`, `${connected.length} connected`, "Site-local data only"]
         },
         {
+          key: "team",
           label: "Team & Access",
-          metric: `${memberGroups.length} member${memberGroups.length === 1 ? "" : "s"}`,
-          caption: `${roleAssignmentCount} study role assignment${roleAssignmentCount === 1 ? "" : "s"}`,
+          description:
+            memberGroups.length > 0
+              ? `${memberGroups.length} member${memberGroups.length === 1 ? "" : "s"} assigned to this study.`
+              : "Invite study members and assign workspace roles.",
+          state: memberGroups.length > 0 ? "ready" : "needs_attention",
           section: "team" as StudyWorkspaceSection,
-          icon: <MailOutlined />
+          icon: <MailOutlined />,
+          meta: [`${roleAssignmentCount} role assignment${roleAssignmentCount === 1 ? "" : "s"}`, `${currentStudy.invitations.length} pending invitation${currentStudy.invitations.length === 1 ? "" : "s"}`]
         },
         {
+          key: "pipeline",
           label: "Pipeline",
-          metric: `${approvedVersions.length} approved`,
-          caption: `${currentStudy.pipelineProjects?.length ?? 0} source workspace(s), commit-backed`,
+          description: readinessByKey.get("pipeline")?.detail ?? `${approvedVersions.length} approved pipeline version(s)`,
+          state: readinessByKey.get("pipeline")?.state ?? "needs_attention",
           section: "pipeline" as StudyWorkspaceSection,
-          icon: <CodeOutlined />
+          icon: <CodeOutlined />,
+          meta: [`${currentStudy.pipelineProjects?.length ?? 0} source workspace(s)`, `${approvedVersions.length} approved version${approvedVersions.length === 1 ? "" : "s"}`]
         },
         {
+          key: "run",
           label: "Run",
-          metric: `${currentStudy.nvflareJobs?.length ?? 0} run${(currentStudy.nvflareJobs?.length ?? 0) === 1 ? "" : "s"}`,
-          caption: activeRuntimeDeployment?.serverAddress ? `Aggregator ${activeRuntimeDeployment.serverAddress}` : "Aggregator not started",
+          description: readinessByKey.get("run")?.detail ?? `${currentStudy.nvflareJobs?.length ?? 0} federated run(s)`,
+          state: readinessByKey.get("run")?.state ?? "needs_attention",
           section: "run" as StudyWorkspaceSection,
-          icon: <MonitorOutlined />
+          icon: <MonitorOutlined />,
+          meta: [
+            activeRuntimeDeployment?.serverAddress ? `Aggregator: ${activeRuntimeDeployment.serverAddress}` : "Aggregator not started",
+            `${currentStudy.nvflareJobs?.length ?? 0} run${(currentStudy.nvflareJobs?.length ?? 0) === 1 ? "" : "s"}`
+          ]
         },
         {
+          key: "results",
           label: "Results & Releases",
-          metric: `${currentStudy.modelReleases?.length ?? 0} model${(currentStudy.modelReleases?.length ?? 0) === 1 ? "" : "s"}`,
-          caption: "Trained model plus code/kit releases",
+          description: readinessByKey.get("results")?.detail ?? "Trained model plus code/kit releases.",
+          state: readinessByKey.get("results")?.state ?? "needs_attention",
           section: "results" as StudyWorkspaceSection,
-          icon: <CloudDownloadOutlined />
+          icon: <CloudDownloadOutlined />,
+          meta: [`${currentStudy.modelReleases?.length ?? 0} model release${(currentStudy.modelReleases?.length ?? 0) === 1 ? "" : "s"}`, `${currentStudy.releases.length} code/kit release${currentStudy.releases.length === 1 ? "" : "s"}`]
+        },
+        {
+          key: "audit",
+          label: "Audit",
+          description: "Governance, access, and runtime actions are recorded here.",
+          state: currentStudy.auditEvents.length > 0 ? "done" : "ready",
+          section: "audit" as StudyWorkspaceSection,
+          icon: <AuditOutlined />,
+          meta: [
+            `${currentStudy.auditEvents.length} event${currentStudy.auditEvents.length === 1 ? "" : "s"}`,
+            currentStudy.auditEvents[0]?.createdAt ? `Latest: ${formatDate(currentStudy.auditEvents[0].createdAt)}` : "No recent events"
+          ]
         }
-      ];
-      const glanceItems = [
-        { label: "Protocol status", value: studyProtocolReady(currentStudy) ? "Ready" : displayEnum(currentStudy.governanceStatus, "Incomplete") },
-        { label: "Ethics status", value: studyEthicsReady(currentStudy) ? displayEnum(latestEthicsStatus(currentStudy), "Ready") : displayEnum(latestEthicsStatus(currentStudy), "Not recorded") },
-        { label: "Data boundary", value: "Data stays site-local" },
-        { label: "Aggregator", value: activeRuntimeDeployment?.serverAddress ?? "Not started" },
-        { label: "Connected sites", value: `${connected.length}/${totalSites}` }
       ];
 
       return (
         <div className="fedlify-section-stack">
-          <SectionHeader title="Study at a glance" />
-          <div className="fedlify-summary-glance-strip">
-            {glanceItems.map((item) => (
-              <span key={item.label} className="fedlify-summary-glance-item">
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-              </span>
-            ))}
-          </div>
-
-          <SectionHeader title="Workspace navigation" />
-          <CardGrid className="fedlify-navigation-grid">
-            {navigationCards.map((card) => (
-              <NavigationCard
-                key={card.label}
-                label={card.label}
-                metric={card.metric}
-                caption={card.caption}
-                icon={card.icon}
-                onClick={() => router.push(sectionUrl(card.section))}
-              />
-            ))}
-          </CardGrid>
-
-          <SectionHeader title="Next action" />
-          <NextActionCard
-            title={nextAction.title}
-            description={nextAction.detail}
-            buttonLabel={nextAction.buttonLabel}
-            state={nextAction.state}
-            icon={<PlayCircleOutlined />}
-            onClick={() => router.push(sectionUrl(nextAction.section))}
-          />
-
-          <SectionHeader title="Lifecycle checklist" />
-          <div className="fedlify-summary-readiness-list">
-            {readinessItems.map((item) => (
-              <article key={item.key} className={`fedlify-summary-readiness-card is-${item.state}`}>
-                <span className="fedlify-summary-readiness-icon">{summaryReadinessIcon(item.state)}</span>
-                <div className="fedlify-summary-readiness-copy">
-                  <div className="fedlify-summary-readiness-header">
-                    <span className="fedlify-summary-readiness-status">{summaryReadinessLabel(item.state)}</span>
-                    <Button size="small" onClick={() => router.push(sectionUrl(item.section))}>
-                      {item.buttonLabel}
-                    </Button>
-                  </div>
-                  <Typography.Text strong className="fedlify-summary-readiness-title">{item.label}</Typography.Text>
-                  <Typography.Text className="fedlify-summary-readiness-detail">{item.detail}</Typography.Text>
-                </div>
-              </article>
-            ))}
-          </div>
+          <WorkspaceCardGrid className="fedlify-summary-dashboard-grid">
+            {dashboardCards.map((card) => {
+              const isNext = nextAction.section === card.section;
+              return (
+                <WorkspaceRecordCard
+                  key={card.key}
+                  icon={card.icon}
+                  title={card.label}
+                  description={isNext ? nextAction.detail : card.description}
+                  status={
+                    <Space size={6} wrap>
+                      {isNext ? <StatusTag value="NEXT" /> : null}
+                      <StatusTag value={summaryStateStatus(card.state as "ready" | "needs_attention" | "done")} />
+                    </Space>
+                  }
+                  meta={isNext ? [`Next: ${nextAction.title}`, ...card.meta] : card.meta}
+                  tone={summaryStateTone(card.state as "ready" | "needs_attention" | "done") as "ready" | "needs_attention"}
+                  onClick={() => router.push(sectionUrl(card.section))}
+                  ariaLabel={`Open ${card.label}`}
+                />
+              );
+            })}
+          </WorkspaceCardGrid>
         </div>
       );
     }
@@ -1716,37 +2145,31 @@ export default function StudyDetailPage() {
       const dataModalityLabels = splitMultiSelectValue(currentStudy.dataModalities).map(
         (value) => governanceOptionLabel(DATA_MODALITY_OPTIONS, value) ?? value
       );
-      const missingProtocolFields = [
-        currentStudy.title ? null : "study title",
-        currentStudy.goal ? null : "goal",
-        currentStudy.researchQuestion ? null : "research question",
-        currentStudy.clinicalUseCase ? null : "clinical use case",
-        currentStudy.population ? null : "population",
-        currentStudy.dataModalities ? null : "data modalities",
-        currentStudy.primaryOutcome ? null : "primary outcome",
-        currentStudy.intendedUse ? null : "intended use"
-      ].filter(Boolean);
-      const protocolMetadataReady = missingProtocolFields.length === 0;
-      const ethicsReady = ethicsGatePassed(currentStudy);
-      const hasParticipantSite = (currentStudy.studySites?.length ?? currentStudy.sites.length) > 0;
-      const activationReady = protocolMetadataReady && ethicsReady && hasParticipantSite;
+      const {
+        missingProtocolFieldLabels,
+        missingActivationItems,
+        protocolMetadataReady,
+        ethicsReady,
+        participantSiteCount,
+        hasParticipantSite,
+        activationReady
+      } = protocolStatus(currentStudy);
       const protocolModules = [
         {
           key: "metadata",
-          title: "Protocol metadata",
-          detail: protocolMetadataReady ? "Required protocol fields are complete." : `Missing ${missingProtocolFields.length} required field(s).`,
+          title: "Study design",
+          detail: protocolMetadataReady
+            ? "Core study design fields meet Health AI readiness requirements."
+            : `Complete ${summarizeMissingLabels(missingProtocolFieldLabels)}.`,
           status: protocolMetadataReady ? "READY" : "NEEDS_ATTENTION",
           icon: <FileTextOutlined />,
-          action: "Edit metadata",
-          onClick: () => {
-            setProtocolTab("metadata");
-            setGovernanceEditing(true);
-          }
+          action: "Open study design",
+          onClick: () => setProtocolTab("metadata")
         },
         {
           key: "ethics",
-          title: "Ethics review",
-          detail: ethicsReady ? displayEnum(latestEthicsStatus(currentStudy), "Approved") : "Approval or exemption is required.",
+          title: "Ethics decision",
+          detail: ethicsReady ? displayEnum(latestEthicsStatus(currentStudy), "Approved") : "Record approval, exemption, or not-required status.",
           status: ethicsReady ? "READY" : "NEEDS_ATTENTION",
           icon: <SafetyCertificateOutlined />,
           action: "Open ethics",
@@ -1754,346 +2177,261 @@ export default function StudyDetailPage() {
         },
         {
           key: "documents",
-          title: "Documents",
-          detail: `${currentStudy.documents.length} governed document(s) registered.`,
+          title: "Governance documents",
+          detail:
+            currentStudy.documents.length > 0
+              ? `${currentStudy.documents.length} governed document(s) registered.`
+              : "Add study protocol, ethics, policy, or agreement files if needed.",
           status: currentStudy.documents.length > 0 ? "READY" : "OPTIONAL",
           icon: <UploadOutlined />,
           action: "Open documents",
           onClick: () => setProtocolTab("documents")
         },
         {
+          key: "sites",
+          title: "Participant sites",
+          detail: hasParticipantSite
+            ? `${participantSiteCount} participant site(s) registered.`
+            : "Add at least one participant site before activation.",
+          status: hasParticipantSite ? "READY" : "NEEDS_ATTENTION",
+          icon: <ClusterOutlined />,
+          action: hasParticipantSite ? "Review sites" : "Add sites",
+          onClick: () => router.push(sectionUrl("sites"))
+        },
+        {
           key: "activation",
           title: "Activation",
-          detail: activationReady ? "Study can be activated for runtime gates." : "Metadata, ethics, and at least one site are required.",
+          detail: activationReady ? "Study is ready for activation." : `Missing: ${summarizeMissingLabels(missingActivationItems)}.`,
           status: currentStudy.status === "ACTIVE" ? "ACTIVE" : activationReady ? "READY" : "BLOCKED",
           icon: <CheckCircleOutlined />,
-          action: currentStudy.status === "ACTIVE" ? "Activated" : "Review gates",
-          onClick: () => {
-            setProtocolTab("activation");
-          }
+          action: currentStudy.status === "ACTIVE" ? "Activated" : "Review activation",
+          onClick: () => setProtocolTab("activation")
         }
       ];
+      const renderProtocolActionCard = ({
+        title,
+        detail,
+        icon,
+        onClick,
+        disabled = false,
+        state
+      }: {
+        title: string;
+        detail: string;
+        icon: ReactNode;
+        onClick: () => void;
+        disabled?: boolean;
+        state?: "ACTIVE" | "BLOCKED";
+      }) => (
+        <WorkspaceActionCard
+          icon={icon}
+          title={title}
+          description={detail}
+          status={state ? <StatusTag value={state} /> : undefined}
+          disabled={disabled}
+          tone={state === "ACTIVE" ? "active" : state === "BLOCKED" ? "blocked" : "default"}
+          onClick={onClick}
+        />
+      );
+      const metadataActionCard = renderProtocolActionCard({
+        title: "Edit study design",
+        detail: "Update Health AI core fields and optional best-practice details.",
+        icon: <EditOutlined />,
+        onClick: () => openCreate("studyDesign")
+      });
+      const ethicsActionCard = renderProtocolActionCard({
+        title: currentStudy.ethics.length === 0 ? "Record first ethics decision" : "Record ethics decision",
+        detail:
+          currentStudy.ethics.length === 0
+            ? "No ethics records yet. Add approval, exemption, expiry, or pending review state."
+            : "Add approval, exemption, expiry, or pending review state.",
+        icon: <PlusOutlined />,
+        onClick: () => openEthicsForm()
+      });
+      const documentActionCard = renderProtocolActionCard({
+        title: currentStudy.documents.length === 0 ? "Register first document" : "Register document",
+        detail:
+          currentStudy.documents.length === 0
+            ? "No study documents yet. Add a study protocol, ethics, policy, or agreement file."
+            : "Add a study protocol, ethics, policy, or agreement file.",
+        icon: <UploadOutlined />,
+        onClick: () => openCreate("document")
+      });
+      const activationActionCard = renderProtocolActionCard({
+        title: currentStudy.status === "ACTIVE" ? "Study active" : "Activate study",
+        detail:
+          currentStudy.status === "ACTIVE"
+            ? "Runtime gates are already enabled for this study."
+            : activationReady
+              ? "Enable runtime provisioning and experiment submission."
+              : `Resolve: ${summarizeMissingLabels(missingActivationItems)}.`,
+        icon: <CheckCircleOutlined />,
+        disabled: currentStudy.status === "ACTIVE" || !activationReady,
+        state: currentStudy.status === "ACTIVE" ? "ACTIVE" : !activationReady ? "BLOCKED" : undefined,
+        onClick: () => void patch(`/api/v1/studies/${studyId}`, { action: "activate" }, "Study activated.")
+      });
+      const activationBlockedMessage =
+        missingActivationItems.length > 0
+          ? `Activation is blocked until ${summarizeMissingLabels(missingActivationItems)} ${
+              missingActivationItems.length === 1 ? "is complete" : "are complete"
+            }. The Readiness tab shows the current state.`
+          : "Activation is blocked until the required readiness items pass. The Readiness tab shows the current state.";
 
       return (
         <div className="fedlify-section-stack">
-          <div className="fedlify-protocol-module-grid">
-            {protocolModules.map((module) => (
-              <article key={module.key} className={`fedlify-protocol-module-card is-${module.status.toLowerCase()}`}>
-                <div className="fedlify-protocol-module-card-top">
-                  <span className="fedlify-protocol-module-icon">{module.icon}</span>
-                  <StatusTag value={module.status} />
-                </div>
-                <div className="fedlify-protocol-module-copy">
-                  <strong>{module.title}</strong>
-                  <span>{module.detail}</span>
-                </div>
-                <Button
-                  size="small"
-                  onClick={module.onClick}
-                >
-                  {module.action}
-                </Button>
-              </article>
-            ))}
-          </div>
           <Tabs
             className="fedlify-card-tabs fedlify-protocol-tabs"
             activeKey={protocolTab}
             onChange={(key) => {
               setFormError(null);
               setProtocolTab(key);
-              if (key !== "metadata") setGovernanceEditing(false);
             }}
             items={[
               {
+                key: "review",
+                label: "Readiness",
+                children: (
+                  <WorkspaceCardGrid className="fedlify-workspace-review-grid">
+                    {protocolModules.map((module) => (
+                      <WorkspaceReviewCard
+                        key={module.key}
+                        icon={module.icon}
+                        title={module.title}
+                        description={module.detail}
+                        status={<StatusTag value={module.status} />}
+                        tone={module.status.toLowerCase() as "ready" | "needs_attention" | "optional" | "active" | "blocked"}
+                        onClick={module.onClick}
+                        aria-label={`${module.action}: ${module.title}`}
+                      />
+                    ))}
+                  </WorkspaceCardGrid>
+                )
+              },
+              {
                 key: "metadata",
-                label: "Protocol metadata",
-                children: governanceEditing ? (
+                label: "Study design",
+                children: (
                   <section className="fedlify-protocol-module is-wide">
-                    <SectionHeader title="Edit protocol metadata" />
-                    <Form
-                      layout="vertical"
-                      className="fedlify-inline-create-form"
-                      initialValues={{
-                        title: currentStudy.title,
-                        description: currentStudy.description,
-                        goal: currentStudy.goal,
-                        researchQuestion: currentStudy.researchQuestion,
-                        clinicalUseCase: currentStudy.clinicalUseCase,
-                        population: currentStudy.population,
-                        dataModalities: splitMultiSelectValue(currentStudy.dataModalities),
-                        primaryOutcome: currentStudy.primaryOutcome,
-                        riskLevel: currentStudy.riskLevel ?? "MODERATE",
-                        intendedUse: currentStudy.intendedUse
-                      }}
-                      onFinish={async (values) => {
-                        const result = await patch(
-                          `/api/v1/studies/${studyId}`,
-                          {
-                            action: "updateDetails",
-                            ...values,
-                            dataModalities: normalizeMultiSelectValue(values.dataModalities)
-                          },
-                          "Protocol metadata saved."
-                        );
-                        if (result) setGovernanceEditing(false);
-                      }}
-                    >
-                      <FormError title="Protocol metadata was not saved" message={formError} />
-                      <div className="fedlify-intake-field-grid">
-                        <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
-                          <Input />
-                        </Form.Item>
-                        <Form.Item name="riskLevel" label="Risk level">
-                          <Select
-                            options={[
-                              { value: "LOW", label: "Low" },
-                              { value: "MODERATE", label: "Moderate" },
-                              { value: "HIGH", label: "High" }
-                            ]}
-                          />
-                        </Form.Item>
-                        <Form.Item name="goal" label="Goal" className="fedlify-intake-full" rules={[{ required: true }]}>
-                          <Input.TextArea rows={2} />
-                        </Form.Item>
-                        <Form.Item name="researchQuestion" label="Research question" className="fedlify-intake-full" rules={[{ required: true }]}>
-                          <Input.TextArea rows={2} />
-                        </Form.Item>
-                        <Form.Item name="clinicalUseCase" label="Clinical use case" rules={[{ required: true }]}>
-                          <Select
-                            showSearch
-                            options={CLINICAL_USE_CASE_OPTIONS}
-                            optionFilterProp="label"
-                            placeholder="Select clinical use case"
-                          />
-                        </Form.Item>
-                        <Form.Item name="population" label="Population" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                        <Form.Item name="dataModalities" label="Data modalities" rules={[{ required: true }]}>
-                          <Select
-                            mode="tags"
-                            options={DATA_MODALITY_OPTIONS}
-                            optionFilterProp="label"
-                            placeholder="Select modalities"
-                          />
-                        </Form.Item>
-                        <Form.Item name="primaryOutcome" label="Primary outcome" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                        <Form.Item name="intendedUse" label="Intended use" className="fedlify-intake-full" rules={[{ required: true }]}>
-                          <Select
-                            showSearch
-                            options={INTENDED_USE_OPTIONS}
-                            optionFilterProp="label"
-                            placeholder="Select intended use"
-                          />
-                        </Form.Item>
-                        <Form.Item name="description" label="Protocol summary" className="fedlify-intake-full">
-                          <Input.TextArea rows={3} />
-                        </Form.Item>
+                    <WorkspaceCardGrid>
+                      {metadataActionCard}
+                    </WorkspaceCardGrid>
+                    <GovernanceSection title="Overview">
+                      <div className="fedlify-governance-grid">
+                        {renderGovernanceField("Study title", currentStudy.title)}
+                        {renderGovernanceField("Risk level", displayEnum(currentStudy.riskLevel))}
+                        {renderGovernanceField("Study summary", currentStudy.description, "fedlify-governance-full", true)}
+                        {renderGovernanceField(
+                          "Clinical use case",
+                          governanceOptionLabel(CLINICAL_USE_CASE_OPTIONS, currentStudy.clinicalUseCase)
+                        )}
+                        {renderGovernanceField("Intended use", governanceOptionLabel(INTENDED_USE_OPTIONS, currentStudy.intendedUse))}
                       </div>
-                      <Space className="fedlify-form-actions">
-                        <Button
-                          onClick={() => {
-                            setFormError(null);
-                            setGovernanceEditing(false);
-                          }}
-                          disabled={formSubmitting}
-                        >
-                          Cancel
-                        </Button>
-                        <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={formSubmitting}>
-                          Save protocol metadata
-                        </Button>
-                      </Space>
-                    </Form>
-                  </section>
-                ) : (
-                  <section className="fedlify-protocol-module is-wide">
-                    <SectionHeader
-                      title="Protocol metadata"
-                      actions={
-                        <Button icon={<EditOutlined />} onClick={() => setGovernanceEditing(true)}>
-                          Edit metadata
-                        </Button>
-                      }
-                    />
-                    <div className="fedlify-governance-grid">
-                      {renderGovernanceField("Study title", currentStudy.title)}
-                      {renderGovernanceField("Risk level", displayEnum(currentStudy.riskLevel))}
-                      {renderGovernanceField("Goal", currentStudy.goal, "fedlify-governance-full")}
-                      {renderGovernanceField("Research question", currentStudy.researchQuestion, "fedlify-governance-full")}
-                      {renderGovernanceField(
-                        "Clinical use case",
-                        governanceOptionLabel(CLINICAL_USE_CASE_OPTIONS, currentStudy.clinicalUseCase)
-                      )}
-                      {renderGovernanceField("Population", currentStudy.population)}
-                      {renderGovernanceTags("Data modalities", dataModalityLabels)}
-                      {renderGovernanceField("Primary outcome", currentStudy.primaryOutcome)}
-                      {renderGovernanceField("Intended use", governanceOptionLabel(INTENDED_USE_OPTIONS, currentStudy.intendedUse))}
-                      {renderGovernanceField("Protocol summary", currentStudy.description, "fedlify-governance-full")}
-                    </div>
+                    </GovernanceSection>
+                    <GovernanceSection title="Scientific question">
+                      <div className="fedlify-governance-grid">
+                        {renderGovernanceField("Primary objective", currentStudy.goal, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Research question", currentStudy.researchQuestion, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Hypothesis", currentStudy.hypothesis, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Secondary objectives", currentStudy.secondaryObjectives, "fedlify-governance-full", true)}
+                      </div>
+                    </GovernanceSection>
+                    <GovernanceSection title="Design and population">
+                      <div className="fedlify-governance-grid">
+                        {renderGovernanceField("Study design", currentStudy.studyDesign, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Population", currentStudy.population)}
+                        {renderGovernanceTags("Data modalities", dataModalityLabels)}
+                        {renderGovernanceField("Eligibility criteria", currentStudy.eligibilityCriteria, "fedlify-governance-full", true)}
+                      </div>
+                    </GovernanceSection>
+                    <GovernanceSection title="Outcomes and analysis">
+                      <div className="fedlify-governance-grid">
+                        {renderGovernanceField("Primary endpoint / outcome", currentStudy.primaryOutcome)}
+                        {renderGovernanceField("Endpoint details", currentStudy.primaryEndpointDetails, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Secondary outcomes", currentStudy.secondaryOutcomes, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Sample size / rationale", currentStudy.sampleSizeRationale, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Analysis plan", currentStudy.analysisPlan, "fedlify-governance-full", true)}
+                      </div>
+                    </GovernanceSection>
+                    <GovernanceSection title="AI/federated governance">
+                      <div className="fedlify-governance-grid">
+                        {renderGovernanceField("Data handling plan", currentStudy.dataHandlingPlan, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Human-AI workflow", currentStudy.humanAiWorkflow, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Fairness / subgroup plan", currentStudy.fairnessPlan, "fedlify-governance-full", true)}
+                        {renderGovernanceField("Dissemination plan", currentStudy.disseminationPlan, "fedlify-governance-full", true)}
+                      </div>
+                    </GovernanceSection>
                   </section>
                 )
               },
               {
                 key: "ethics",
-                label: "Ethics review",
+                label: "Ethics",
                 children: (
                   <section className="fedlify-protocol-module is-wide">
-                    <SectionHeader
-                      title="Ethics review"
-                      description="Record approval, exemption, expiry, or pending review state."
-                      actions={
-                        <Button icon={<PlusOutlined />} onClick={() => openEthicsForm()}>
-                          Record ethics decision
-                        </Button>
-                      }
-                    />
-                    {currentStudy.ethics.length === 0 ? (
-                      <EmptyState
-                        icon={<SafetyCertificateOutlined />}
-                        title="No ethics records"
-                        description="Add the review decision when ethics status or exemption status is known."
-                        compact
-                      />
-                    ) : (
-                      <div className="fedlify-protocol-record-list">
-                        {currentStudy.ethics.map((record) => {
-                          const title = text(record.approvalNumber, record.status === "PENDING" ? "Pending ethics review" : "Ethics decision");
-                          return (
-                            <button
-                              key={text(record.id, `${record.status}-${record.createdAt}`)}
-                              type="button"
-                              className="fedlify-protocol-record-row"
-                              onClick={() => openDetail("ethics", String(record.id), "protocol")}
-                            >
-                              <span>
-                                <strong>{title}</strong>
-                                <small>{text(record.approvingBody, "Review body not recorded")} · {formatDate(record.createdAt)}</small>
-                              </span>
-                              <StatusTag value={status(record.status)} />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <WorkspaceCardGrid>
+                      {ethicsActionCard}
+                      {currentStudy.ethics.map((record) => {
+                        const title = text(record.approvalNumber, record.status === "PENDING" ? "Pending ethics review" : "Ethics decision");
+                        return (
+                          <WorkspaceRecordCard
+                            key={text(record.id, `${record.status}-${record.createdAt}`)}
+                            icon={<SafetyCertificateOutlined />}
+                            title={title}
+                            description={`${text(record.approvingBody, "Review body not recorded")} · ${formatDate(record.createdAt)}`}
+                            status={<StatusTag value={status(record.status)} />}
+                            onClick={() => openDetail("ethics", String(record.id), "protocol")}
+                          />
+                        );
+                      })}
+                    </WorkspaceCardGrid>
                   </section>
                 )
               },
               {
                 key: "documents",
-                label: "Governed documents",
+                label: "Documents",
                 children: (
                   <section className="fedlify-protocol-module is-wide">
-                    <SectionHeader
-                      title="Governed documents"
-                      description="Register protocol, agreement, policy, and review documents without storing raw clinical data."
-                      actions={
-                        <Button icon={<UploadOutlined />} onClick={() => openCreate("document")}>
-                          Register document
-                        </Button>
-                      }
-                    />
                     <Alert
                       type="warning"
                       showIcon
                       className="fedlify-protocol-note"
                       message="Do not upload raw or participant-level clinical datasets."
                     />
-                    {currentStudy.documents.length === 0 ? (
-                      <EmptyState
-                        icon={<FileTextOutlined />}
-                        title="No study documents"
-                        description="Register protocol, ethics, policy, or agreement documents only."
-                        compact
-                      />
-                    ) : (
-                      <div className="fedlify-protocol-record-list">
-                        {currentStudy.documents.map((document) => (
-                          <button
-                            key={text(document.id, document.filename)}
-                            type="button"
-                            className="fedlify-protocol-record-row"
-                            onClick={() => openDetail("document", String(document.id), "protocol")}
-                          >
-                            <span>
-                              <strong>{text(document.filename, "Study document")}</strong>
-                              <small>{displayEnum(document.kind, "Other")} · Version {text(document.version, "1")}</small>
-                            </span>
-                            <StatusTag value={status(document.scanStatus, "PENDING")} />
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <WorkspaceCardGrid>
+                      {documentActionCard}
+                      {currentStudy.documents.map((document) => (
+                        <WorkspaceRecordCard
+                          key={text(document.id, document.filename)}
+                          icon={<FileTextOutlined />}
+                          title={text(document.filename, "Study document")}
+                          description={`${displayEnum(document.kind, "Other")} · Version ${text(document.version, "1")}`}
+                          status={<StatusTag value={status(document.scanStatus, "PENDING")} />}
+                          onClick={() => openDetail("document", String(document.id), "protocol")}
+                        />
+                      ))}
+                    </WorkspaceCardGrid>
                   </section>
                 )
               },
               {
                 key: "activation",
-                label: "Activation gates",
+                label: "Activation",
                 children: (
                   <section className="fedlify-protocol-module is-wide">
-                    <SectionHeader
-                      title="Activation gates"
-                      description="A study must pass these gates before runtime provisioning and experiment submission."
-                      actions={
-                        <Button
-                          icon={<CheckCircleOutlined />}
-                          type="primary"
-                          className="fedlify-dark-action"
-                          disabled={currentStudy.status === "ACTIVE" || !activationReady}
-                          loading={formSubmitting}
-                          onClick={() => void patch(`/api/v1/studies/${studyId}`, { action: "activate" }, "Study activated.")}
-                        >
-                          {currentStudy.status === "ACTIVE" ? "Study active" : "Activate study"}
-                        </Button>
-                      }
-                    />
                     <Alert
                       type={activationReady ? "success" : "warning"}
                       showIcon
                       className="fedlify-protocol-note"
                       message={
                         activationReady
-                          ? "This study has the protocol, ethics, and site information required for activation."
-                          : "Activation is blocked until all required protocol gates pass."
+                          ? "This study has the study design, ethics decision, and participant site information required for activation."
+                          : activationBlockedMessage
                       }
                     />
-                    <div className="fedlify-activation-checklist">
-                      {[
-                        {
-                          label: "Protocol metadata",
-                          detail: protocolMetadataReady ? "Required study metadata is complete." : `Missing: ${missingProtocolFields.join(", ")}.`,
-                          passed: protocolMetadataReady
-                        },
-                        {
-                          label: "Ethics approval or exemption",
-                          detail: ethicsReady ? displayEnum(latestEthicsStatus(currentStudy), "Approved") : "Add an approved or not-required ethics record.",
-                          passed: ethicsReady
-                        },
-                        {
-                          label: "Participant sites",
-                          detail: hasParticipantSite ? `${currentStudy.studySites?.length ?? currentStudy.sites.length} participant site(s) registered.` : "Register at least one participant site.",
-                          passed: hasParticipantSite
-                        },
-                        {
-                          label: "Study activation state",
-                          detail: currentStudy.status === "ACTIVE" ? "Study is active." : "Activate the study after the above gates pass.",
-                          passed: currentStudy.status === "ACTIVE"
-                        }
-                      ].map((item) => (
-                        <article key={item.label} className={`fedlify-activation-check-row ${item.passed ? "is-ready" : "is-blocked"}`}>
-                          <span>{item.passed ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}</span>
-                          <div>
-                            <strong>{item.label}</strong>
-                            <small>{item.detail}</small>
-                          </div>
-                          <StatusTag value={item.passed ? "READY" : "NEEDS_ATTENTION"} />
-                        </article>
-                      ))}
-                    </div>
+                    <WorkspaceCardGrid>
+                      {activationActionCard}
+                    </WorkspaceCardGrid>
                   </section>
                 )
               }
@@ -2105,7 +2443,6 @@ export default function StudyDetailPage() {
 
     if (section === "team") {
       const memberGroups = groupedStudyMembers(currentStudy.members);
-      const roleAssignmentCount = currentStudy.members.length;
       return (
         <div className="fedlify-section-stack">
           <Tabs
@@ -2118,49 +2455,45 @@ export default function StudyDetailPage() {
                 label: "Members",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Study members and roles"
-                      description={`${memberGroups.length} people hold ${roleAssignmentCount} study role assignment${roleAssignmentCount === 1 ? "" : "s"}.`}
-                    />
-                    {memberGroups.length === 0 ? (
-                      <EmptyState icon={<MailOutlined />} title="No study members" description="Invite people and assign one or more study roles." />
-                    ) : (
-                      <CardGrid>
-                        {memberGroups.map((member) => {
-                          const roles = member.roles ?? uniqueValues(member.memberships.map((membership: EntityRecord) => membership.role));
-                          return (
-                            <EntityCard
-                              className="fedlify-member-card"
-                              key={member.id}
-                              onClick={() => openDetail("member", member.id, "team")}
-                              title={member.user.name ?? member.user.email}
-                              subtitle={member.user.email}
-                              meta={[`${roles.length} study role${roles.length === 1 ? "" : "s"} assigned`]}
-                              actionsMenu={
-                                <EntityActionMenu
-                                  items={[
-                                    { key: "view", label: "View member", icon: <EyeOutlined />, onClick: () => openDetail("member", member.id, "team") },
-                                    { key: "roles", label: "Edit study roles", icon: <EditOutlined />, onClick: () => {
-                                      openDetail("member", member.id, "team");
-                                      setMemberRoleEditingId(String(member.id));
-                                    } }
-                                  ]}
-                                />
-                              }
-                            >
-                              <div className="fedlify-member-card-body">
-                                <span className="fedlify-member-role-label">Assigned study roles</span>
-                                <span className="fedlify-role-chip-list is-left">
-                                  {roles.map((role: string) => (
-                                    <StatusTag key={role} value={role} />
-                                  ))}
-                                </span>
-                              </div>
-                            </EntityCard>
-                          );
-                        })}
-                      </CardGrid>
-                    )}
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
+                        icon={<PlusOutlined />}
+                        title={memberGroups.length === 0 ? "Add first study member" : "Add study member"}
+                        description={
+                          memberGroups.length === 0
+                            ? "No study members yet. Invite people and assign one or more study roles."
+                            : "Invite people and assign one or more study roles."
+                        }
+                        onClick={() => openCreate("invite")}
+                      />
+                      {memberGroups.map((member) => {
+                        const roles = member.roles ?? uniqueValues(member.memberships.map((membership: EntityRecord) => membership.role));
+                        return (
+                          <WorkspaceRecordCard
+                            key={member.id}
+                            icon={<MailOutlined />}
+                            title={member.user.name ?? member.user.email}
+                            description={member.user.email}
+                            meta={[
+                              `${roles.length} study role${roles.length === 1 ? "" : "s"} assigned`,
+                              roles.map((role: string) => displayEnum(role)).join(", ")
+                            ]}
+                            actionsMenu={
+                              <EntityActionMenu
+                                items={[
+                                  { key: "view", label: "View member", icon: <EyeOutlined />, onClick: () => openDetail("member", member.id, "team") },
+                                  { key: "roles", label: "Edit study roles", icon: <EditOutlined />, onClick: () => {
+                                    openDetail("member", member.id, "team");
+                                    setMemberRoleEditingId(String(member.id));
+                                  } }
+                                ]}
+                              />
+                            }
+                            onClick={() => openDetail("member", member.id, "team")}
+                          />
+                        );
+                      })}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               },
@@ -2169,40 +2502,33 @@ export default function StudyDetailPage() {
                 label: "Pending invitations",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Pending invitations"
-                      description="Track people invited to the study before they accept their role assignments."
-                    />
-                    {currentStudy.invitations.length === 0 ? (
-                      <EmptyState
-                        icon={<MailOutlined />}
-                        title="No invitations issued"
-                        description="Add study members or site staff when they need study-scoped access."
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
+                        icon={<PlusOutlined />}
+                        title={currentStudy.invitations.length === 0 ? "Send first invitation" : "Send invitation"}
+                        description={
+                          currentStudy.invitations.length === 0
+                            ? "No invitations issued. Add study members or site staff when they need study-scoped access."
+                            : "Invite study members or site staff when they need study-scoped access."
+                        }
+                        onClick={() => openCreate("invite")}
                       />
-                    ) : (
-                      <CardGrid>
-                        {currentStudy.invitations.map((invitation) => {
-                          const roles = Array.isArray(invitation.roles) && invitation.roles.length > 0 ? invitation.roles : [invitation.role];
-                          return (
-                            <EntityCard
-                              key={text(invitation.id, `${invitation.email}-${invitation.createdAt}`)}
-                              onClick={() => openDetail("invitation", String(invitation.id), "team")}
-                              title={text(invitation.email, "Invitation")}
-                              subtitle={`Expires ${formatDate(invitation.expiresAt)}`}
-                              status={<StatusTag value={status(invitation.status, "PENDING")} />}
-                              meta={[`${roles.length} study role${roles.length === 1 ? "" : "s"}`]}
-                              actionsMenu={<EntityActionMenu items={[{ key: "view", label: "View invitation", icon: <EyeOutlined />, onClick: () => openDetail("invitation", String(invitation.id), "team") }]} />}
-                            >
-                              <span className="fedlify-role-chip-list is-left">
-                                {roles.map((role: string) => (
-                                  <StatusTag key={role} value={role} />
-                                ))}
-                              </span>
-                            </EntityCard>
-                          );
-                        })}
-                      </CardGrid>
-                    )}
+                      {currentStudy.invitations.map((invitation) => {
+                        const roles = Array.isArray(invitation.roles) && invitation.roles.length > 0 ? invitation.roles : [invitation.role];
+                        return (
+                          <WorkspaceRecordCard
+                            key={text(invitation.id, `${invitation.email}-${invitation.createdAt}`)}
+                            icon={<MailOutlined />}
+                            title={text(invitation.email, "Invitation")}
+                            description={`Expires ${formatDate(invitation.expiresAt)}`}
+                            status={<StatusTag value={status(invitation.status, "PENDING")} />}
+                            meta={[`${roles.length} study role${roles.length === 1 ? "" : "s"}`, roles.map((role: string) => displayEnum(role)).join(", ")]}
+                            actionsMenu={<EntityActionMenu items={[{ key: "view", label: "View invitation", icon: <EyeOutlined />, onClick: () => openDetail("invitation", String(invitation.id), "team") }]} />}
+                            onClick={() => openDetail("invitation", String(invitation.id), "team")}
+                          />
+                        );
+                      })}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               }
@@ -2213,8 +2539,6 @@ export default function StudyDetailPage() {
     }
 
     if (section === "sites") {
-      const readySites = readyStudySites(currentStudy);
-      const connectedSites = connectedStudySites(currentStudy);
       return (
         <div className="fedlify-section-stack">
           {siteToken ? (
@@ -2235,42 +2559,41 @@ export default function StudyDetailPage() {
                 label: "Participant sites",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Participant sites"
-                      description="Institutions participating in the federated study."
-                    />
-                    {(currentStudy.studySites?.length ?? 0) === 0 ? (
-                      <EmptyState
-                        icon={<ClusterOutlined />}
-                        title="No participant sites"
-                        description="Register at least one institution before generating site-specific kits."
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
+                        icon={<PlusOutlined />}
+                        title={(currentStudy.studySites?.length ?? 0) === 0 ? "Register first site" : "Register site"}
+                        description={
+                          (currentStudy.studySites?.length ?? 0) === 0
+                            ? "No participant sites yet. Register at least one institution before generating site-specific kits."
+                            : "Add another institution participating in the federated study."
+                        }
+                        onClick={() => openCreate("site")}
                       />
-                    ) : (
-                      <CardGrid>
-                        {currentStudy.studySites.map((site) => (
-                          <EntityCard
-                            key={text(site.id, site.name)}
-                            onClick={() => openDetail("site", String(site.id), "sites")}
-                            title={text(site.name, "Site")}
-                            subtitle={text(site.institutionName, "Institution not recorded")}
-                            status={<StatusTag value={status(site.participationStatus, "OFFLINE")} />}
-                            meta={[
-                              `PI: ${text(site.principalInvestigator, "Not set")}`,
-                              `Data: ${text(site.dataProfile?.modality, "Not set")}`,
-                              `Readiness: ${displayEnum(site.readinessChecks?.[0]?.status, "Pending")}`
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View site", icon: <EyeOutlined />, onClick: () => openDetail("site", String(site.id), "sites") },
-                                  { key: "dashboard", label: "Open onboarding dashboard", icon: <ClusterOutlined />, onClick: () => router.push(`/sites/${site.id}`) }
-                                ]}
-                              />
-                            }
-                          />
-                        ))}
-                      </CardGrid>
-                    )}
+                      {currentStudy.studySites.map((site) => (
+                        <WorkspaceRecordCard
+                          key={text(site.id, site.name)}
+                          icon={<ClusterOutlined />}
+                          title={text(site.name, "Site")}
+                          description={text(site.institutionName, "Institution not recorded")}
+                          status={<StatusTag value={status(site.participationStatus, "OFFLINE")} />}
+                          meta={[
+                            `PI: ${text(site.principalInvestigator, "Not set")}`,
+                            `Data: ${text(site.dataProfile?.modality, "Not set")}`,
+                            `Readiness: ${displayEnum(site.readinessChecks?.[0]?.status, "Pending")}`
+                          ]}
+                          actionsMenu={
+                            <EntityActionMenu
+                              items={[
+                                { key: "view", label: "View site", icon: <EyeOutlined />, onClick: () => openDetail("site", String(site.id), "sites") },
+                                { key: "dashboard", label: "Open onboarding dashboard", icon: <ClusterOutlined />, onClick: () => router.push(`/sites/${site.id}`) }
+                              ]}
+                            />
+                          }
+                          onClick={() => openDetail("site", String(site.id), "sites")}
+                        />
+                      ))}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               },
@@ -2279,24 +2602,23 @@ export default function StudyDetailPage() {
                 label: "Readiness & data",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Readiness and data profiles"
-                      description={`${readySites.length}/${currentStudy.studySites?.length ?? 0} sites ready, ${connectedSites.length} connected. Fedlify stores cohort-level metadata only.`}
-                    />
                     {(currentStudy.studySites?.length ?? 0) === 0 ? (
-                      <EmptyState
-                        icon={<ClusterOutlined />}
-                        title="No site readiness state"
-                        description="Register participant sites before tracking readiness and data profile completeness."
-                      />
+                      <WorkspaceCardGrid>
+                        <WorkspaceActionCard
+                          icon={<PlusOutlined />}
+                          title="Register first site"
+                          description="No site readiness state yet. Register participant sites before tracking readiness and data profile completeness."
+                          onClick={() => openCreate("site")}
+                        />
+                      </WorkspaceCardGrid>
                     ) : (
-                      <CardGrid>
+                      <WorkspaceCardGrid>
                         {currentStudy.studySites.map((site) => (
-                          <EntityCard
+                          <WorkspaceRecordCard
                             key={text(site.id, site.name)}
-                            onClick={() => openDetail("site", String(site.id), "sites")}
+                            icon={<ClusterOutlined />}
                             title={text(site.name, "Site")}
-                            subtitle={text(site.dataProfile?.datasetDescription, "Dataset summary not recorded")}
+                            description={text(site.dataProfile?.datasetDescription, "Dataset summary not recorded")}
                             status={<StatusTag value={status(site.readinessChecks?.[0]?.status, "PENDING")} />}
                             meta={[
                               `Connection: ${displayEnum(site.nvflareStatuses?.[0]?.status, "Offline")}`,
@@ -2316,9 +2638,10 @@ export default function StudyDetailPage() {
                                 ]}
                               />
                             }
+                            onClick={() => openDetail("site", String(site.id), "sites")}
                           />
                         ))}
-                      </CardGrid>
+                      </WorkspaceCardGrid>
                     )}
                   </div>
                 )
@@ -2337,39 +2660,69 @@ export default function StudyDetailPage() {
         (project.proposals ?? []).map((proposal: EntityRecord) => ({ ...proposal, project }))
       );
       const approvedTemplatesForPipeline = approvedTemplateCatalog(templates);
+      const pipelineReviewCards = pipelineWorkflowSteps(currentStudy).map((step, index) => {
+        const targetTab = index === 0 ? "templates" : index === 1 ? "proposals" : "versions";
+        const icons = [<CodeOutlined key="template" />, <RobotOutlined key="proposal" />, <CheckCircleOutlined key="validation" />, <SafetyCertificateOutlined key="approval" />];
+        return {
+          ...step,
+          key: `${index}-${String(step.label)}`,
+          icon: icons[index] ?? <CodeOutlined />,
+          targetTab,
+          description: [step.detail, step.meta].filter(Boolean).join(" · ")
+        };
+      });
       return (
         <div className="fedlify-section-stack">
-          <WorkflowRail steps={pipelineWorkflowSteps(currentStudy)} />
           <Tabs
             className="fedlify-card-tabs fedlify-workspace-tabs"
             activeKey={pipelineTab}
             onChange={setPipelineTab}
             items={[
               {
+                key: "review",
+                label: "Review",
+                children: (
+                  <div className="fedlify-tab-panel">
+                    <WorkspaceCardGrid className="fedlify-workspace-review-grid">
+                      {pipelineReviewCards.map((item) => (
+                        <WorkspaceReviewCard
+                          key={item.key}
+                          icon={item.icon}
+                          title={item.label}
+                          description={item.description}
+                          status={<StatusTag value={workflowReviewStatus(item.state)} />}
+                          tone={workflowReviewTone(item.state) as "ready" | "needs_attention" | "optional" | "blocked"}
+                          onClick={() => setPipelineTab(item.targetTab)}
+                          aria-label={`Open ${item.targetTab}: ${item.label}`}
+                        />
+                      ))}
+                    </WorkspaceCardGrid>
+                  </div>
+                )
+              },
+              {
                 key: "templates",
                 label: "Template sources",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Template sources"
-                      description="Approved public or study template sources that can be copied into a study-specific pipeline version."
-                    />
                     {approvedTemplatesForPipeline.length === 0 ? (
-                      <EmptyState
-                        icon={<CodeOutlined />}
-                        title="No approved template sources"
-                        description="Publish a public template version or approve a study template before creating a runnable pipeline version."
-                      />
+                      <WorkspaceCardGrid>
+                        <WorkspaceEmptyCard
+                          icon={<CodeOutlined />}
+                          title="No approved template sources"
+                          description="Publish a public template version or approve a study template before creating a runnable pipeline version."
+                        />
+                      </WorkspaceCardGrid>
                     ) : (
-                      <CardGrid>
+                      <WorkspaceCardGrid>
                         {approvedTemplatesForPipeline.map((template) => {
                           const version = template.currentApprovedVersion;
                           return (
-                            <EntityCard
+                            <WorkspaceRecordCard
                               key={text(version?.id, template.id)}
-                              onClick={() => router.push(`/templates/${template.id}`)}
+                              icon={<CodeOutlined />}
                               title={text(template.name, template.templateKey)}
-                              subtitle={templateScopeLabel(template)}
+                              description={templateScopeLabel(template)}
                               status={<StatusTag value={status(template.status ?? version?.approvalStatus, "APPROVED")} />}
                               meta={[
                                 `Approved version: ${templateVersionLabel(version)}`,
@@ -2385,10 +2738,11 @@ export default function StudyDetailPage() {
                                   ]}
                                 />
                               }
+                              onClick={() => router.push(`/templates/${template.id}`)}
                             />
                           );
                         })}
-                      </CardGrid>
+                      </WorkspaceCardGrid>
                     )}
                   </div>
                 )
@@ -2398,52 +2752,59 @@ export default function StudyDetailPage() {
                 label: "Pipeline versions",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Pipeline versions"
-                      description="Immutable study pipeline commits. A version must pass validation and be approved before it can run."
-                    />
-                    {pipelineVersions.length === 0 ? (
-                      <EmptyState icon={<CodeOutlined />} title="No pipeline versions" description="Create a pipeline from a template to generate the first validated commit." />
-                    ) : (
-                      <CardGrid>
-                        {pipelineVersions.map((version) => (
-                          <EntityCard
-                            key={String(version.id)}
-                            onClick={() => openDetail("pipelineVersion", String(version.id), "pipeline")}
-                            title={text(version.version, "Pipeline version")}
-                            subtitle={text(version.project?.name, "Pipeline source workspace")}
-                            status={<StatusTag value={version.approvalStatus ?? version.validationStatus} />}
-                            meta={[
-                              `State: ${pipelineVersionState(version)}`,
-                              `Template: ${templateVersionLabel(version.templateVersion ?? version.project?.templateVersion)}`,
-                              `Validation: ${displayEnum(version.validationStatus)}`,
-                              `Approval: ${displayEnum(version.approvalStatus)}`,
-                              `Commit: ${shortCommit(version.gitCommit)}`
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View version", icon: <EyeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
-                                  { key: "code", label: "Review code", icon: <CodeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
-                                  {
-                                    key: "approve",
-                                    label: "Approve version",
-                                    icon: <CheckCircleOutlined />,
-                                    disabled: version.approvalStatus === "APPROVED" || version.validationStatus !== "PASSED",
-                                    onClick: () =>
-                                      void post(
-                                        `/api/v1/pipeline-versions/${version.id}/approve`,
-                                        { notes: "Approved after human review in Fedlify." },
-                                        "Pipeline version approved."
-                                      )
-                                  }
-                                ]}
-                              />
-                            }
-                          />
-                        ))}
-                      </CardGrid>
-                    )}
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
+                        icon={<PlayCircleOutlined />}
+                        title={pipelineVersions.length === 0 ? "Create first pipeline version" : WORKFLOW_TERMS.createPipelineVersion}
+                        description={
+                          approvedTemplatesForPipeline.length === 0
+                            ? "No approved template sources yet. Approve a template before creating a pipeline version."
+                            : pipelineVersions.length === 0
+                              ? "No pipeline versions yet. Create a pipeline from an approved template."
+                              : "Create another immutable study pipeline commit from an approved template."
+                        }
+                        disabled={approvedTemplatesForPipeline.length === 0}
+                        tone={approvedTemplatesForPipeline.length === 0 ? "muted" : "default"}
+                        onClick={() => openPipelineCreate()}
+                      />
+                      {pipelineVersions.map((version) => (
+                        <WorkspaceRecordCard
+                          key={String(version.id)}
+                          icon={<CodeOutlined />}
+                          title={text(version.version, "Pipeline version")}
+                          description={text(version.project?.name, "Pipeline source workspace")}
+                          status={<StatusTag value={version.approvalStatus ?? version.validationStatus} />}
+                          meta={[
+                            `State: ${pipelineVersionState(version)}`,
+                            `Template: ${templateVersionLabel(version.templateVersion ?? version.project?.templateVersion)}`,
+                            `Validation: ${displayEnum(version.validationStatus)}`,
+                            `Approval: ${displayEnum(version.approvalStatus)}`,
+                            `Commit: ${shortCommit(version.gitCommit)}`
+                          ]}
+                          actionsMenu={
+                            <EntityActionMenu
+                              items={[
+                                { key: "view", label: "View version", icon: <EyeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
+                                { key: "code", label: "Review code", icon: <CodeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
+                                {
+                                  key: "approve",
+                                  label: "Approve version",
+                                  icon: <CheckCircleOutlined />,
+                                  disabled: version.approvalStatus === "APPROVED" || version.validationStatus !== "PASSED",
+                                  onClick: () =>
+                                    void post(
+                                      `/api/v1/pipeline-versions/${version.id}/approve`,
+                                      { notes: "Approved after human review in Fedlify." },
+                                      "Pipeline version approved."
+                                    )
+                                }
+                              ]}
+                            />
+                          }
+                          onClick={() => openDetail("pipelineVersion", String(version.id), "pipeline")}
+                        />
+                      ))}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               },
@@ -2452,43 +2813,50 @@ export default function StudyDetailPage() {
                 label: "Draft PRs",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Draft pipeline PRs"
-                      description="Gitea branches generated for study pipeline versions. Review these before approving the immutable version."
-                    />
-                    {pipelineProposals.length === 0 ? (
-                      <EmptyState icon={<RobotOutlined />} title="No draft pipeline PRs" description="Create a pipeline from a template to open the first study-scoped PR." />
-                    ) : (
-                      <CardGrid>
-                        {pipelineProposals.map((proposal) => {
-                          const pullRequestUrl = externalUrl(proposal.giteaPullRequestUrl);
-                          const branchUrl = giteaBranchUrl(proposal.project?.giteaRepoUrl, proposal.branchName);
-                          return (
-                            <EntityCard
-                              key={String(proposal.id)}
-                              onClick={() => openDetail("pipelineProject", String(proposal.project?.id), "pipeline")}
-                              title={text(proposal.title, proposal.project?.name)}
-                              subtitle={templateSourceLabel(proposal.project?.template, proposal.project?.templateVersion)}
-                              status={<StatusTag value={status(proposal.status, "DRAFT")} />}
-                              meta={[
-                                `Branch: ${text(proposal.branchName)}`,
-                                `Commit: ${shortCommit(proposal.giteaHeadCommit)}`,
-                                `PR: ${proposal.giteaPullRequestNumber ? `#${proposal.giteaPullRequestNumber}` : "Not opened"}`
-                              ]}
-                              actionsMenu={
-                                <EntityActionMenu
-                                  items={[
-                                    { key: "view", label: "View pipeline source", icon: <EyeOutlined />, onClick: () => openDetail("pipelineProject", String(proposal.project?.id), "pipeline") },
-                                    ...(pullRequestUrl ? [{ key: "pr", label: "Review PR", icon: <FileTextOutlined />, href: pullRequestUrl, target: "_blank" }] : []),
-                                    ...(branchUrl ? [{ key: "code", label: "Open branch", icon: <CodeOutlined />, href: branchUrl, target: "_blank" }] : [])
-                                  ]}
-                                />
-                              }
-                            />
-                          );
-                        })}
-                      </CardGrid>
-                    )}
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
+                        icon={<PlayCircleOutlined />}
+                        title={pipelineProposals.length === 0 ? "Create first pipeline PR" : WORKFLOW_TERMS.createPipelineVersion}
+                        description={
+                          approvedTemplatesForPipeline.length === 0
+                            ? "No approved template sources yet. Approve a template before opening a study-scoped PR."
+                            : pipelineProposals.length === 0
+                              ? "No draft PRs yet. Create a pipeline from a template to open the first study-scoped PR."
+                              : "Create another study-scoped pipeline PR from an approved template."
+                        }
+                        disabled={approvedTemplatesForPipeline.length === 0}
+                        tone={approvedTemplatesForPipeline.length === 0 ? "muted" : "default"}
+                        onClick={() => openPipelineCreate()}
+                      />
+                      {pipelineProposals.map((proposal) => {
+                        const pullRequestUrl = externalUrl(proposal.giteaPullRequestUrl);
+                        const branchUrl = giteaBranchUrl(proposal.project?.giteaRepoUrl, proposal.branchName);
+                        return (
+                          <WorkspaceRecordCard
+                            key={String(proposal.id)}
+                            icon={<RobotOutlined />}
+                            title={text(proposal.title, proposal.project?.name)}
+                            description={templateSourceLabel(proposal.project?.template, proposal.project?.templateVersion)}
+                            status={<StatusTag value={status(proposal.status, "DRAFT")} />}
+                            meta={[
+                              `Branch: ${text(proposal.branchName)}`,
+                              `Commit: ${shortCommit(proposal.giteaHeadCommit)}`,
+                              `PR: ${proposal.giteaPullRequestNumber ? `#${proposal.giteaPullRequestNumber}` : "Not opened"}`
+                            ]}
+                            actionsMenu={
+                              <EntityActionMenu
+                                items={[
+                                  { key: "view", label: "View pipeline source", icon: <EyeOutlined />, onClick: () => openDetail("pipelineProject", String(proposal.project?.id), "pipeline") },
+                                  ...(pullRequestUrl ? [{ key: "pr", label: "Review PR", icon: <FileTextOutlined />, href: pullRequestUrl, target: "_blank" }] : []),
+                                  ...(branchUrl ? [{ key: "code", label: "Open branch", icon: <CodeOutlined />, href: branchUrl, target: "_blank" }] : [])
+                                ]}
+                              />
+                            }
+                            onClick={() => openDetail("pipelineProject", String(proposal.project?.id), "pipeline")}
+                          />
+                        );
+                      })}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               }
@@ -2522,49 +2890,43 @@ export default function StudyDetailPage() {
                 label: "Aggregator",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Aggregator deployment"
-                      description="Provision and start the local NVFLARE aggregator before sites join the federation."
-                      actions={
-                        <Button icon={<ClusterOutlined />} type="primary" className="fedlify-dark-action" loading={formSubmitting} onClick={() => void provisionDeployment()}>
-                          Provision deployment
-                        </Button>
-                      }
-                    />
-                    {(currentStudy.nvflareDeployments?.length ?? 0) === 0 ? (
-                      <EmptyState
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
                         icon={<ClusterOutlined />}
-                        title="No NVFLARE deployment"
-                        description="Provision a local Docker aggregator after protocol activation and before submitting federated runs."
+                        title={(currentStudy.nvflareDeployments?.length ?? 0) === 0 ? "Provision deployment" : "Provision another deployment"}
+                        description={
+                          (currentStudy.nvflareDeployments?.length ?? 0) === 0
+                            ? "No NVFLARE deployment yet. Provision a local Docker aggregator before submitting federated runs."
+                            : "Provision a new local Docker aggregator workspace."
+                        }
+                        onClick={() => void provisionDeployment()}
                       />
-                    ) : (
-                      <CardGrid>
-                        {currentStudy.nvflareDeployments.map((deployment) => (
-                          <EntityCard
-                            key={text(deployment.id, deployment.createdAt)}
-                            onClick={() => openDetail("deployment", String(deployment.id), "run")}
-                            title={text(deployment.name, "NVFLARE deployment")}
-                            subtitle={text(deployment.serverAddress, "Server address not assigned")}
-                            status={<StatusTag value={status(deployment.status, "DRAFT")} />}
-                            meta={[
-                              `Runtime: ${text(deployment.runtimeMode, "local-docker")}`,
-                              `Admin: ${text(deployment.activeAdminEmail)}`,
-                              `Compose: ${text(deployment.composeProject)}`,
-                              deployment.lastError ? `Last error: ${deployment.lastError}` : `Workspace: ${text(deployment.workspacePath)}`
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View deployment", icon: <EyeOutlined />, onClick: () => openDetail("deployment", String(deployment.id), "run") },
-                                  { key: "start", label: "Start aggregator", icon: <PlayCircleOutlined />, disabled: deployment.status === "ACTIVE", onClick: () => void startDeployment(deployment.id) },
-                                  { key: "stop", label: "Stop aggregator", danger: true, disabled: deployment.status !== "ACTIVE", onClick: () => void stopDeployment(deployment.id) }
-                                ]}
-                              />
-                            }
-                          />
-                        ))}
-                      </CardGrid>
-                    )}
+                      {currentStudy.nvflareDeployments.map((deployment) => (
+                        <WorkspaceRecordCard
+                          key={text(deployment.id, deployment.createdAt)}
+                          icon={<ClusterOutlined />}
+                          title={text(deployment.name, "NVFLARE deployment")}
+                          description={text(deployment.serverAddress, "Server address not assigned")}
+                          status={<StatusTag value={status(deployment.status, "DRAFT")} />}
+                          meta={[
+                            `Runtime: ${text(deployment.runtimeMode, "local-docker")}`,
+                            `Admin: ${text(deployment.activeAdminEmail)}`,
+                            `Compose: ${text(deployment.composeProject)}`,
+                            deployment.lastError ? `Last error: ${deployment.lastError}` : `Workspace: ${text(deployment.workspacePath)}`
+                          ]}
+                          actionsMenu={
+                            <EntityActionMenu
+                              items={[
+                                { key: "view", label: "View deployment", icon: <EyeOutlined />, onClick: () => openDetail("deployment", String(deployment.id), "run") },
+                                { key: "start", label: "Start aggregator", icon: <PlayCircleOutlined />, disabled: deployment.status === "ACTIVE", onClick: () => void startDeployment(deployment.id) },
+                                { key: "stop", label: "Stop aggregator", danger: true, disabled: deployment.status !== "ACTIVE", onClick: () => void stopDeployment(deployment.id) }
+                              ]}
+                            />
+                          }
+                          onClick={() => openDetail("deployment", String(deployment.id), "run")}
+                        />
+                      ))}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               },
@@ -2595,50 +2957,53 @@ export default function StudyDetailPage() {
                         onClick={() => activeDeployment?.id ? openDetail("deployment", String(activeDeployment.id), "run") : undefined}
                       />
                     </CardGrid>
-                    {(currentStudy.nvflareJobs?.length ?? 0) === 0 ? (
-                      <EmptyState
+                    <WorkspaceCardGrid>
+                      <WorkspaceActionCard
                         icon={<MonitorOutlined />}
-                        title="No federated runs"
-                        description="Submit an approved pipeline version after sites pass readiness checks."
+                        title={(currentStudy.nvflareJobs?.length ?? 0) === 0 ? "Submit first federated run" : WORKFLOW_TERMS.submitFederatedRun}
+                        description={
+                          (currentStudy.nvflareJobs?.length ?? 0) === 0
+                            ? "No federated runs yet. Submit an approved pipeline version after sites pass readiness checks."
+                            : "Submit another approved pipeline version to the selected federation sites."
+                        }
+                        onClick={() => openCreate("job")}
                       />
-                    ) : (
-                      <CardGrid>
-                        {currentStudy.nvflareJobs.map((job) => (
-                          <EntityCard
-                            key={text(job.id, job.createdAt)}
-                            onClick={() => openDetail("experimentRun", String(job.id), "run")}
-                            title={text(job.nvflareJobId, WORKFLOW_TERMS.federatedRun)}
-                            subtitle={text(job.pipelineVersion?.project?.name, "Pipeline source workspace")}
-                            status={<StatusTag value={status(job.status, "DRAFT")} />}
-                            meta={[
-                              `Submitted ${formatDate(job.submittedAt ?? job.createdAt)}`,
-                              `${job.events?.length ?? 0} events`,
-                              `${job.logArtifacts?.length ?? 0} log artifacts`
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View run", icon: <EyeOutlined />, onClick: () => openDetail("experimentRun", String(job.id), "run") },
-                                  { key: "refresh", label: "Refresh state and logs", icon: <ReloadOutlined />, onClick: () => void openJobLogs(job) },
-                                  {
-                                    key: "abort",
-                                    label: "Abort run",
-                                    danger: true,
-                                    disabled: ["COMPLETED", "FAILED", "ABORTED", "REJECTED"].includes(status(job.status)),
-                                    onClick: () =>
-                                      void post(
-                                        `/api/v1/nvflare/jobs/${job.id}/abort`,
-                                        { reason: "Aborted from Fedlify run dashboard." },
-                                        "Federated run abort requested."
-                                      )
-                                  }
-                                ]}
-                              />
-                            }
-                          />
-                        ))}
-                      </CardGrid>
-                    )}
+                      {currentStudy.nvflareJobs.map((job) => (
+                        <WorkspaceRecordCard
+                          key={text(job.id, job.createdAt)}
+                          icon={<MonitorOutlined />}
+                          title={text(job.nvflareJobId, WORKFLOW_TERMS.federatedRun)}
+                          description={text(job.pipelineVersion?.project?.name, "Pipeline source workspace")}
+                          status={<StatusTag value={status(job.status, "DRAFT")} />}
+                          meta={[
+                            `Submitted ${formatDate(job.submittedAt ?? job.createdAt)}`,
+                            `${job.events?.length ?? 0} events`,
+                            `${job.logArtifacts?.length ?? 0} log artifacts`
+                          ]}
+                          actionsMenu={
+                            <EntityActionMenu
+                              items={[
+                                { key: "view", label: "View run", icon: <EyeOutlined />, onClick: () => openDetail("experimentRun", String(job.id), "run") },
+                                { key: "refresh", label: "Refresh state and logs", icon: <ReloadOutlined />, onClick: () => void openJobLogs(job) },
+                                {
+                                  key: "abort",
+                                  label: "Abort run",
+                                  danger: true,
+                                  disabled: ["COMPLETED", "FAILED", "ABORTED", "REJECTED"].includes(status(job.status)),
+                                  onClick: () =>
+                                    void post(
+                                      `/api/v1/nvflare/jobs/${job.id}/abort`,
+                                      { reason: "Aborted from Fedlify run dashboard." },
+                                      "Federated run abort requested."
+                                    )
+                                }
+                              ]}
+                            />
+                          }
+                          onClick={() => openDetail("experimentRun", String(job.id), "run")}
+                        />
+                      ))}
+                    </WorkspaceCardGrid>
                   </div>
                 )
               }
@@ -2662,23 +3027,25 @@ export default function StudyDetailPage() {
                 label: "Trained model releases",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Trained model releases"
-                      description="Approved aggregate model artifacts promoted from completed federated runs."
-                    />
                     {modelReleases.length === 0 ? (
-                      <EmptyState icon={<CloudDownloadOutlined />} title="No trained model releases" description="Promote a completed federated run result from Run." />
+                      <WorkspaceCardGrid>
+                        <WorkspaceEmptyCard
+                          icon={<CloudDownloadOutlined />}
+                          title="No trained model releases"
+                          description="Promote a completed federated run result from Run."
+                        />
+                      </WorkspaceCardGrid>
                     ) : (
-                      <CardGrid>
+                      <WorkspaceCardGrid>
                         {modelReleases.map((release) => {
                           const modelArtifact = release.artifacts?.find((artifact: EntityRecord) => artifact.kind === "AGGREGATED_MODEL");
                           const sourceJob = release.sourceResult?.job;
                           return (
-                            <EntityCard
+                            <WorkspaceRecordCard
                               key={release.id}
-                              onClick={() => openDetail("modelRelease", String(release.id), "results")}
+                              icon={<CloudDownloadOutlined />}
                               title={`Model ${release.version}`}
-                              subtitle={`Source run ${text(sourceJob?.nvflareJobId, sourceJob?.id)}`}
+                              description={`Source run ${text(sourceJob?.nvflareJobId, sourceJob?.id)}`}
                               status={<StatusTag value={release.status} />}
                               meta={[
                                 sourceJob?.pipelineVersion?.version ? `Pipeline ${sourceJob.pipelineVersion.version}` : "Pipeline version not recorded",
@@ -2702,10 +3069,11 @@ export default function StudyDetailPage() {
                                   ]}
                                 />
                               }
+                              onClick={() => openDetail("modelRelease", String(release.id), "results")}
                             />
                           );
                         })}
-                      </CardGrid>
+                      </WorkspaceCardGrid>
                     )}
                   </div>
                 )
@@ -2715,24 +3083,22 @@ export default function StudyDetailPage() {
                 label: "Code and kit artifacts",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <SectionHeader
-                      title="Code and kit artifacts"
-                      description="Approved startup kits, source bundles, and checksum manifests."
-                    />
                     {currentStudy.releases.length === 0 ? (
-                      <EmptyState
-                        icon={<CloudDownloadOutlined />}
-                        title="No code or kit releases"
-                        description="Approved, immutable kit releases will appear after human review."
-                      />
+                      <WorkspaceCardGrid>
+                        <WorkspaceEmptyCard
+                          icon={<CloudDownloadOutlined />}
+                          title="No code or kit releases"
+                          description="Approved, immutable kit releases will appear after human review."
+                        />
+                      </WorkspaceCardGrid>
                     ) : (
-                      <CardGrid>
+                      <WorkspaceCardGrid>
                         {currentStudy.releases.map((release) => (
-                          <EntityCard
+                          <WorkspaceRecordCard
                             key={release.id}
-                            onClick={() => openDetail("codeRelease", release.id, "results")}
+                            icon={<CloudDownloadOutlined />}
                             title={`Code/kit release ${release.version}`}
-                            subtitle={`Approved ${formatDate(release.approvedAt)}`}
+                            description={`Approved ${formatDate(release.approvedAt)}`}
                             status={<StatusTag value={release.status} />}
                             meta={[`${release.artifacts?.length ?? 0} artifacts`, `${release.checksum.slice(0, 12)}...`]}
                             actionsMenu={
@@ -2748,9 +3114,10 @@ export default function StudyDetailPage() {
                                 ]}
                               />
                             }
+                            onClick={() => openDetail("codeRelease", release.id, "results")}
                           />
                         ))}
-                      </CardGrid>
+                      </WorkspaceCardGrid>
                     )}
                   </div>
                 )
@@ -2764,25 +3131,28 @@ export default function StudyDetailPage() {
     return (
       <div className="fedlify-section-stack">
         {currentStudy.auditEvents.length === 0 ? (
-          <EmptyState
-            icon={<AuditOutlined />}
-            title="No audit events"
-            description="Access, governance, artifact, and release actions will be recorded here."
-          />
+          <WorkspaceCardGrid>
+            <WorkspaceEmptyCard
+              icon={<AuditOutlined />}
+              title="No audit events"
+              description="Access, governance, artifact, and release actions will be recorded here."
+            />
+          </WorkspaceCardGrid>
         ) : (
-          <CardGrid>
+          <WorkspaceCardGrid>
             {currentStudy.auditEvents.map((event) => (
-              <EntityCard
+              <WorkspaceRecordCard
                 key={text(event.id, `${event.action}-${event.createdAt}`)}
-                onClick={() => openDetail("auditEvent", String(event.id), "audit")}
+                icon={<AuditOutlined />}
                 title={text(event.action, "Audit event")}
-                subtitle={text(event.targetId, "No target recorded")}
+                description={text(event.targetId, "No target recorded")}
                 status={<StatusTag value={text(event.targetType, "Audit")} />}
                 meta={[formatDate(event.createdAt)]}
                 actionsMenu={<EntityActionMenu items={[{ key: "view", label: "View audit event", icon: <EyeOutlined />, onClick: () => openDetail("auditEvent", String(event.id), "audit") }]} />}
+                onClick={() => openDetail("auditEvent", String(event.id), "audit")}
               />
             ))}
-          </CardGrid>
+          </WorkspaceCardGrid>
         )}
       </div>
     );
@@ -2791,13 +3161,14 @@ export default function StudyDetailPage() {
   return (
     <>
       {contextHolder}
-      <AppPage>
+      <AppPage className={activeDetailMeta ? "is-detail-mode" : undefined}>
         <AppPageHeader
-          title={activeCreateMeta?.title ?? activeSectionMeta.title}
-          subtitle={activeCreateMeta?.subtitle ?? activeSectionMeta.subtitle}
-          backLabel={activeCreateMeta?.backLabel}
-          onBack={activeCreate ? closeCreate : undefined}
-          actions={activeCreate ? null : renderHeaderAction(activeSection)}
+          title={activeCreateMeta?.title ?? activeDetailMeta?.title ?? activeSectionMeta.title}
+          subtitle={activeCreateMeta?.subtitle ?? activeDetailMeta?.subtitle ?? activeSectionMeta.subtitle}
+          backLabel={activeCreateMeta?.backLabel ?? activeDetailMeta?.backLabel}
+          onBack={activeCreate ? closeCreate : activeDetailMeta ? closeDetail : undefined}
+          actions={activeCreate ? null : activeDetailMeta ? activeDetailMeta.actions : renderHeaderAction(activeSection)}
+          badges={activeCreate ? null : activeDetailMeta?.status}
         />
 
         {activeCreate ? renderInlineCreateForm(activeCreate) : renderCurrentSection(activeSection)}

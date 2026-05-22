@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Monaco } from "@monaco-editor/react";
 import { FieldGrid, FieldRow } from "@/components/EntityDetail";
 import { InlineLoadError } from "@/components/LoadStates";
+import { StatusTag } from "@/components/StatusTag";
 
 const FEDLIFY_EDITOR_THEME = "fedlify-vs-dark";
 const NVFLARE_CONFIG_LANGUAGE = "nvflare-conf";
@@ -817,7 +818,7 @@ export function CodeReviewPanel({
           <Tag title={reviewCommit ?? undefined}>{shortCommit(reviewCommit)}</Tag>
           {payload?.branchName ? <Tag title={payload.branchName}>{compactLabel(payload.branchName)}</Tag> : null}
           {manifest?.packageType ? <Tag title={String(manifest.packageType)}>{compactLabel(String(manifest.packageType))}</Tag> : null}
-          {validation?.status ? <Tag color={validation.status === "PASSED" ? "green" : "red"}>{validation.status}</Tag> : null}
+          {validation?.status ? <StatusTag value={validation.status} /> : null}
         </Space>
         <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
           {contextOpen ? "Hide context" : "Review context"}
@@ -958,9 +959,9 @@ export function CodeReviewPanel({
           {changedFiles.length > 0 ? (
             <div className="fedlify-code-change-toolbar">
               <Space className="fedlify-code-review-status" wrap size={[6, 6]}>
-                <Tag color="purple">{changedFiles.length} change{changedFiles.length === 1 ? "" : "s"} pending</Tag>
-                {validation ? <Tag color={validation.status === "PASSED" ? "green" : "red"}>{validation.status}</Tag> : null}
-                {draftPrUrl ? <Tag color="green">Draft PR created</Tag> : null}
+                <StatusTag value="PENDING_CHANGES" label={`${changedFiles.length} change${changedFiles.length === 1 ? "" : "s"} pending`} />
+                {validation ? <StatusTag value={validation.status} /> : null}
+                {draftPrUrl ? <StatusTag value="DRAFT_READY" label="Draft PR created" /> : null}
                 <Select
                   className="fedlify-code-change-select"
                   size="small"
@@ -1063,7 +1064,7 @@ export function CodeReviewPanel({
               <Tag title={reviewRef}>{compactLabel(reviewRef)}</Tag>
               <Tag title={reviewCommit ?? undefined}>{shortCommit(reviewCommit)}</Tag>
               {manifest?.packageType ? <Tag title={String(manifest.packageType)}>{compactLabel(String(manifest.packageType), 22)}</Tag> : null}
-              {validation?.status ? <Tag color={validation.status === "PASSED" ? "green" : "red"}>{validation.status}</Tag> : null}
+              {validation?.status ? <StatusTag value={validation.status} /> : null}
             </div>
             {reviewError ? (
               <Alert

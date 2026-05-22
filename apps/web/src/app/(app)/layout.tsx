@@ -1,9 +1,9 @@
 "use client";
 
 import {
+  AppstoreOutlined,
   AuditOutlined,
   CloudDownloadOutlined,
-  CodeOutlined,
   ClusterOutlined,
   DashboardOutlined,
   MailOutlined,
@@ -112,18 +112,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const menuItems = useMemo(
     () => [
-      {
-        key: "templates",
-        icon: <CodeOutlined />,
-        label: "Template Catalog",
-        onClick: () => router.push("/templates")
-      },
-      {
-        key: "template-agent",
-        icon: <RobotOutlined />,
-        label: "Template Agent",
-        onClick: () => router.push("/template-agent")
-      },
       ...STUDY_WORKSPACE_SECTIONS.map((section) => ({
         key: `study:${section.key}`,
         icon: studySectionIcons[section.key],
@@ -195,11 +183,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           mode="inline"
           inlineCollapsed={sidebarCollapsed}
           selectedKeys={
-            pathname.startsWith("/template-agent")
-              ? ["template-agent"]
-              : pathname.startsWith("/templates")
-              ? ["templates"]
-              : pathname.startsWith("/studies/") && pathname !== "/studies/manage"
+            pathname.startsWith("/studies/") && pathname !== "/studies/manage"
               ? [`study:${currentStudySection}`]
               : []
           }
@@ -210,6 +194,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <Header className="fedlify-app-header">
           <StudyQuickMenu />
           <div className="fedlify-header-actions">
+            <Button
+              className="fedlify-header-tool-button"
+              icon={<AppstoreOutlined />}
+              onClick={() => router.push("/templates")}
+            >
+              Template Catalog
+            </Button>
             <UserMenu />
           </div>
         </Header>

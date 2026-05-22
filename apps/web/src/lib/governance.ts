@@ -4,10 +4,22 @@ type ProtocolMetadata = {
   title?: string | null;
   goal?: string | null;
   researchQuestion?: string | null;
+  hypothesis?: string | null;
+  secondaryObjectives?: string | null;
+  studyDesign?: string | null;
   clinicalUseCase?: string | null;
   population?: string | null;
+  eligibilityCriteria?: string | null;
   dataModalities?: string | null;
   primaryOutcome?: string | null;
+  primaryEndpointDetails?: string | null;
+  secondaryOutcomes?: string | null;
+  sampleSizeRationale?: string | null;
+  analysisPlan?: string | null;
+  dataHandlingPlan?: string | null;
+  humanAiWorkflow?: string | null;
+  fairnessPlan?: string | null;
+  disseminationPlan?: string | null;
   intendedUse?: string | null;
 };
 
@@ -35,17 +47,32 @@ export const REQUIRED_PROTOCOL_FIELDS: Array<keyof ProtocolMetadata> = [
   "title",
   "goal",
   "researchQuestion",
+  "studyDesign",
   "clinicalUseCase",
   "population",
+  "eligibilityCriteria",
   "dataModalities",
   "primaryOutcome",
+  "primaryEndpointDetails",
+  "analysisPlan",
+  "dataHandlingPlan",
   "intendedUse"
 ];
+
+function meaningfulProtocolText(value: unknown) {
+  return String(value ?? "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export function missingProtocolFields(study: ProtocolMetadata): string[] {
   return REQUIRED_PROTOCOL_FIELDS.filter((field) => {
     const value = study[field];
-    return typeof value !== "string" || value.trim().length === 0;
+    return typeof value !== "string" || meaningfulProtocolText(value).length === 0;
   });
 }
 
