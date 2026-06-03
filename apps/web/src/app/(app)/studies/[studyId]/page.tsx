@@ -9,6 +9,7 @@ import {
   EditOutlined,
   EyeOutlined,
   FileTextOutlined,
+  GithubOutlined,
   MailOutlined,
   MonitorOutlined,
   PlayCircleOutlined,
@@ -212,11 +213,6 @@ const CREATE_FORM_META = {
     title: "Register participant site",
     subtitle: "Add the institution identity first. Data and resource profiles are completed from the site view.",
     backLabel: "Sites and data"
-  },
-  agent: {
-    title: WORKFLOW_TERMS.createPipelineVersion,
-    subtitle: "Select an approved template commit and create a study-specific pipeline version for review.",
-    backLabel: "Pipeline"
   },
   job: {
     title: WORKFLOW_TERMS.submitFederatedRun,
@@ -440,24 +436,32 @@ function pipelineWorkflowSteps(study: StudyDetail): WorkflowStep[] {
   const latestProposal = latestProject?.proposals?.[0];
   return [
     {
-      label: "Template commit selected",
-      detail: latestProject ? templateSourceLabel(latestProject.template, latestProject.templateVersion) : "Choose an approved public or study template",
+      label: "1. Generate or select pipeline code",
+      detail: latestProject
+        ? `Using: ${templateSourceLabel(latestProject.template, latestProject.templateVersion)}`
+        : "Use the AI agent to generate code, or pick an approved template",
       state: workflowState(Boolean(latestProject))
     },
     {
-      label: "Study source PR",
-      detail: latestProposal?.giteaPullRequestUrl ? "Branch and pull request created" : "Fedlify creates a study-scoped branch and PR",
+      label: "2. Review the code in Gitea",
+      detail: latestProposal?.giteaPullRequestUrl
+        ? "Pull request open — inspect and edit the code"
+        : "Fedlify opens a Gitea branch and pull request for review",
       state: workflowState(Boolean(latestProposal?.giteaPullRequestUrl), !latestProject),
       meta: latestProposal?.giteaHeadCommit ? `Commit ${String(latestProposal.giteaHeadCommit).slice(0, 12)}` : undefined
     },
     {
-      label: "CI validation",
-      detail: validated.length > 0 ? `${validated.length} version(s) passed validation` : "Validation must pass before approval",
+      label: "3. Pass CI validation",
+      detail: validated.length > 0
+        ? `${validated.length} version(s) passed — ready for approval`
+        : "CI checks must pass on the exact commit before approval",
       state: workflowState(validated.length > 0, !latestProposal)
     },
     {
-      label: "Human approval",
-      detail: approved.length > 0 ? `${approved.length} runnable pipeline version(s)` : "Reviewer approves exact commit",
+      label: "4. Approve for deployment",
+      detail: approved.length > 0
+        ? `${approved.length} approved version(s) — ready to run`
+        : "A reviewer marks the validated commit as approved",
       state: workflowState(approved.length > 0, validated.length === 0)
     }
   ];
@@ -565,16 +569,14 @@ export default function StudyDetailPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [siteToken, setSiteToken] = useState<string | null>(null);
   const [templates, setTemplates] = useState<EntityRecord[]>([]);
-  const [activeCreate, setActiveCreate] = useState<"studyDesign" | "invite" | "ethics" | "document" | "site" | "agent" | "job" | null>(null);
+  const [activeCreate, setActiveCreate] = useState<"studyDesign" | "invite" | "ethics" | "document" | "site" | "job" | null>(null);
   const [protocolTab, setProtocolTab] = useState("review");
   const [teamTab, setTeamTab] = useState("members");
   const [sitesTab, setSitesTab] = useState("sites");
-  const [pipelineTab, setPipelineTab] = useState("review");
   const [runTab, setRunTab] = useState("readiness");
   const [resultsTab, setResultsTab] = useState("models");
   const [ethicsEditingRecord, setEthicsEditingRecord] = useState<EntityRecord | null>(null);
   const [memberRoleEditingId, setMemberRoleEditingId] = useState<string | null>(null);
-  const [pipelineTemplateVersionPreset, setPipelineTemplateVersionPreset] = useState<string | null>(null);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [jobLogLoadingId, setJobLogLoadingId] = useState<string | null>(null);
   const [jobLogDetail, setJobLogDetail] = useState<JobLogsPayload | null>(null);
@@ -585,11 +587,6 @@ export default function StudyDetailPage() {
     setFormError(null);
     setEthicsEditingRecord(null);
     setActiveCreate(mode);
-  }
-
-  function openPipelineCreate(templateVersionId?: string) {
-    setPipelineTemplateVersionPreset(templateVersionId ?? null);
-    openCreate("agent");
   }
 
   function openEthicsForm(record?: EntityRecord) {
@@ -604,7 +601,6 @@ export default function StudyDetailPage() {
     setFormError(null);
     setSelectedFile(null);
     setEthicsEditingRecord(null);
-    setPipelineTemplateVersionPreset(null);
   }
 
   function sectionUrl(section: StudyWorkspaceSection, detail?: StudyDetailState | null) {
@@ -673,11 +669,9 @@ export default function StudyDetailPage() {
     setSelectedFile(null);
     setEthicsEditingRecord(null);
     setMemberRoleEditingId(null);
-    setPipelineTemplateVersionPreset(null);
     if (activeSection !== "protocol") setProtocolTab("review");
     if (activeSection !== "team") setTeamTab("members");
     if (activeSection !== "sites") setSitesTab("sites");
-    if (activeSection !== "pipeline") setPipelineTab("review");
     if (activeSection !== "run") setRunTab("readiness");
     if (activeSection !== "results") setResultsTab("models");
   }, [activeSection]);
@@ -1339,96 +1333,7 @@ export default function StudyDetailPage() {
       );
     }
 
-    const approvedTemplatesForPipeline = approvedTemplateCatalog(templates);
-    const hasApprovedTemplatesForPipeline = approvedTemplatesForPipeline.length > 0;
-
-    return (
-      <div className="fedlify-inline-create-card">
-        <Form
-          layout="vertical"
-          className="fedlify-inline-create-form"
-          initialValues={{
-            templateVersionId: pipelineTemplateVersionPreset ?? approvedTemplatesForPipeline[0]?.currentApprovedVersion?.id,
-            name: `${study?.title ?? "Study"} NVFLARE pipeline`,
-            prompt:
-              "Create a study-specific pipeline version from this approved template commit. Keep raw clinical data local, preserve configurable runtime parameters, and include README, manifest, tests, and validation-safe configuration."
-          }}
-          onFinish={async (values) => {
-            const result = await post(
-              `/api/v1/studies/${studyId}/pipeline-projects`,
-              {
-                ...values,
-                name: typeof values.name === "string" && values.name.trim() === "" ? undefined : values.name,
-                branchName:
-                  typeof values.branchName === "string" && values.branchName.trim() === "" ? undefined : values.branchName
-              },
-              "Pipeline version proposal created."
-            );
-            if (result) closeCreate();
-          }}
-        >
-          <FormError title="Pipeline version was not created" message={formError} />
-          <Alert
-            type={hasApprovedTemplatesForPipeline ? "info" : "warning"}
-            showIcon
-            message={
-              hasApprovedTemplatesForPipeline
-                ? "Template code is copied into a study source workspace"
-                : "No approved template version is available"
-            }
-            description={
-              hasApprovedTemplatesForPipeline
-                ? "Select a published public template or an approved study template. Fedlify creates a new study branch and immutable pipeline version; the template itself is not modified."
-                : "Publish a public template version or approve a study template before creating a runnable study pipeline version."
-            }
-          />
-          <div className="fedlify-intake-field-grid">
-            <Form.Item name="templateVersionId" label="Approved template commit" rules={[{ required: true }]}>
-              <Select
-                options={approvedTemplatesForPipeline
-                  .map((template) => ({
-                    value: template.currentApprovedVersion.id,
-                    label: templateSourceLabel(template, template.currentApprovedVersion)
-                  }))}
-                placeholder="Select an approved public or study template"
-                notFoundContent="No approved template versions are available for this study."
-              />
-            </Form.Item>
-            <Form.Item
-              name="name"
-              label="Pipeline version name"
-              rules={[{ min: 3, message: "Use at least 3 characters, or leave blank for the default name." }]}
-            >
-              <Input placeholder={`${study?.title ?? "Study"} pipeline`} />
-            </Form.Item>
-          </div>
-          <details className="fedlify-form-advanced">
-            <summary>Advanced Git settings</summary>
-            <Form.Item
-              name="branchName"
-              label="Gitea branch"
-              rules={[{ min: 3, message: "Use at least 3 characters, or leave blank to auto-generate a branch." }]}
-            >
-              <Input placeholder="fedlify/study-pipeline" />
-            </Form.Item>
-          </details>
-          <Form.Item
-            name="prompt"
-            label="Version request"
-            rules={[{ required: true, min: 20 }]}
-            extra="Describe the study-specific configuration or changes. Fedlify records this as a draft proposal and validates the exact commit before approval."
-          >
-            <Input.TextArea rows={5} />
-          </Form.Item>
-          <Space className="fedlify-form-actions">
-            <Button onClick={closeCreate}>Cancel</Button>
-            <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} className="fedlify-dark-action" loading={formSubmitting} disabled={!hasApprovedTemplatesForPipeline}>
-              Create pipeline version
-            </Button>
-          </Space>
-        </Form>
-      </div>
-    );
+    return null;
   }
 
   function detailVersions(study: StudyDetail) {
@@ -2659,209 +2564,234 @@ export default function StudyDetailPage() {
       const pipelineProposals = (currentStudy.pipelineProjects ?? []).flatMap((project) =>
         (project.proposals ?? []).map((proposal: EntityRecord) => ({ ...proposal, project }))
       );
+      const approvedVersions = currentApprovedPipelineVersions(currentStudy);
       const approvedTemplatesForPipeline = approvedTemplateCatalog(templates);
-      const pipelineReviewCards = pipelineWorkflowSteps(currentStudy).map((step, index) => {
-        const targetTab = index === 0 ? "templates" : index === 1 ? "proposals" : "versions";
-        const icons = [<CodeOutlined key="template" />, <RobotOutlined key="proposal" />, <CheckCircleOutlined key="validation" />, <SafetyCertificateOutlined key="approval" />];
-        return {
-          ...step,
-          key: `${index}-${String(step.label)}`,
-          icon: icons[index] ?? <CodeOutlined />,
-          targetTab,
-          description: [step.detail, step.meta].filter(Boolean).join(" · ")
-        };
-      });
+      const latestProposal = pipelineProposals[0];
+      // Latest validated (not yet approved) version for the approve button
+      const pendingVersion = pipelineVersions.find((v) => v.validationStatus === "PASSED" && v.approvalStatus !== "APPROVED");
+      const latestApprovedVersion = approvedVersions[0];
+
+      // STATE A: no pipeline work started yet
+      const isStateA = pipelineVersions.length === 0 && pipelineProposals.length === 0;
+      // STATE B: work in progress (proposals or versions exist, nothing approved yet)
+      const isStateB = !isStateA && approvedVersions.length === 0;
+      // STATE C: at least one approved version ready to deploy
+      const isStateC = approvedVersions.length > 0;
+
       return (
         <div className="fedlify-section-stack">
-          <Tabs
-            className="fedlify-card-tabs fedlify-workspace-tabs"
-            activeKey={pipelineTab}
-            onChange={setPipelineTab}
-            items={[
-              {
-                key: "review",
-                label: "Review",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <WorkspaceCardGrid className="fedlify-workspace-review-grid">
-                      {pipelineReviewCards.map((item) => (
-                        <WorkspaceReviewCard
-                          key={item.key}
-                          icon={item.icon}
-                          title={item.label}
-                          description={item.description}
-                          status={<StatusTag value={workflowReviewStatus(item.state)} />}
-                          tone={workflowReviewTone(item.state) as "ready" | "needs_attention" | "optional" | "blocked"}
-                          onClick={() => setPipelineTab(item.targetTab)}
-                          aria-label={`Open ${item.targetTab}: ${item.label}`}
-                        />
+          <div className="fedlify-pipeline-state-panel">
+
+            {/* ── State A: No pipeline yet ── */}
+            {isStateA ? (
+              <div className="fedlify-psp-content">
+                <div className="fedlify-psp-icon"><RobotOutlined /></div>
+                <div className="fedlify-psp-body">
+                  <Typography.Title level={4} style={{ margin: 0 }}>Build your study pipeline</Typography.Title>
+                  <Typography.Text type="secondary">
+                    Describe your federated learning goal and the AI will generate NVFlare executor code,
+                    or start from an existing approved template.
+                  </Typography.Text>
+                  <Space wrap style={{ marginTop: 8 }}>
+                    <Button
+                      type="primary"
+                      className="fedlify-dark-action"
+                      icon={<RobotOutlined />}
+                      onClick={() => router.push(`/studies/${studyId}/pipeline-agent`)}
+                    >
+                      Describe to AI
+                    </Button>
+                    {approvedTemplatesForPipeline.length > 0 ? (
+                      <Button
+                        icon={<CodeOutlined />}
+                        onClick={() => router.push(
+                          `/studies/${studyId}/pipeline-agent?mode=from-template&templateId=${String(approvedTemplatesForPipeline[0].id)}`
+                        )}
+                      >
+                        Start from a template
+                      </Button>
+                    ) : null}
+                    <Button
+                      icon={<EyeOutlined />}
+                      onClick={() => router.push("/templates")}
+                    >
+                      Browse templates
+                    </Button>
+                  </Space>
+                  {approvedTemplatesForPipeline.length > 0 ? (
+                    <div className="fedlify-psp-template-list">
+                      {approvedTemplatesForPipeline.slice(0, 4).map((tmpl) => (
+                        <button
+                          key={String(tmpl.id)}
+                          type="button"
+                          className="fedlify-psp-template-chip"
+                          onClick={() => router.push(`/studies/${studyId}/pipeline-agent?mode=from-template&templateId=${String(tmpl.id)}`)}
+                        >
+                          <CodeOutlined />
+                          <span>{text(tmpl.name, tmpl.templateKey)}</span>
+                        </button>
                       ))}
-                    </WorkspaceCardGrid>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {/* ── State B: Pipeline in progress ── */}
+            {isStateB ? (
+              <div className="fedlify-psp-content">
+                <div className="fedlify-psp-icon fedlify-psp-icon--progress"><CodeOutlined /></div>
+                <div className="fedlify-psp-body">
+                  <div className="fedlify-psp-title-row">
+                    <Typography.Title level={4} style={{ margin: 0 }}>Pipeline code ready for review</Typography.Title>
+                    {pendingVersion
+                      ? <StatusTag value="PASSED" />
+                      : latestProposal
+                      ? <StatusTag value={latestProposal.status ?? "OPEN"} />
+                      : null}
                   </div>
-                )
-              },
-              {
-                key: "templates",
-                label: "Template sources",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    {approvedTemplatesForPipeline.length === 0 ? (
-                      <WorkspaceCardGrid>
-                        <WorkspaceEmptyCard
-                          icon={<CodeOutlined />}
-                          title="No approved template sources"
-                          description="Publish a public template version or approve a study template before creating a runnable pipeline version."
-                        />
-                      </WorkspaceCardGrid>
+                  {latestProposal ? (
+                    <Typography.Text type="secondary" className="fedlify-psp-meta">
+                      Branch: <code>{latestProposal.branchName ?? "—"}</code>
+                      {latestProposal.giteaHeadCommit ? <> · Commit: <code>{String(latestProposal.giteaHeadCommit).slice(0, 12)}</code></> : null}
+                    </Typography.Text>
+                  ) : null}
+                  <Space wrap style={{ marginTop: 8 }}>
+                    {pendingVersion ? (
+                      <Button
+                        type="primary"
+                        className="fedlify-dark-action"
+                        icon={<CheckCircleOutlined />}
+                        onClick={() => void post(
+                          `/api/v1/pipeline-versions/${String(pendingVersion.id)}/approve`,
+                          { notes: "Approved after review in Fedlify." },
+                          "Pipeline approved — ready to deploy."
+                        )}
+                      >
+                        Approve this pipeline
+                      </Button>
+                    ) : null}
+                    {latestProposal?.project?.template?.id ? (
+                      <Button
+                        icon={<CodeOutlined />}
+                        onClick={() => router.push(`/templates/${String(latestProposal.project.template.id)}?studyId=${studyId}&tab=code`)}
+                      >
+                        Review code
+                      </Button>
+                    ) : null}
+                    {latestProposal?.project?.template?.id ? (
+                      <Button
+                        icon={<RobotOutlined />}
+                        onClick={() => router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${String(latestProposal.project.template.id)}`)}
+                      >
+                        Continue editing with AI
+                      </Button>
                     ) : (
-                      <WorkspaceCardGrid>
-                        {approvedTemplatesForPipeline.map((template) => {
-                          const version = template.currentApprovedVersion;
-                          return (
-                            <WorkspaceRecordCard
-                              key={text(version?.id, template.id)}
-                              icon={<CodeOutlined />}
-                              title={text(template.name, template.templateKey)}
-                              description={templateScopeLabel(template)}
-                              status={<StatusTag value={status(template.status ?? version?.approvalStatus, "APPROVED")} />}
-                              meta={[
-                                `Approved version: ${templateVersionLabel(version)}`,
-                                `Framework: ${text(template.framework, "NVFLARE")}`,
-                                `Workflow: ${text(template.templateKey, "Not recorded")}`
-                              ]}
-                              actionsMenu={
-                                <EntityActionMenu
-                                  items={[
-                                    { key: "use", label: "Use template", icon: <PlayCircleOutlined />, onClick: () => openPipelineCreate(String(version.id)) },
-                                    { key: "review", label: "Review source", icon: <CodeOutlined />, onClick: () => router.push(`/templates/${template.id}?tab=code`) },
-                                    { key: "open", label: "Open template", icon: <EyeOutlined />, onClick: () => router.push(`/templates/${template.id}`) }
-                                  ]}
-                                />
-                              }
-                              onClick={() => router.push(`/templates/${template.id}`)}
-                            />
-                          );
-                        })}
-                      </WorkspaceCardGrid>
+                      <Button icon={<RobotOutlined />} onClick={() => router.push(`/studies/${studyId}/pipeline-agent`)}>
+                        Continue editing with AI
+                      </Button>
                     )}
+                  </Space>
+                </div>
+              </div>
+            ) : null}
+
+            {/* ── State C: Pipeline approved ── */}
+            {isStateC ? (
+              <div className="fedlify-psp-content">
+                <div className="fedlify-psp-icon fedlify-psp-icon--done"><CheckCircleOutlined /></div>
+                <div className="fedlify-psp-body">
+                  <div className="fedlify-psp-title-row">
+                    <Typography.Title level={4} style={{ margin: 0 }}>Pipeline approved — ready to deploy</Typography.Title>
+                    <StatusTag value="APPROVED" />
                   </div>
-                )
-              },
-              {
-                key: "versions",
-                label: "Pipeline versions",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <WorkspaceCardGrid>
-                      <WorkspaceActionCard
-                        icon={<PlayCircleOutlined />}
-                        title={pipelineVersions.length === 0 ? "Create first pipeline version" : WORKFLOW_TERMS.createPipelineVersion}
-                        description={
-                          approvedTemplatesForPipeline.length === 0
-                            ? "No approved template sources yet. Approve a template before creating a pipeline version."
-                            : pipelineVersions.length === 0
-                              ? "No pipeline versions yet. Create a pipeline from an approved template."
-                              : "Create another immutable study pipeline commit from an approved template."
-                        }
-                        disabled={approvedTemplatesForPipeline.length === 0}
-                        tone={approvedTemplatesForPipeline.length === 0 ? "muted" : "default"}
-                        onClick={() => openPipelineCreate()}
-                      />
-                      {pipelineVersions.map((version) => (
-                        <WorkspaceRecordCard
-                          key={String(version.id)}
-                          icon={<CodeOutlined />}
-                          title={text(version.version, "Pipeline version")}
-                          description={text(version.project?.name, "Pipeline source workspace")}
-                          status={<StatusTag value={version.approvalStatus ?? version.validationStatus} />}
-                          meta={[
-                            `State: ${pipelineVersionState(version)}`,
-                            `Template: ${templateVersionLabel(version.templateVersion ?? version.project?.templateVersion)}`,
-                            `Validation: ${displayEnum(version.validationStatus)}`,
-                            `Approval: ${displayEnum(version.approvalStatus)}`,
-                            `Commit: ${shortCommit(version.gitCommit)}`
-                          ]}
-                          actionsMenu={
-                            <EntityActionMenu
-                              items={[
-                                { key: "view", label: "View version", icon: <EyeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
-                                { key: "code", label: "Review code", icon: <CodeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
-                                {
-                                  key: "approve",
-                                  label: "Approve version",
-                                  icon: <CheckCircleOutlined />,
-                                  disabled: version.approvalStatus === "APPROVED" || version.validationStatus !== "PASSED",
-                                  onClick: () =>
-                                    void post(
-                                      `/api/v1/pipeline-versions/${version.id}/approve`,
-                                      { notes: "Approved after human review in Fedlify." },
-                                      "Pipeline version approved."
-                                    )
-                                }
-                              ]}
-                            />
+                  <Typography.Text type="secondary" className="fedlify-psp-meta">
+                    Version: <strong>{text(latestApprovedVersion?.version)}</strong>
+                    {latestApprovedVersion?.gitCommit ? <> · Commit: <code>{String(latestApprovedVersion.gitCommit).slice(0, 12)}</code></> : null}
+                  </Typography.Text>
+                  <Space wrap style={{ marginTop: 8 }}>
+                    <Button
+                      type="primary"
+                      className="fedlify-dark-action"
+                      icon={<PlayCircleOutlined />}
+                      onClick={() => router.push(sectionUrl("run"))}
+                    >
+                      Go to Run section
+                    </Button>
+                    <Button
+                      icon={<RobotOutlined />}
+                      onClick={() =>
+                        latestApprovedVersion?.project?.template?.id
+                          ? router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${String(latestApprovedVersion.project.template.id)}`)
+                          : router.push(`/studies/${studyId}/pipeline-agent`)
+                      }
+                    >
+                      Adjust & build v{(approvedVersions.length + 1).toString()}.0.0
+                    </Button>
+                    {latestApprovedVersion?.project?.template?.id ? (
+                      <Button
+                        icon={<EyeOutlined />}
+                        onClick={() => router.push(`/templates/${String(latestApprovedVersion.project.template.id)}?studyId=${studyId}&tab=code`)}
+                      >
+                        View code
+                      </Button>
+                    ) : null}
+                  </Space>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* All pipeline versions — shown as a compact list below the state panel when not empty */}
+          {pipelineVersions.length > 0 ? (
+            <div className="fedlify-psp-history">
+              <Typography.Text type="secondary" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 650 }}>
+                All pipeline versions
+              </Typography.Text>
+              <WorkspaceCardGrid className="fedlify-psp-version-grid">
+                {pipelineVersions.map((version) => (
+                  <WorkspaceRecordCard
+                    key={String(version.id)}
+                    icon={<CodeOutlined />}
+                    title={text(version.version, "Pipeline version")}
+                    description={text(version.project?.name, "Pipeline")}
+                    status={<StatusTag value={version.approvalStatus ?? version.validationStatus} />}
+                    meta={[
+                      `Validation: ${displayEnum(version.validationStatus)}`,
+                      `Approval: ${displayEnum(version.approvalStatus)}`,
+                      `Commit: ${shortCommit(version.gitCommit)}`
+                    ]}
+                    actionsMenu={
+                      <EntityActionMenu
+                        items={[
+                          { key: "view", label: "View details", icon: <EyeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
+                          {
+                            key: "adjust",
+                            label: "Adjust with AI",
+                            icon: <RobotOutlined />,
+                            disabled: !version.project?.template?.giteaRepo,
+                            onClick: () => router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${version.project?.template?.id ?? version.templateId ?? ""}`)
+                          },
+                          {
+                            key: "approve",
+                            label: "Approve version",
+                            icon: <CheckCircleOutlined />,
+                            disabled: version.approvalStatus === "APPROVED" || version.validationStatus !== "PASSED",
+                            onClick: () => void post(
+                              `/api/v1/pipeline-versions/${String(version.id)}/approve`,
+                              { notes: "Approved after human review in Fedlify." },
+                              "Pipeline version approved."
+                            )
                           }
-                          onClick={() => openDetail("pipelineVersion", String(version.id), "pipeline")}
-                        />
-                      ))}
-                    </WorkspaceCardGrid>
-                  </div>
-                )
-              },
-              {
-                key: "proposals",
-                label: "Draft PRs",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <WorkspaceCardGrid>
-                      <WorkspaceActionCard
-                        icon={<PlayCircleOutlined />}
-                        title={pipelineProposals.length === 0 ? "Create first pipeline PR" : WORKFLOW_TERMS.createPipelineVersion}
-                        description={
-                          approvedTemplatesForPipeline.length === 0
-                            ? "No approved template sources yet. Approve a template before opening a study-scoped PR."
-                            : pipelineProposals.length === 0
-                              ? "No draft PRs yet. Create a pipeline from a template to open the first study-scoped PR."
-                              : "Create another study-scoped pipeline PR from an approved template."
-                        }
-                        disabled={approvedTemplatesForPipeline.length === 0}
-                        tone={approvedTemplatesForPipeline.length === 0 ? "muted" : "default"}
-                        onClick={() => openPipelineCreate()}
+                        ]}
                       />
-                      {pipelineProposals.map((proposal) => {
-                        const pullRequestUrl = externalUrl(proposal.giteaPullRequestUrl);
-                        const branchUrl = giteaBranchUrl(proposal.project?.giteaRepoUrl, proposal.branchName);
-                        return (
-                          <WorkspaceRecordCard
-                            key={String(proposal.id)}
-                            icon={<RobotOutlined />}
-                            title={text(proposal.title, proposal.project?.name)}
-                            description={templateSourceLabel(proposal.project?.template, proposal.project?.templateVersion)}
-                            status={<StatusTag value={status(proposal.status, "DRAFT")} />}
-                            meta={[
-                              `Branch: ${text(proposal.branchName)}`,
-                              `Commit: ${shortCommit(proposal.giteaHeadCommit)}`,
-                              `PR: ${proposal.giteaPullRequestNumber ? `#${proposal.giteaPullRequestNumber}` : "Not opened"}`
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View pipeline source", icon: <EyeOutlined />, onClick: () => openDetail("pipelineProject", String(proposal.project?.id), "pipeline") },
-                                  ...(pullRequestUrl ? [{ key: "pr", label: "Review PR", icon: <FileTextOutlined />, href: pullRequestUrl, target: "_blank" }] : []),
-                                  ...(branchUrl ? [{ key: "code", label: "Open branch", icon: <CodeOutlined />, href: branchUrl, target: "_blank" }] : [])
-                                ]}
-                              />
-                            }
-                            onClick={() => openDetail("pipelineProject", String(proposal.project?.id), "pipeline")}
-                          />
-                        );
-                      })}
-                    </WorkspaceCardGrid>
-                  </div>
-                )
-              }
-            ]}
-          />
+                    }
+                    onClick={() => openDetail("pipelineVersion", String(version.id), "pipeline")}
+                  />
+                ))}
+              </WorkspaceCardGrid>
+            </div>
+          ) : null}
         </div>
       );
     }

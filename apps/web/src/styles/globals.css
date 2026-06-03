@@ -1750,6 +1750,18 @@ h4.ant-typography {
   color: #157347;
 }
 
+.fedlify-template-use-guide {
+  border: 1px solid var(--fedlify-border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  background: #f8f7fd;
+  margin-bottom: 20px;
+}
+
+.fedlify-template-use-guide .ant-steps {
+  margin-top: 8px;
+}
+
 .fedlify-command-panel {
   margin: 0;
   padding: 14px 16px;
@@ -1793,6 +1805,26 @@ h4.ant-typography {
   border: 1px solid var(--fedlify-line);
   border-radius: 10px;
   background: #fbfafc;
+}
+
+.fedlify-code-compact-ref {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 10px;
+  background: #fbfafc;
+  font-size: var(--fedlify-text-xs);
+  color: var(--fedlify-muted);
+  flex-wrap: wrap;
+}
+
+.fedlify-code-compact-ref code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--fedlify-text);
+  font-weight: 600;
+  font-size: var(--fedlify-text-xs);
 }
 
 .fedlify-code-context-panel {
@@ -3402,6 +3434,774 @@ h4.ant-typography {
   font-size: 13px;
   line-height: 1.55;
   white-space: pre;
+}
+
+/* ── Pipeline State Panel (study pipeline section) ───────────────────────── */
+
+.fedlify-pipeline-state-panel {
+  border: 1px solid var(--fedlify-border);
+  border-radius: 18px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.fedlify-psp-content {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 24px 28px;
+}
+
+.fedlify-psp-icon {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--fedlify-soft);
+  color: var(--fedlify-primary);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  margin-top: 2px;
+}
+
+.fedlify-psp-icon--progress {
+  background: #fff8e7;
+  color: #c27803;
+}
+
+.fedlify-psp-icon--done {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.fedlify-psp-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fedlify-psp-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fedlify-psp-meta {
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-psp-meta code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fedlify-text-xs);
+  background: #f4f4f7;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.fedlify-psp-template-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fedlify-psp-template-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--fedlify-border);
+  border-radius: 999px;
+  background: #fbfafc;
+  color: var(--fedlify-text);
+  font-size: var(--fedlify-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.fedlify-psp-template-chip:hover {
+  background: var(--fedlify-soft);
+  border-color: var(--fedlify-primary);
+  color: var(--fedlify-primary);
+}
+
+.fedlify-psp-history {
+  padding: 20px 28px;
+  border-top: 1px solid var(--fedlify-border);
+  background: #fafafa;
+}
+
+.fedlify-psp-version-grid {
+  margin-top: 10px;
+}
+
+.fedlify-template-versions-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.fedlify-template-version-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fedlify-template-version-row code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  background: #f4f4f7;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.fedlify-template-version-date {
+  color: var(--fedlify-muted);
+  font-size: 12px;
+}
+
+/* ── Pipeline Agent Page ─────────────────────────────────────────────────── */
+
+/* ── Pipeline Agent — IDE Layout ──────────────────────────────────────────── */
+
+/* Override the outer workspace panel to lock height — no outer scroll */
+.fedlify-pa-page.fedlify-workspace-panel {
+  min-height: unset;
+  height: calc(100vh - 106px);
+  overflow: hidden;
+  padding: 20px 20px 12px;
+}
+
+/* Collapse the card-page gap so IDE fills the remaining space tightly */
+.fedlify-pa-page.fedlify-card-page {
+  gap: 10px;
+}
+
+.fedlify-pa-page {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Splitter-based IDE layout */
+.fedlify-pa-splitter {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--fedlify-border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* Splitter divider bar */
+.fedlify-pa-splitter .ant-splitter-bar {
+  background: var(--fedlify-border) !important;
+}
+
+.fedlify-pa-splitter .ant-splitter-bar-dragger {
+  background: var(--fedlify-border);
+}
+
+.fedlify-pa-splitter .ant-splitter-bar-dragger:hover,
+.fedlify-pa-splitter .ant-splitter-bar-dragger:active {
+  background: var(--fedlify-primary) !important;
+}
+
+/* Each Splitter.Panel must fill its height */
+.fedlify-pa-splitter .ant-splitter-panel {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Explorer fills panel */
+.fedlify-pa-splitter .ant-splitter-panel:first-child .fedlify-pa-explorer {
+  height: 100%;
+}
+
+/* Editor fills panel */
+.fedlify-pa-splitter .ant-splitter-panel .fedlify-pa-editor-area {
+  height: 100%;
+}
+
+/* Chat sidebar fills panel */
+.fedlify-pa-splitter .ant-splitter-panel:last-child .fedlify-pa-chat-sidebar {
+  height: 100%;
+}
+
+/* ── Explorer (left) ── */
+.fedlify-pa-explorer {
+  border-right: 1px solid var(--fedlify-border);
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.fedlify-pa-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--fedlify-border);
+  flex-shrink: 0;
+}
+
+.fedlify-pa-explorer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* Tree nodes */
+.fedlify-pa-tree-empty {
+  padding: 12px 10px;
+  text-align: center;
+}
+
+.fedlify-pa-tree-folder,
+.fedlify-pa-tree-file {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--fedlify-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fedlify-pa-tree-folder { font-weight: 600; color: var(--fedlify-muted); }
+.fedlify-pa-tree-file:hover { background: #f0eafa; color: var(--fedlify-purple); }
+.fedlify-pa-tree-file.is-selected { background: #ede9f7; color: var(--fedlify-purple); font-weight: 600; }
+
+/* ── Editor area (center) ── */
+.fedlify-pa-editor-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+/* File tabs */
+.fedlify-pa-tabs {
+  display: flex;
+  align-items: center;
+  background: #1e1e1e;
+  border-bottom: 1px solid #2d2d2d;
+  overflow-x: auto;
+  flex-shrink: 0;
+  min-height: 34px;
+  scrollbar-width: none;
+}
+
+.fedlify-pa-tabs::-webkit-scrollbar { display: none; }
+
+.fedlify-pa-tabs-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: #555;
+  font-size: 12px;
+}
+
+.fedlify-pa-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid #2d2d2d;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.fedlify-pa-tab:hover { background: #2a2a2a; color: #ccc; }
+.fedlify-pa-tab.is-active { background: #1e1e1e; color: #fff; border-bottom: 2px solid var(--fedlify-primary); }
+
+.fedlify-pa-tab-close {
+  opacity: 0;
+  font-size: 10px;
+  padding: 1px;
+  border-radius: 2px;
+  transition: opacity 0.1s;
+}
+
+.fedlify-pa-tab:hover .fedlify-pa-tab-close { opacity: 0.6; }
+.fedlify-pa-tab-close:hover { opacity: 1 !important; background: rgba(255,255,255,0.1); }
+
+/* Monaco editor */
+.fedlify-pa-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fedlify-pa-editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  background: #1e1e1e;
+  color: #555;
+}
+
+/* Editor toolbar (bottom) */
+.fedlify-pa-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid #2d2d2d;
+  background: #1e1e1e;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* ── Chat sidebar (right) ── */
+.fedlify-pa-chat-sidebar {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--fedlify-border);
+  background: #fff;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fedlify-pa-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--fedlify-border);
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.fedlify-pa-thought-chain {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--fedlify-border);
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.fedlify-pa-messages-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.fedlify-pa-chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  height: 100%;
+}
+
+/* @filename context bar */
+.fedlify-pa-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--fedlify-border);
+  background: #f5f4fb;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--fedlify-primary);
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+
+.fedlify-pa-context-bar:hover { background: #ede9f7; }
+
+/* Input toolbar (attach, plan mode, insert file) */
+.fedlify-pa-input-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px 4px;
+  border-top: 1px solid var(--fedlify-border);
+  background: #fafafa;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.fedlify-pa-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fedlify-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  line-height: 1;
+}
+
+.fedlify-pa-toolbar-btn:hover { background: #f0eefa; color: var(--fedlify-primary); }
+
+.fedlify-pa-toolbar-btn.is-active {
+  background: var(--fedlify-soft);
+  color: var(--fedlify-primary);
+  font-weight: 600;
+}
+
+.fedlify-pa-toolbar-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fedlify-pa-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: #f0eefa;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--fedlify-primary);
+  font-weight: 600;
+}
+
+.fedlify-pa-attachment-chip button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fedlify-muted);
+  font-size: 10px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* Chat input */
+.fedlify-pa-chat-input {
+  padding: 6px 10px 6px;
+  flex-shrink: 0;
+}
+
+/* Quick prompts */
+.fedlify-pa-quick-prompts {
+  padding: 4px 10px 8px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.fedlify-pa-quick-prompts::-webkit-scrollbar { display: none; }
+
+/* Success bar in toolbar (dark theme) */
+.fedlify-pa-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+.fedlify-pa-success-icon {
+  font-size: 18px;
+  color: #4ade80;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.fedlify-pa-success-body {
+  flex: 1;
+  min-width: 0;
+  color: #e2e8f0;
+}
+
+.fedlify-pa-success-body .ant-typography { color: #e2e8f0; }
+
+/* Message-level agent avatar */
+.fedlify-pa-msg-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--fedlify-soft);
+  color: var(--fedlify-primary);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* Header agent avatar circle */
+.fedlify-pa-agent-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--fedlify-soft);
+  color: var(--fedlify-primary);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+/* ── Compact progress bar (collapsed ThoughtChain) ── */
+.fedlify-pa-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 1px solid var(--fedlify-border);
+  background: #fafafe;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+
+.fedlify-pa-progress-bar:hover { background: #f0eefa; }
+
+.fedlify-pa-progress-dots {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fedlify-pa-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d0cfe8;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.fedlify-pa-dot.is-done { background: #059669; }
+
+.fedlify-pa-dot.is-active {
+  background: var(--fedlify-primary);
+  box-shadow: 0 0 0 2px rgba(133, 118, 181, 0.3);
+  animation: fedlify-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes fedlify-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.fedlify-pa-progress-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--fedlify-text);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fedlify-pa-progress-toggle {
+  font-size: 9px;
+  color: var(--fedlify-muted);
+  flex-shrink: 0;
+}
+
+/* Full ThoughtChain — shown when expanded */
+.fedlify-pa-thought-chain-full {
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--fedlify-border);
+  background: #fafafe;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.fedlify-pa-thought-chain-full .ant-thought-chain-item { margin-bottom: 4px; }
+.fedlify-pa-thought-chain-full .ant-thought-chain-item-title { font-size: 12px; font-weight: 600; }
+.fedlify-pa-thought-chain-full .ant-thought-chain-item-description { font-size: 11px; color: var(--fedlify-muted); }
+.fedlify-pa-thought-chain-full .ant-thought-chain-item-content { display: none; }
+
+/* Welcome box */
+.fedlify-pa-welcome {
+  padding: 20px 16px;
+}
+
+.fedlify-pa-welcome .ant-welcome-title { font-size: 14px; font-weight: 700; }
+.fedlify-pa-welcome .ant-welcome-description { font-size: 12px; }
+
+/* Think wrapper */
+.fedlify-pa-think-wrapper {
+  padding: 8px 12px;
+}
+
+.fedlify-pa-think-text {
+  font-size: 11px;
+  color: var(--fedlify-muted);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* Message bubbles */
+.fedlify-pa-bubbles {
+  padding: 8px 8px 4px;
+}
+
+.fedlify-pa-bubbles .ant-bubble-content {
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.fedlify-pa-bubbles .ant-bubble-list-item { margin-bottom: 10px; }
+
+/* Markdown rendered inside assistant bubbles */
+.fedlify-pa-md { font-size: 13px; line-height: 1.6; }
+.fedlify-pa-md p { margin: 0 0 8px; }
+.fedlify-pa-md p:last-child { margin-bottom: 0; }
+.fedlify-pa-md h1, .fedlify-pa-md h2, .fedlify-pa-md h3 { font-size: 13px; font-weight: 700; margin: 10px 0 4px; }
+.fedlify-pa-md ul, .fedlify-pa-md ol { margin: 4px 0 8px; padding-left: 18px; }
+.fedlify-pa-md li { margin-bottom: 3px; }
+.fedlify-pa-md code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  background: rgba(0,0,0,0.07);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.fedlify-pa-md pre {
+  background: #1e1e1e;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+.fedlify-pa-md pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+.fedlify-pa-md strong { font-weight: 700; }
+.fedlify-pa-md em { font-style: italic; }
+.fedlify-pa-md a { color: var(--fedlify-primary); text-decoration: underline; }
+.fedlify-pa-md blockquote {
+  border-left: 3px solid var(--fedlify-primary);
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: var(--fedlify-muted);
+  background: var(--fedlify-soft);
+  border-radius: 0 6px 6px 0;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .fedlify-pa-ide { grid-template-columns: 0 1fr 0; height: auto; }
+  .fedlify-pa-ide.explorer-hidden { grid-template-columns: 0 1fr 0; }
+  .fedlify-pa-ide.chat-hidden { grid-template-columns: 0 1fr 0; }
+}
+
+.fedlify-intake-card {
+  border: 1px solid var(--fedlify-primary-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #fbf8ff;
+  margin: 8px 0;
+  flex-shrink: 0;
+}
+
+.fedlify-intake-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+
+.fedlify-intake-card-form .ant-form-item {
+  margin-bottom: 10px;
+}
+
+.fedlify-intake-card-form .ant-form-item-label > label {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.fedlify-intake-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.fedlify-intake-card-full {
+  grid-column: 1 / -1;
+}
+
+.fedlify-pa-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.fedlify-pa-success-icon {
+  font-size: 20px;
+  color: #059669;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.fedlify-pa-success-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.fedlify-editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--fedlify-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .fedlify-pa-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .fedlify-pa-code-body {
+    grid-template-columns: 1fr;
+  }
+
+  .fedlify-pa-file-tree {
+    border-right: none;
+    border-bottom: 1px solid var(--fedlify-border);
+    max-height: 160px;
+  }
 }
 
 @media (max-width: 760px) {

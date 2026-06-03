@@ -105,6 +105,7 @@ type CodeReviewPanelProps = {
   requestChangeLabel?: string;
   requestChangeDescription?: string;
   savingDraft?: boolean;
+  hideHeader?: boolean;
   onRequestChange?: (file: SourceFile, context?: { instruction?: string; mode?: "assistant_request" }) => void;
   onSaveDraft?: (file: SourceFile, content: string) => void;
   onReviewApplied?: (proposalId: string) => void;
@@ -354,6 +355,7 @@ export function CodeReviewPanel({
   requestChangeLabel = "Review with Codex",
   requestChangeDescription,
   savingDraft,
+  hideHeader = false,
   onRequestChange,
   onSaveDraft,
   onReviewApplied
@@ -777,53 +779,73 @@ export function CodeReviewPanel({
 
   return (
     <div className="fedlify-code-review">
-      <div className="fedlify-code-review-header">
-        <div>
-          <Typography.Title level={3}>{title}</Typography.Title>
-          {description ? <Typography.Text className="fedlify-muted">{description}</Typography.Text> : null}
-        </div>
-        <Space wrap>
-          {(reviewEnabled || onRequestChange) && selectedFile ? (
-            <Button
-              type="primary"
-              className="fedlify-dark-action"
-              icon={<RobotOutlined />}
-              onClick={() => {
-                if (reviewEnabled) void openAssistant();
-                else if (selectedFile) onRequestChange?.(selectedFile);
-              }}
-            >
-              {requestChangeLabel}
-            </Button>
+      {!hideHeader ? (
+        <>
+          <div className="fedlify-code-review-header">
+            <div>
+              <Typography.Title level={3}>{title}</Typography.Title>
+              {description ? <Typography.Text className="fedlify-muted">{description}</Typography.Text> : null}
+            </div>
+            <Space wrap>
+              {(reviewEnabled || onRequestChange) && selectedFile ? (
+                <Button
+                  type="primary"
+                  className="fedlify-dark-action"
+                  icon={<RobotOutlined />}
+                  onClick={() => {
+                    if (reviewEnabled) void openAssistant();
+                    else if (selectedFile) onRequestChange?.(selectedFile);
+                  }}
+                >
+                  {requestChangeLabel}
+                </Button>
+              ) : null}
+              {payload?.pullRequestUrl ? (
+                <Button icon={<GithubOutlined />} href={payload.pullRequestUrl} target="_blank">
+                  Open PR
+                </Button>
+              ) : null}
+              {payload?.branchUrl ? (
+                <Button icon={<CodeOutlined />} href={payload.branchUrl} target="_blank">
+                  Open branch
+                </Button>
+              ) : null}
+            </Space>
+          </div>
+          {(reviewEnabled || onRequestChange) && requestChangeDescription ? (
+            <Alert type="info" showIcon message={requestChangeDescription} />
           ) : null}
-          {payload?.pullRequestUrl ? (
-            <Button icon={<GithubOutlined />} href={payload.pullRequestUrl} target="_blank">
-              Open PR
+          <div className="fedlify-code-context-bar">
+            <Space className="fedlify-code-context-chips" wrap size={[6, 6]}>
+              <Tag title={reviewRef}>{compactLabel(reviewRef)}</Tag>
+              <Tag title={reviewCommit ?? undefined}>{shortCommit(reviewCommit)}</Tag>
+              {payload?.branchName ? <Tag title={payload.branchName}>{compactLabel(payload.branchName)}</Tag> : null}
+              {manifest?.packageType ? <Tag title={String(manifest.packageType)}>{compactLabel(String(manifest.packageType))}</Tag> : null}
+              {validation?.status ? <StatusTag value={validation.status} /> : null}
+            </Space>
+            <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
+              {contextOpen ? "Hide context" : "Review context"}
             </Button>
+          </div>
+        </>
+      ) : (
+        <div className="fedlify-code-compact-ref">
+          {payload?.branchName ? (
+            <Typography.Text type="secondary">
+              Branch: <code>{payload.branchName.length > 50 ? `…${payload.branchName.slice(-44)}` : payload.branchName}</code>
+            </Typography.Text>
           ) : null}
-          {payload?.branchUrl ? (
-            <Button icon={<CodeOutlined />} href={payload.branchUrl} target="_blank">
-              Open branch
-            </Button>
+          {reviewCommit ? (
+            <Typography.Text type="secondary">
+              Commit: <code>{shortCommit(reviewCommit)}</code>
+            </Typography.Text>
           ) : null}
-        </Space>
-      </div>
-      {(reviewEnabled || onRequestChange) && requestChangeDescription ? (
-        <Alert type="info" showIcon message={requestChangeDescription} />
-      ) : null}
-
-      <div className="fedlify-code-context-bar">
-        <Space className="fedlify-code-context-chips" wrap size={[6, 6]}>
-          <Tag title={reviewRef}>{compactLabel(reviewRef)}</Tag>
-          <Tag title={reviewCommit ?? undefined}>{shortCommit(reviewCommit)}</Tag>
-          {payload?.branchName ? <Tag title={payload.branchName}>{compactLabel(payload.branchName)}</Tag> : null}
-          {manifest?.packageType ? <Tag title={String(manifest.packageType)}>{compactLabel(String(manifest.packageType))}</Tag> : null}
           {validation?.status ? <StatusTag value={validation.status} /> : null}
-        </Space>
-        <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
-          {contextOpen ? "Hide context" : "Review context"}
-        </Button>
-      </div>
+          <Button size="small" type="text" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
+            {contextOpen ? "Hide context" : "Review context"}
+          </Button>
+        </div>
+      )}
       {contextOpen ? (
         <div className="fedlify-code-context-panel">
           <FieldGrid>
