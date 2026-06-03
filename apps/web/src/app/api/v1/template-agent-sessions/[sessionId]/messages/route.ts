@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { runTemplateAgentAssistant, type TemplateAgentIntake } from "@/lib/template-agent";
+import { runTemplateAgentAssistant, type AgentMessage, type TemplateAgentIntake } from "@/lib/template-agent";
 
 const messageSchema = z.object({
   message: z.string().trim().min(1).max(12000),
@@ -42,10 +42,16 @@ export async function POST(request: NextRequest, { params }: Params) {
     ...((session.intake ?? {}) as TemplateAgentIntake),
     ...(parsed.data.intakePatch ?? {})
   } as TemplateAgentIntake;
+
+  const priorMessages = asMessageList(session.messages)
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content ?? "") })) satisfies AgentMessage[];
+
   const assistant = await runTemplateAgentAssistant({
     mode: session.mode,
     intake,
-    userMessage: parsed.data.message
+    userMessage: parsed.data.message,
+    priorMessages
   });
   const now = new Date().toISOString();
   const messages = [

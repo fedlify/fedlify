@@ -98,6 +98,6 @@ export function openAiCodeAgentConfig(): { apiKey: string; model: string } | nul
   if (!apiKey) return null;
   return {
     apiKey,
-    model: clean(process.env.OPENAI_CODE_AGENT_MODEL) ?? "gpt-5.4"
+    model: clean(process.env.OPENAI_CODE_AGENT_MODEL) ?? "gpt-4.1"
   };
 }

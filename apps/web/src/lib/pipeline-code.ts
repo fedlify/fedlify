@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { PipelineTemplate, Study, StudySite } from "@prisma/client";
-import { nvflarePython, runtimeRoot } from "@/lib/runtime-config";
+import { nvflarePython, openAiCodeAgentConfig, runtimeRoot } from "@/lib/runtime-config";
+import { generateExecutorCode } from "@/lib/template-agent";
 import { slugify } from "@/lib/slug";
 
 const execFileAsync = promisify(execFile);
@@ -154,15 +155,7 @@ export function buildPipelineFiles(input: {
     },
     {
       path: "fedlify_pipeline/executor.py",
-      content: [
-        "class SiteLocalExecutor:",
-        "    def __init__(self, data_boundary='site-only'):",
-        "        self.data_boundary = data_boundary",
-        "",
-        "    def execute(self, task_name, shareable, fl_ctx, abort_signal):",
-        "        raise NotImplementedError('Replace with reviewed site-local training logic before production use.')",
-        ""
-      ].join("\n")
+      content: EXECUTOR_STUB
     },
     {
       path: "tests/test_pipeline_manifest.py",
@@ -179,6 +172,26 @@ export function buildPipelineFiles(input: {
     }
   ];
 }
+
+const EXECUTOR_STUB = [
+  "# GENERATED_STUB: replace before production use",
+  "# This file will be replaced by the AI agent when intake is complete.",
+  "from nvflare.apis.executor import Executor",
+  "from nvflare.apis.shareable import Shareable, make_reply",
+  "from nvflare.apis.fl_context import FLContext",
+  "from nvflare.apis.signal import Signal",
+  "from nvflare.apis.return_code import ReturnCode",
+  "",
+  "",
+  "class SiteLocalExecutor(Executor):",
+  "    def __init__(self, data_boundary='site-only'):",
+  "        super().__init__()",
+  "        self.data_boundary = data_boundary",
+  "",
+  "    def execute(self, task_name: str, shareable: Shareable, fl_ctx: FLContext, abort_signal: Signal) -> Shareable:",
+  "        raise NotImplementedError('Replace with reviewed site-local training logic before production use.')",
+  ""
+].join("\n");
 
 const syntheticNumpyClient = [
   "import time",
@@ -235,8 +248,22 @@ async function readDirectoryFiles(directory: string, prefix: string): Promise<Pi
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export async function buildNvflareJobPipelineFiles(input: Parameters<typeof buildPipelineFiles>[0]): Promise<PipelineFile[]> {
-  const baseFiles = buildPipelineFiles(input).filter((file) => !file.path.startsWith("nvflare/"));
+export async function buildNvflareJobPipelineFiles(input: Parameters<typeof buildPipelineFiles>[0] & { templateSpec?: Record<string, unknown> }): Promise<PipelineFile[]> {
+  let baseFiles = buildPipelineFiles(input).filter((file) => !file.path.startsWith("nvflare/"));
+
+  // Attempt to generate real executor code via the agent
+  const aiConfig = openAiCodeAgentConfig();
+  if (aiConfig) {
+    const generatedCode = await generateExecutorCode(
+      { ...(input.templateSpec ?? {}), ...(typeof input.template.spec === "object" && input.template.spec !== null ? (input.template.spec as Record<string, unknown>) : {}) },
+      aiConfig
+    ).catch(() => null);
+    if (generatedCode) {
+      baseFiles = baseFiles.map((f) =>
+        f.path === "fedlify_pipeline/executor.py" ? { ...f, content: generatedCode } : f
+      );
+    }
+  }
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "fedlify-nvflare-job-"));
   const jobPath = path.join(tempRoot, NVFLARE_JOB_FOLDER);
 

@@ -122,7 +122,7 @@ export function StudyQuickMenu({ disabled }: StudyQuickMenuProps) {
     <Dropdown
       open={open}
       onOpenChange={setOpen}
-      dropdownRender={() => dropdown}
+      popupRender={() => dropdown}
       trigger={["click"]}
       placement="bottomLeft"
       disabled={disabled}
