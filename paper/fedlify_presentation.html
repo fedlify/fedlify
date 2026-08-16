@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fedlify — Project Overview</title>
+<style>
+  :root{
+    --teal:#006666;
+    --teal-light:#0a8a8a;
+    --ink:#12333a;
+    --muted:#5c7278;
+    --bg:#f4f7f7;
+    --card:#ffffff;
+    --green:#d6e6cd;
+    --yellow:#f0e8be;
+    --red:#ecd5cd;
+    --line:#d7e2e2;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    background:#0c2429;
+    color:var(--ink);
+    overflow:hidden;
+  }
+  .deck{width:100vw;height:100vh;position:relative;}
+  .slide{
+    position:absolute;inset:0;
+    display:none;
+    flex-direction:column;
+    padding:5vh 7vw;
+    background:var(--bg);
+    animation:fade .35s ease;
+  }
+  .slide.active{display:flex;}
+  @keyframes fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+
+  .kicker{
+    font-size:.85rem;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--teal);font-weight:700;margin-bottom:.6rem;
+  }
+  h1{font-size:2.5rem;line-height:1.12;color:var(--ink);font-weight:800;margin-bottom:1.4rem;}
+  h2{font-size:2rem;line-height:1.15;color:var(--ink);font-weight:800;margin-bottom:1.2rem;}
+  .lead{font-size:1.25rem;color:var(--muted);max-width:60ch;line-height:1.5;}
+  ul{list-style:none;}
+  li{
+    font-size:1.18rem;line-height:1.5;color:var(--ink);
+    padding:.5rem 0 .5rem 1.6rem;position:relative;max-width:70ch;
+  }
+  li::before{content:"";position:absolute;left:0;top:1.12rem;
+    width:.55rem;height:.55rem;border-radius:2px;background:var(--teal);}
+  li b{color:var(--teal-light);}
+  .cols{display:flex;gap:2.5rem;flex:1;align-items:flex-start;}
+  .col{flex:1;}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:1.3rem 1.5rem;box-shadow:0 6px 20px rgba(0,60,60,.06);
+  }
+  .card h3{color:var(--teal);font-size:1.05rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem;}
+  .card p{font-size:1.05rem;line-height:1.45;color:var(--ink);}
+  .stat-row{display:flex;gap:1.4rem;margin:1.2rem 0;flex-wrap:wrap;}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:1.1rem 1.3rem;min-width:180px;box-shadow:0 6px 20px rgba(0,60,60,.06);}
+  .stat .num{font-size:2.3rem;font-weight:800;color:var(--teal);line-height:1;}
+  .stat .lbl{font-size:.95rem;color:var(--muted);margin-top:.4rem;}
+
+  /* title slide */
+  .title-slide{background:linear-gradient(150deg,#063f43 0%,#0a5c5c 60%,#0f7373 100%);color:#eafafa;justify-content:center;}
+  .title-slide .kicker{color:#8fdcdc;}
+  .title-slide h1{color:#fff;font-size:3.2rem;max-width:22ch;}
+  .title-slide .sub{font-size:1.35rem;color:#cfeeee;margin-top:.4rem;max-width:60ch;line-height:1.5;}
+  .title-slide .authors{margin-top:2.2rem;font-size:1.05rem;color:#bfe6e6;line-height:1.7;}
+  .title-slide .venue{margin-top:1.2rem;font-size:.95rem;color:#8fdcdc;letter-spacing:.04em;}
+
+  /* figure placeholder */
+  .figbox{
+    flex:1;border:2px dashed var(--teal-light);border-radius:16px;background:#eef6f6;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    margin-top:.4rem;padding:2rem;text-align:center;min-height:0;
+  }
+  .figbox .note{color:var(--teal);font-weight:700;font-size:1.05rem;margin-bottom:1.4rem;}
+  .flow{display:flex;align-items:stretch;gap:.5rem;flex-wrap:wrap;justify-content:center;}
+  .node{background:#fff;border:1.5px solid var(--teal-light);border-radius:10px;
+    padding:.7rem .9rem;font-size:.92rem;color:var(--ink);font-weight:600;max-width:150px;}
+  .arrow{align-self:center;color:var(--teal-light);font-size:1.3rem;font-weight:800;}
+  .figcap{color:var(--muted);font-size:.9rem;margin-top:1.2rem;font-style:italic;}
+
+  /* results table */
+  table{border-collapse:collapse;width:100%;font-size:1rem;margin-top:.6rem;}
+  th,td{padding:.55rem .7rem;text-align:left;border-bottom:1px solid var(--line);}
+  th{color:var(--teal);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;}
+  .chip{display:inline-block;padding:.15rem .6rem;border-radius:20px;font-size:.85rem;font-weight:700;}
+  .g{background:var(--green);color:#2f5a1e;}
+  .y{background:var(--yellow);color:#7a6a10;}
+  .r{background:var(--red);color:#8a3320;}
+
+  .pub{display:flex;gap:1rem;align-items:flex-start;padding:.9rem 0;border-bottom:1px solid var(--line);}
+  .pub .status{flex-shrink:0;font-size:.8rem;font-weight:700;padding:.3rem .7rem;border-radius:20px;text-transform:uppercase;letter-spacing:.04em;}
+  .st-prep{background:var(--yellow);color:#7a6a10;}
+  .st-sub{background:#cfe6f0;color:#155;}
+  .pub .ptitle{font-size:1.08rem;font-weight:700;color:var(--ink);}
+  .pub .pmeta{font-size:.95rem;color:var(--muted);margin-top:.2rem;}
+
+  /* footer / nav */
+  .footer{position:absolute;bottom:2.2vh;left:7vw;right:7vw;display:flex;
+    justify-content:space-between;align-items:center;font-size:.85rem;color:var(--muted);}
+  .footer .brand{font-weight:700;color:var(--teal);}
+  .title-slide .footer{color:#8fdcdc;}
+  .title-slide .footer .brand{color:#bfe6e6;}
+  .nav{position:fixed;bottom:2vh;right:2vw;display:flex;gap:.5rem;z-index:10;}
+  .nav button{background:var(--teal);color:#fff;border:none;border-radius:8px;
+    width:40px;height:40px;font-size:1.1rem;cursor:pointer;opacity:.85;}
+  .nav button:hover{opacity:1;}
+  .progress{position:fixed;top:0;left:0;height:4px;background:var(--teal-light);z-index:20;transition:width .3s;}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 0. TITLE -->
+  <section class="slide title-slide active">
+    <div class="kicker">Agentic Federated Learning for Health AI</div>
+    <h1>Fedlify</h1>
+    <div class="sub">An agentic platform that makes multi-institution federated learning <b>governable, coordinated, and reproducible</b> — not just trainable.</div>
+    <div class="authors">
+      Omid Jafarinezhad · Mohammad Noaeen · Aviv Shachak · Behrouz Far · Zahra Shakeri&nbsp;<span style="opacity:.7">(corresponding)</span><br>
+      University of Toronto · University of Calgary
+    </div>
+    <div class="venue">Target venue: npj Digital Medicine · Project overview</div>
+    <div class="footer"><span class="brand">Fedlify</span><span>Institute of Health Policy, Management &amp; Evaluation — DLSPH, U of T</span></div>
+  </section>
+
+  <!-- 1. WHAT -->
+  <section class="slide">
+    <div class="kicker">1 · What is the project about</div>
+    <h2>Training health AI across hospitals — without moving the data</h2>
+    <div class="cols">
+      <div class="col">
+        <ul>
+          <li><b>Setting:</b> reliable, generalizable health AI needs data from <b>many institutions</b> (EHR, imaging, genomics, biosignals).</li>
+          <li><b>Barrier:</b> privacy law, governance, and institutional silos block raw-data sharing — so most models are trained on a <b>single site</b>.</li>
+          <li><b>Federated learning (FL)</b> lets sites train a shared model while data stay local — but running a real study is operationally hard.</li>
+          <li><b>Goal:</b> Fedlify is a platform that manages the <b>full lifecycle</b> of a federated study — intake → governance → configuration → execution → aggregation → reporting.</li>
+        </ul>
+      </div>
+      <div class="col">
+        <div class="card" style="margin-bottom:1rem;">
+          <h3>The core idea</h3>
+          <p>Treat federated learning as a <b>governed workflow</b>, not just a training loop — with an AI agent to reduce coordination burden and humans in control of every decision.</p>
+        </div>
+        <div class="card">
+          <h3>Built on</h3>
+          <p>Next.js application layer · NVFlare federated runtime · Gitea + S3 · role-based governance · an LLM coordination agent.</p>
+        </div>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">Fedlify</span><span>What is it about?</span></div>
+  </section>
+
+  <!-- 2. WHY -->
+  <section class="slide">
+    <div class="kicker">2 · Why we are investigating this</div>
+    <h2>FL works technically — yet almost nobody uses it in practice</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="num">5%</div><div class="lbl">of multicenter patient-level AI studies (2018–2025, n≈3,100) used FL</div></div>
+      <div class="stat"><div class="num">5.2%</div><div class="lbl">of 612 healthcare FL studies describe real-world use — the rest are proof-of-concept</div></div>
+      <div class="stat"><div class="num">13</div><div class="lbl">FL frameworks we evaluated — governance was the weakest dimension across all</div></div>
+    </div>
+    <ul>
+      <li>The bottleneck is <b>operational, not algorithmic</b> — orchestration, governance, traceability, and deployment, not the training math.</li>
+      <li>Evidence from real deployments (Nordic–Baltic network, computational pathology) shows barriers are <b>organizational, regulatory, and socio-technical</b>.</li>
+      <li><b>Who benefits:</b> health researchers, hospitals unable to share data, and patients — through more generalizable, equitable models.</li>
+    </ul>
+    <div class="footer"><span class="brand">Fedlify</span><span>Why does it matter?</span></div>
+  </section>
+
+  <!-- 3. METHOD + FIGURE -->
+  <section class="slide">
+    <div class="kicker">3 · Method &amp; what is novel</div>
+    <h2>A governance-aware platform + a bounded coordination agent</h2>
+    <div class="figbox">
+      <div class="note">▲ REPLACE with the team-created graphical overview (do not use an AI-generated figure)</div>
+      <div class="flow">
+        <div class="node">Researcher describes study (chatbot intake)</div>
+        <div class="arrow">→</div>
+        <div class="node">Agent: extract requirements &amp; readiness</div>
+        <div class="arrow">→</div>
+        <div class="node">Governance &amp; privacy gates (human approval)</div>
+        <div class="arrow">→</div>
+        <div class="node">Template-bound config &amp; site kits (NVFlare)</div>
+        <div class="arrow">→</div>
+        <div class="node">Local training at each site — data never leaves</div>
+        <div class="arrow">→</div>
+        <div class="node">Aggregation, monitoring &amp; audit</div>
+        <div class="arrow">→</div>
+        <div class="node">Reproducibility package &amp; report</div>
+      </div>
+      <div class="figcap">Reference schematic only — the final figure should be drawn by the team.</div>
+    </div>
+    <div class="footer"><span class="brand">Fedlify</span><span>Method overview</span></div>
+  </section>
+
+  <!-- 3b. NOVELTY detail -->
+  <section class="slide">
+    <div class="kicker">3 · What is novel</div>
+    <h2>Controlled agency: the agent prepares, humans decide</h2>
+    <div class="cols">
+      <div class="col">
+        <div class="card" style="margin-bottom:1rem;">
+          <h3>Governance-first design</h3>
+          <p>Study, site, and platform roles (RBAC) with explicit approval gates for activation and pipeline execution. Governance is a first-class layer, not an afterthought.</p>
+        </div>
+        <div class="card">
+          <h3>Agent as versioned "skill cards"</h3>
+          <p>Each skill = trigger, inputs, instruction, allowed tools, output schema, validation tests, stop conditions, human gate, and evidence basis — not an open-ended chat prompt.</p>
+        </div>
+      </div>
+      <div class="col">
+        <ul>
+          <li><b>plan → act → check → revise</b> loop that turns study goals into inspectable platform artifacts.</li>
+          <li>The agent <b>can</b>: gather metadata, draft plans, generate config from approved templates, summarize logs, draft reports.</li>
+          <li>The agent <b>cannot</b>: approve collaborations, touch patient data, execute studies, release kits, or override governance.</li>
+          <li>Every mutation is <b>audited</b>; artifacts are versioned, signed/checksummed, and reproducible.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">Fedlify</span><span>Novelty</span></div>
+  </section>
+
+  <!-- 4. HOW IT ADDRESSES + RESULTS -->
+  <section class="slide">
+    <div class="kicker">4 · How the model addresses the problem &amp; results so far</div>
+    <h2>Closing the operational &amp; governance gap left by FL runtimes</h2>
+    <div class="cols">
+      <div class="col">
+        <p style="font-size:1rem;color:var(--muted);margin-bottom:.4rem;">Framework comparison across 9 dimensions — governance &amp; orchestration are where existing tools fall short:</p>
+        <table>
+          <tr><th>Dimension</th><th>Existing FL frameworks</th><th>Fedlify focus</th></tr>
+          <tr><td>Federated training</td><td><span class="chip g">strong</span></td><td>reuse (NVFlare)</td></tr>
+          <tr><td>Deployment readiness</td><td><span class="chip y">varies</span></td><td>containerized</td></tr>
+          <tr><td>Workflow orchestration</td><td><span class="chip y">partial</span></td><td><span class="chip g">core</span></td></tr>
+          <tr><td>Reproducibility / trace</td><td><span class="chip y">partial</span></td><td><span class="chip g">core</span></td></tr>
+          <tr><td>Governance support</td><td><span class="chip r">weakest</span></td><td><span class="chip g">core</span></td></tr>
+        </table>
+      </div>
+      <div class="col">
+        <ul>
+          <li><b>Framework study:</b> 13 frameworks scored via a 5-submetric rubric, with a <b>blinded, evidence-locked LLM cross-check</b> (GPT-5.5 + Claude Sonnet) and human adjudication of disagreements.</li>
+          <li><b>Simulated multi-site study</b> ran end-to-end across all sites — study setup, onboarding, orchestration, execution, aggregation — with <b>reduced coordination overhead</b>.</li>
+          <li><b>Reproducibility:</b> repeated runs of the same workflow gave <b>consistent results</b>, backed by structured logging &amp; config versioning.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">Fedlify</span><span>How it works &amp; results</span></div>
+  </section>
+
+  <!-- 5. NEXT STEPS -->
+  <section class="slide">
+    <div class="kicker">5 · Next steps</div>
+    <h2>From simulated validation to real clinical deployment</h2>
+    <div class="cols">
+      <div class="col">
+        <div class="card" style="margin-bottom:1rem;">
+          <h3>Build out the agent</h3>
+          <p>Implement the seven skill cards end-to-end and validate guardrails, stop conditions, and human-approval gates in the live platform.</p>
+        </div>
+        <div class="card">
+          <h3>Real-world deployment</h3>
+          <p>Move beyond simulation to live multi-hospital pilots; integrate with clinical data systems and institutional infrastructure.</p>
+        </div>
+      </div>
+      <div class="col">
+        <ul>
+          <li>Strengthen <b>system-level evaluation</b> — coordination overhead, reliability, and reproducibility metrics at larger scale.</li>
+          <li>Expand <b>privacy/security</b> options (secure aggregation, DP) as validated template choices.</li>
+          <li>Harden the <b>audit &amp; reproducibility package</b> for real governance and ethics review.</li>
+          <li>Broaden framework/template support beyond NVFlare where useful.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer"><span class="brand">Fedlify</span><span>Next steps</span></div>
+  </section>
+
+  <!-- 6. PUBLICATIONS -->
+  <section class="slide">
+    <div class="kicker">6 · Publications</div>
+    <h2>Related papers &amp; current status</h2>
+    <div style="margin-top:.5rem;">
+      <div class="pub">
+        <span class="status st-prep">In preparation</span>
+        <div>
+          <div class="ptitle">Fedlify: An Agentic Federated Learning Platform for Health AI</div>
+          <div class="pmeta">Jafarinezhad, Noaeen, Shachak, Far, Shakeri — target: <i>npj Digital Medicine</i>. Framework comparison + agentic architecture + simulated multi-site evaluation.</div>
+        </div>
+      </div>
+      <div class="pub">
+        <span class="status st-prep">In preparation</span>
+        <div>
+          <div class="ptitle">Scoping review of federated learning in patient-level health AI</div>
+          <div class="pmeta">Jafarinezhad et al. — review of ~3,100 patient-level AI studies (2018–2025); finding that only 5% of multicenter studies use FL. Motivates the Fedlify work.</div>
+        </div>
+      </div>
+    </div>
+    <p class="lead" style="margin-top:1.4rem;font-size:1.05rem;">Please confirm exact titles, author order, and submission status before circulating — statuses shown are drafts from the current manuscript.</p>
+    <div class="footer"><span class="brand">Fedlify</span><span>Publications</span></div>
+  </section>
+
+  <!-- CLOSE -->
+  <section class="slide title-slide">
+    <div class="kicker">Thank you</div>
+    <h1 style="font-size:2.6rem;">Fedlify makes federated health AI<br>governable, coordinated &amp; reproducible.</h1>
+    <div class="sub">Questions &amp; discussion welcome.</div>
+    <div class="venue" style="margin-top:2rem;">zahra.shakeri@utoronto.ca</div>
+    <div class="footer"><span class="brand">Fedlify</span><span></span></div>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button onclick="go(-1)">‹</button>
+  <button onclick="go(1)">›</button>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function show(n){
+    slides[i].classList.remove('active');
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides[i].classList.add('active');
+    document.getElementById('progress').style.width=((i)/(slides.length-1)*100)+'%';
+  }
+  function go(d){show(i+d);}
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown')go(1);
+    if(e.key==='ArrowLeft'||e.key==='PageUp')go(-1);
+    if(e.key==='Home')show(0);
+    if(e.key==='End')show(slides.length-1);
+  });
+  show(0);
+</script>
+</body>
+</html>

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { chooseSelectedStudy, matchesStudyStatusFilter, type StudySummary } from "@/lib/studies";
+import {
+  chooseSelectedStudy,
+  matchesStudyStatusFilter,
+  resolveUnavailableStudyTarget,
+  type StudySummary
+} from "@/lib/studies";
 
 const studies: StudySummary[] = [
   { id: "archived", title: "Archived", status: "ARCHIVED" },
@@ -29,5 +34,23 @@ describe("study helpers", () => {
 
   it("falls back to archived only when no active study exists", () => {
     expect(chooseSelectedStudy([studies[0]], null)?.id).toBe("archived");
+  });
+
+  it("resolves inaccessible study routes to another selectable study", () => {
+    expect(resolveUnavailableStudyTarget(studies, "missing", "pipeline")).toEqual({
+      href: "/studies/draft?section=pipeline",
+      studyId: "draft"
+    });
+  });
+
+  it("resolves to study management when no alternate study is selectable", () => {
+    expect(resolveUnavailableStudyTarget([studies[1]], "draft", "pipeline")).toEqual({
+      href: "/studies/manage",
+      studyId: null
+    });
+    expect(resolveUnavailableStudyTarget([], "draft")).toEqual({
+      href: "/studies/manage",
+      studyId: null
+    });
   });
 });

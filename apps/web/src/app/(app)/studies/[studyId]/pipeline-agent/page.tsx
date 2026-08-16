@@ -19,18 +19,19 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PaperClipOutlined,
+  PlusOutlined,
   QuestionCircleOutlined,
   RobotOutlined,
   SafetyOutlined,
   SendOutlined
 } from "@ant-design/icons";
-import { Attachments, Bubble, Conversations, Prompts, Sender, Think, ThoughtChain, Welcome } from "@ant-design/x";
-import { Alert, Badge, Button, Form, Input, InputNumber, Popover, Segmented, Select, Space, Splitter, Tag, Tooltip, Typography, message } from "antd";
+import { Bubble, Conversations, Prompts, Sender, Think, ThoughtChain, Welcome } from "@ant-design/x";
+import { Alert, Badge, Button, Dropdown, Input, InputNumber, Popover, Segmented, Select, Space, Tag, Tooltip, Typography, message } from "antd";
 import dynamic from "next/dynamic";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
-import { CLINICAL_USE_CASE_OPTIONS, DATA_MODALITY_OPTIONS } from "@/lib/governance-options";
+import { closePipelineAgentTab, derivePipelineAgentLayoutMode, GUIDED_QUESTIONS, nextGuidedMissingField, type GuidedAnswerOption, type GuidedIconKey, type GuidedQuestionConfig, type PipelineAgentLayoutMode } from "@/lib/pipeline-agent-guided";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false, loading: () => <div className="fedlify-editor-loading">Loading editor…</div> });
 const MonacoDiffEditor = dynamic(() => import("@monaco-editor/react").then((m) => m.DiffEditor), { ssr: false, loading: () => <div className="fedlify-editor-loading">Loading diff…</div> });
@@ -43,7 +44,6 @@ const ThoughtSteps = ThoughtChain as any;
 const ThinkBox = Think as any;
 const ConversationList = Conversations as any;
 const WelcomeBox = Welcome as any;
-const AttachmentBox = Attachments as any;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -98,6 +98,19 @@ function languageForPath(p: string): string {
   if (p.endsWith(".yml") || p.endsWith(".yaml")) return "yaml";
   if (p.endsWith(".sh")) return "shell";
   return "plaintext";
+}
+
+function normalizeGeneratedFiles(raw: unknown): GeneratedFile[] {
+  return Array.isArray(raw)
+    ? raw
+        .filter((file): file is Record<string, unknown> => typeof file === "object" && file !== null)
+        .filter((file) => typeof file.path === "string" && file.content !== undefined)
+        .map((file) => ({
+          path: String(file.path),
+          content: String(file.content ?? ""),
+          ...(typeof file.proposedContent === "string" ? { proposedContent: file.proposedContent } : {})
+        }))
+    : [];
 }
 
 // ─── File tree node ──────────────────────────────────────────────────────────
@@ -199,48 +212,225 @@ function inlineMarkdown(text: string): React.ReactNode {
   });
 }
 
-// ─── Intake field config ──────────────────────────────────────────────────────
+function looksLikeGeneratedCode(content: string): boolean {
+  if (content.includes("```")) return true;
+  const lines = content.split("\n");
+  const codeSignals = lines.filter((line) => {
+    const trimmed = line.trim();
+    return (
+      /^import\s+\w+/.test(trimmed)
+      || /^from\s+\S+\s+import\s+/.test(trimmed)
+      || /^class\s+\w+/.test(trimmed)
+      || /^def\s+\w+\(/.test(trimmed)
+      || /return\s+\w+/.test(trimmed)
+      || /self\.\w+/.test(trimmed)
+      || /DXO|Shareable|Executor|AppConstants|np\./.test(trimmed)
+    );
+  }).length;
+  return lines.length >= 18 && codeSignals >= 6;
+}
 
-type FieldConfig = { key: string; label: string; input: "text" | "textarea" | "number" | "select" | "multiselect"; placeholder?: string; options?: { value: string; label: string }[]; defaultValue?: unknown; min?: number; span?: "full" };
+function conciseAssistantDisplay(content: string): string {
+  if (!looksLikeGeneratedCode(content)) return content;
+  const withoutCodeBlocks = content.replace(/```[\s\S]*?```/g, "").trim();
+  const summaryLines = withoutCodeBlocks
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const summary = summaryLines.join(" ");
+  return [
+    "Code generated.",
+    "",
+    summary ? `Summary: ${summary}` : "Summary: Pipeline source files are ready for review.",
+    "Open the Files panel to inspect the generated code."
+  ].join("\n");
+}
 
-const INTAKE_FIELDS: Record<string, FieldConfig> = {
-  "template name": { key: "templateName", label: "Template name", input: "text", placeholder: "e.g. fedavg-ehr-sepsis-prediction" },
-  "what the template should do": { key: "agentRequest", label: "What should this pipeline do?", input: "textarea", placeholder: "Describe the pipeline goal.", span: "full" },
-  "template purpose": { key: "purpose", label: "Purpose", input: "select", options: ["training","evaluation","preprocessing","metrics","model export"].map((v) => ({ value: v, label: v })), defaultValue: "training" },
-  "clinical AI use case": { key: "clinicalUseCase", label: "Clinical AI use case", input: "select", options: CLINICAL_USE_CASE_OPTIONS as unknown as { value: string; label: string }[] },
-  "data modalities": { key: "dataModalities", label: "Data modalities", input: "multiselect", options: DATA_MODALITY_OPTIONS as unknown as { value: string; label: string }[] },
-  "site-local input contract": { key: "siteLocalInputs", label: "Site-local input format", input: "textarea", placeholder: "e.g. CSV with age, vitals, labs, label columns.", span: "full" },
-  "allowed synthetic fixtures": { key: "syntheticFixtures", label: "Synthetic test data", input: "text", placeholder: "Synthetic numpy arrays for smoke tests only.", defaultValue: "Synthetic numpy arrays for smoke tests only." },
-  "NVFLARE workflow type": { key: "nvflareWorkflow", label: "NVFLARE workflow", input: "select", options: [{ value: "scatter_and_gather", label: "Scatter and Gather (FedAvg)" }, { value: "cyclic", label: "Cyclic" }], defaultValue: "scatter_and_gather" },
-  "minimum clients": { key: "minClients", label: "Min sites per round", input: "number", min: 1, defaultValue: 2 },
-  "federated rounds": { key: "numRounds", label: "Federated rounds", input: "number", min: 1, defaultValue: 5 },
-  "aggregation behavior": { key: "aggregation", label: "Aggregation", input: "text", placeholder: "weighted FedAvg", defaultValue: "weighted FedAvg" },
-  "output artifacts": { key: "artifactOutputs", label: "Output artifacts", input: "text", defaultValue: "server.npy, metrics summary, logs, manifest" },
-  "dependency policy": { key: "dependencyPolicy", label: "Dependencies", input: "select", options: [{ value: "Use standard NVFLARE and scikit-learn only.", label: "scikit-learn" }, { value: "Use standard NVFLARE and PyTorch only.", label: "PyTorch" }, { value: "Use standard NVFLARE and NumPy only.", label: "NumPy only" }], defaultValue: "Use standard NVFLARE and scikit-learn only." },
-  "privacy constraints": { key: "privacyConstraints", label: "Privacy constraints", input: "text", defaultValue: "Raw clinical data remains site-local. No patient files in Git." },
-  "validation expectations": { key: "reviewExpectations", label: "Validation checks", input: "text", defaultValue: "README, manifest, NVFLARE job shape, and no raw-data paths must pass." }
-};
+// ─── Guided intake UI ────────────────────────────────────────────────────────
 
-function IntakeFormCard({ missing, intake, onSubmit, sending }: { missing: string[]; intake: Record<string, unknown>; onSubmit: (patch: Record<string, unknown>) => void; sending: boolean }) {
-  const [form] = Form.useForm();
-  const missingFields = missing.map((label) => INTAKE_FIELDS[label]).filter((f): f is FieldConfig => Boolean(f));
-  if (missingFields.length === 0) return null;
-  const initialValues: Record<string, unknown> = {};
-  for (const field of missingFields) initialValues[field.key] = intake[field.key] ?? field.defaultValue;
+function guidedIcon(icon: GuidedIconKey): React.ReactNode {
+  switch (icon) {
+    case "artifacts":
+      return <FileTextOutlined />;
+    case "automation":
+      return <RobotOutlined />;
+    case "check":
+      return <CheckCircleOutlined />;
+    case "code":
+      return <CodeOutlined />;
+    case "data":
+      return <DatabaseOutlined />;
+    case "files":
+      return <FolderOpenOutlined />;
+    case "governance":
+      return <SafetyOutlined />;
+    case "privacy":
+      return <SafetyOutlined />;
+    case "runtime":
+      return <CloudUploadOutlined />;
+    case "workflow":
+      return <LayoutOutlined />;
+    case "name":
+    default:
+      return <FileTextOutlined />;
+  }
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
+  return left === right;
+}
+
+function initialDraftValue(config: GuidedQuestionConfig, intake: Record<string, unknown>): string | number | string[] | null {
+  const intakeValue = intake[config.key];
+  if (Array.isArray(intakeValue)) return intakeValue.map(String);
+  if (typeof intakeValue === "number") return intakeValue;
+  if (typeof intakeValue === "string" && intakeValue.trim()) return intakeValue;
+  if (config.defaultValue !== undefined) return config.defaultValue;
+  return config.input === "multiselect" ? [] : null;
+}
+
+function renderCustomAnswerInput(config: GuidedQuestionConfig, draftAnswer: string | number | string[] | null, setDraftAnswer: (value: string | number | string[]) => void) {
+  if (config.input === "textarea") {
+    return <Input.TextArea rows={3} value={typeof draftAnswer === "string" ? draftAnswer : ""} placeholder={config.placeholder} onChange={(event) => setDraftAnswer(event.target.value)} />;
+  }
+  if (config.input === "number") {
+    return <InputNumber min={config.min ?? 1} precision={0} style={{ width: "100%" }} value={typeof draftAnswer === "number" ? draftAnswer : Number(draftAnswer ?? config.defaultValue ?? config.min ?? 1)} onChange={(value) => setDraftAnswer(Number(value ?? config.min ?? 1))} />;
+  }
+  if (config.input === "select") {
+    return <Select style={{ width: "100%" }} value={typeof draftAnswer === "string" ? draftAnswer : undefined} options={config.options} placeholder={config.placeholder} onChange={(value) => setDraftAnswer(value)} />;
+  }
+  if (config.input === "multiselect") {
+    return <Select style={{ width: "100%" }} mode="multiple" value={Array.isArray(draftAnswer) ? draftAnswer : []} options={config.options} placeholder={config.placeholder ?? "Select all that apply"} onChange={(value) => setDraftAnswer(value)} />;
+  }
+  return <Input value={typeof draftAnswer === "string" ? draftAnswer : ""} placeholder={config.placeholder} onChange={(event) => setDraftAnswer(event.target.value)} />;
+}
+
+function GuidedIntakeWizard({
+  missing,
+  intake,
+  sending,
+  currentField,
+  completedFieldOrder,
+  answerMode,
+  draftAnswer,
+  onAnswerModeChange,
+  onDraftAnswerChange,
+  onConfirm,
+  onMinimize,
+  onDismiss
+}: {
+  missing: string[];
+  intake: Record<string, unknown>;
+  sending: boolean;
+  currentField: string | null;
+  completedFieldOrder: string[];
+  answerMode: "curated" | "custom";
+  draftAnswer: string | number | string[] | null;
+  onAnswerModeChange: (value: "curated" | "custom") => void;
+  onDraftAnswerChange: (value: string | number | string[]) => void;
+  onConfirm: () => void;
+  onMinimize: () => void;
+  onDismiss: () => void;
+}) {
+  if (!currentField) return null;
+  const config = GUIDED_QUESTIONS[currentField];
+  if (!config) return null;
+  const total = completedFieldOrder.length + missing.length;
+  const currentIndex = Math.min(completedFieldOrder.length + 1, Math.max(total, 1));
+  const selectedCuratedOption = config.curatedOptions.find((option) => valuesEqual(option.value, draftAnswer));
+  const canConfirm = Array.isArray(draftAnswer) ? draftAnswer.length > 0 : draftAnswer !== null && String(draftAnswer).trim().length > 0;
   return (
-    <div className="fedlify-intake-card">
-      <div className="fedlify-intake-card-header"><RobotOutlined style={{ color: "var(--fedlify-primary)" }} /><div><Typography.Text strong style={{ display: "block" }}>Complete pipeline details</Typography.Text><Typography.Text type="secondary" style={{ fontSize: 12 }}>{missingFields.length} fields needed</Typography.Text></div></div>
-      <Form form={form} layout="vertical" initialValues={initialValues} onFinish={(values) => { const patch: Record<string, unknown> = {}; for (const f of missingFields) if (values[f.key] !== undefined && values[f.key] !== null && values[f.key] !== "") patch[f.key] = values[f.key]; onSubmit(patch); }} className="fedlify-intake-card-form">
-        <div className="fedlify-intake-card-grid">
-          {missingFields.map((field) => (
-            <Form.Item key={field.key} name={field.key} label={field.label} className={field.span === "full" ? "fedlify-intake-card-full" : ""} rules={[{ required: true }]}>
-              {field.input === "textarea" ? <Input.TextArea rows={2} placeholder={field.placeholder} /> : field.input === "number" ? <InputNumber min={field.min ?? 1} precision={0} style={{ width: "100%" }} /> : field.input === "select" ? <Select options={field.options} placeholder={field.placeholder} /> : field.input === "multiselect" ? <Select mode="multiple" options={field.options} placeholder={field.placeholder ?? "Select all that apply"} /> : <Input placeholder={field.placeholder} />}
-            </Form.Item>
-          ))}
+    <section className="fedlify-pa-guided-intake" data-testid="guided-intake">
+      <div className="fedlify-pa-guided-intake-header">
+        <div className="fedlify-pa-guided-intake-step">
+          <span>{completedFieldOrder.length + 1}</span>
+          <div>
+            <Typography.Text strong>Understand requirements</Typography.Text>
+            <Typography.Text type="secondary">{Math.max(currentIndex, 1)} of {Math.max(total, 1)} questions</Typography.Text>
+          </div>
         </div>
-        <Button type="primary" htmlType="submit" className="fedlify-dark-action" icon={<SendOutlined />} loading={sending} block>Generate pipeline code</Button>
-      </Form>
-    </div>
+        <div className="fedlify-pa-guided-intake-header-actions">
+          <Tag bordered={false} color="purple">{missing.length} remaining</Tag>
+          <div className="fedlify-pa-guided-window-actions">
+            <Tooltip title="Minimize requirements">
+              <button type="button" className="fedlify-pa-guided-window-btn" onClick={onMinimize} aria-label="Minimize requirements">
+                <MenuFoldOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Hide requirements for now">
+              <button type="button" className="fedlify-pa-guided-window-btn" onClick={onDismiss} aria-label="Hide requirements">
+                <CloseOutlined />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
+      <div className="fedlify-pa-guided-intake-body">
+        <div className="fedlify-pa-guided-intake-title-row">
+          <div className="fedlify-pa-guided-intake-icon">{guidedIcon(config.icon)}</div>
+          <div>
+            <Typography.Title level={5}>{config.title}</Typography.Title>
+            <Typography.Paragraph>{config.helper}</Typography.Paragraph>
+          </div>
+        </div>
+        <div className="fedlify-pa-guided-intake-scroll">
+          <div className="fedlify-pa-guided-options">
+            {config.curatedOptions.map((option: GuidedAnswerOption) => {
+              const isSelected = answerMode === "curated" && selectedCuratedOption?.id === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={["fedlify-pa-guided-option", isSelected ? "is-selected" : ""].filter(Boolean).join(" ")}
+                  onClick={() => {
+                    onAnswerModeChange("curated");
+                    onDraftAnswerChange(option.value);
+                  }}
+                >
+                  <span className="fedlify-pa-guided-option-icon">{guidedIcon(option.icon)}</span>
+                  <span className="fedlify-pa-guided-option-copy">
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {config.allowCustom ? (
+            <div className="fedlify-pa-guided-custom">
+              <button type="button" className={["fedlify-pa-guided-custom-toggle", answerMode === "custom" ? "is-active" : ""].filter(Boolean).join(" ")} onClick={() => {
+                onAnswerModeChange("custom");
+                onDraftAnswerChange(initialDraftValue(config, intake) ?? "");
+              }}>
+                Use a custom answer
+              </button>
+              {answerMode === "custom" ? (
+                <div className="fedlify-pa-guided-custom-input">
+                  {renderCustomAnswerInput(config, draftAnswer, onDraftAnswerChange)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="fedlify-pa-guided-actions">
+          {answerMode === "custom" ? (
+            <Button onClick={() => {
+              onAnswerModeChange("curated");
+              onDraftAnswerChange(initialDraftValue(config, intake) ?? "");
+            }}>
+              Back
+            </Button>
+          ) : <span />}
+          <Button type="primary" className="fedlify-dark-action" icon={<SendOutlined />} loading={sending} disabled={!canConfirm || sending} onClick={onConfirm}>
+            Confirm answer
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -333,8 +523,9 @@ export default function PipelineAgentPage() {
   const sessionMode = modeParam === "adjust" || modeParam === "from-template" ? "FROM_STUDY_TEMPLATE" : "FROM_SCRATCH";
 
   // ── Layout state ──────────────────────────────────────────────────────────
-  const [explorerOpen, setExplorerOpen] = useState(true);
-  const [chatOpen, setChatOpen] = useState(true);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [explorerOpen, setExplorerOpen] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<PipelineAgentLayoutMode>("chat-focus");
   const [thoughtExpanded, setThoughtExpanded] = useState(false);
   const [planMode, setPlanMode] = useState(false);
   const [attachments, setAttachments] = useState<Array<{ uid: string; name: string; status?: string; url?: string; originFileObj?: File }>>([]);
@@ -344,6 +535,7 @@ export default function PipelineAgentPage() {
 
   // ── Session / chat state ──────────────────────────────────────────────────
   const [session, setSession] = useState<Session | null>(null);
+  const [sessionMissing, setSessionMissing] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<GeneratedFile[]>([]);
@@ -356,72 +548,156 @@ export default function PipelineAgentPage() {
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<{ status: string; summary: string; errors?: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentMissingField, setCurrentMissingField] = useState<string | null>(null);
+  const [answerMode, setAnswerMode] = useState<"curated" | "custom">("curated");
+  const [draftAnswer, setDraftAnswer] = useState<string | number | string[] | null>(null);
+  const [completedFieldOrder, setCompletedFieldOrder] = useState<string[]>([]);
+  const [savingIntake, setSavingIntake] = useState(false);
+  const [intakePopupDismissed, setIntakePopupDismissed] = useState(false);
+  const [intakePopupMinimized, setIntakePopupMinimized] = useState(false);
   const streamingContentRef = useRef("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const missing = useMemo(() => ([...messages].reverse().find((m) => m.role === "assistant")?.missing ?? []), [messages]);
-  const selectedFile = useMemo(() => files.find((f) => f.path === selectedPath) ?? files[0] ?? null, [files, selectedPath]);
+  const missing = sessionMissing;
+  const selectedFile = useMemo(() => files.find((f) => f.path === selectedPath) ?? null, [files, selectedPath]);
   const tree = useMemo(() => buildFileTree(files), [files]);
   const intakeComplete = session?.status === "CODING" || session?.status === "DRAFT_READY";
   const canCreatePR = session && session.status !== "APPLIED" && (intakeComplete || validation?.status === "PASSED" || files.length > 0);
-  const ideClass = ["fedlify-pa-ide", !explorerOpen ? "explorer-hidden" : "", !chatOpen ? "chat-hidden" : ""].filter(Boolean).join(" ");
+  const unresolvedMissing = useMemo(() => missing.filter((label) => label in GUIDED_QUESTIONS), [missing]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   function normalizeMessages(raw: unknown): ChatMessage[] {
     return Array.isArray(raw)
       ? raw.filter((m): m is Record<string, unknown> => typeof m === "object" && m != null && "content" in m)
-           .map((m) => ({ role: m.role === "user" ? "user" : ("assistant" as const), content: String(m.content ?? ""), createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined, missing: Array.isArray(m.missing) ? (m.missing as string[]) : undefined }))
+           .map((m) => {
+             const role = m.role === "user" ? "user" : ("assistant" as const);
+             const rawContent = String(m.content ?? "");
+             return {
+               role,
+               content: role === "assistant" ? conciseAssistantDisplay(rawContent) : rawContent,
+               createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
+               missing: Array.isArray(m.missing) ? (m.missing as string[]) : undefined
+             };
+           })
       : [];
   }
 
-  function syncFilesFromSession(sess: Session) {
-    const raw = sess.generatedFiles;
-    if (Array.isArray(raw) && raw.length > 0) {
-      setFiles(raw as GeneratedFile[]);
-      setSelectedPath((prev) => {
-        const newFiles = raw as GeneratedFile[];
-        if (prev && newFiles.find((f) => f.path === prev)) return prev;
-        return newFiles.find((f) => f.path.includes("executor.py"))?.path ?? newFiles[0]?.path ?? null;
-      });
-      const paths = (raw as GeneratedFile[]).map((f) => f.path);
-      setOpenTabs((prev) => {
-        const combined = [...new Set([...prev, ...paths])];
-        return combined.slice(0, 8);
-      });
-    }
+  function normalizeMissing(raw: unknown): string[] {
+    if (Array.isArray(raw)) return raw.filter((item): item is string => typeof item === "string");
+    return [];
   }
 
+  function addAssistantMessage(content: string, extra?: Partial<ChatMessage>) {
+    setMessages((prev) => [...prev, { role: "assistant", content, ...extra }]);
+  }
+
+  const showFiles = useCallback((nextFiles: GeneratedFile[]) => {
+    setFiles(nextFiles);
+    setOpenTabs((prev) => {
+      const nextOpenTabs = prev.filter((path) => nextFiles.some((file) => file.path === path));
+      return nextOpenTabs;
+    });
+    setSelectedPath((prev) => (prev && nextFiles.find((file) => file.path === prev) ? prev : null));
+  }, []);
+
+  const syncFilesFromSession = useCallback((sess: Session) => {
+    const sessionFiles = normalizeGeneratedFiles(sess.generatedFiles);
+    if (sessionFiles.length > 0) {
+      showFiles(sessionFiles);
+    }
+  }, [showFiles]);
+
+  const loadSourceFilesForSession = useCallback(async (sess: Session): Promise<boolean> => {
+    if (normalizeGeneratedFiles(sess.generatedFiles).length > 0) return true;
+    if (modeParam !== "adjust" && modeParam !== "from-template" && sess.mode !== "FROM_STUDY_TEMPLATE") return false;
+
+    let sourceFiles: GeneratedFile[] = [];
+    const sourceTemplateId = typeof sess.templateId === "string" ? sess.templateId : templateId;
+    if (sourceTemplateId) {
+      const response = await fetch(`/api/v1/pipeline-templates/${encodeURIComponent(sourceTemplateId)}/source?ref=current`, { cache: "no-store" }).catch(() => null);
+      if (response?.ok) {
+        const body = await response.json().catch(() => null);
+        sourceFiles = normalizeGeneratedFiles(body?.files);
+      }
+    }
+
+    if (sourceFiles.length === 0 && studyId) {
+      const response = await fetch(`/api/v1/studies/${studyId}/pipeline-version-source`, { cache: "no-store" }).catch(() => null);
+      if (response?.ok) {
+        const body = await response.json().catch(() => null);
+        sourceFiles = normalizeGeneratedFiles(body?.files);
+      }
+    }
+
+    if (sourceFiles.length === 0) return false;
+    showFiles(sourceFiles);
+    return true;
+  }, [modeParam, showFiles, studyId, templateId]);
+
   function openFileTab(path: string) {
+    setWorkspaceOpen(true);
+    setExplorerOpen(true);
     setSelectedPath(path);
     setOpenTabs((prev) => prev.includes(path) ? prev : [...prev, path].slice(0, 8));
   }
 
-  function closeTab(path: string, e: React.MouseEvent) {
-    e.stopPropagation();
-    setOpenTabs((prev) => {
-      const next = prev.filter((p) => p !== path);
-      if (selectedPath === path) setSelectedPath(next[next.length - 1] ?? null);
-      return next;
-    });
+  function toggleWorkspace(open?: boolean) {
+    const nextOpen = open ?? !workspaceOpen;
+    setWorkspaceOpen(nextOpen);
+    setExplorerOpen(nextOpen ? true : false);
   }
 
-  // Persist layout to localStorage
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("fedlify.pipelineAgent.layout") ?? "{}");
-      if (typeof saved.explorerOpen === "boolean") setExplorerOpen(saved.explorerOpen);
-      if (typeof saved.chatOpen === "boolean") setChatOpen(saved.chatOpen);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    try { localStorage.setItem("fedlify.pipelineAgent.layout", JSON.stringify({ explorerOpen, chatOpen })); } catch { /* ignore */ }
-  }, [explorerOpen, chatOpen]);
+  function closeTab(path: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const nextState = closePipelineAgentTab({ openTabs, selectedPath, path });
+    setOpenTabs(nextState.openTabs);
+    setSelectedPath(nextState.selectedPath);
+    setExplorerOpen(nextState.explorerOpen);
+    setWorkspaceOpen(nextState.workspaceOpen);
+    setLayoutMode(nextState.layoutMode);
+  }
 
   // Auto-scroll chat
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streaming]);
+
+  useEffect(() => {
+    setLayoutMode(derivePipelineAgentLayoutMode({ explorerOpen, openTabs }));
+  }, [explorerOpen, openTabs]);
+
+  useEffect(() => {
+    const nextField = nextGuidedMissingField(unresolvedMissing, completedFieldOrder);
+    setCurrentMissingField(nextField);
+    if (!nextField) {
+      setAnswerMode("curated");
+      setDraftAnswer(null);
+      return;
+    }
+    const config = GUIDED_QUESTIONS[nextField];
+    const initialValue = initialDraftValue(config, (session?.intake ?? {}) as Record<string, unknown>);
+    const matchingCuratedOption = config.curatedOptions.find((option) => valuesEqual(option.value, initialValue));
+    setAnswerMode(matchingCuratedOption ? "curated" : "custom");
+    setDraftAnswer(initialValue);
+  }, [completedFieldOrder, session?.intake, unresolvedMissing]);
+
+  useEffect(() => {
+    setCompletedFieldOrder([]);
+    setCurrentMissingField(null);
+    setAnswerMode("curated");
+    setDraftAnswer(null);
+    setSavingIntake(false);
+    setIntakePopupDismissed(false);
+    setIntakePopupMinimized(false);
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (planMode && unresolvedMissing.length > 0) {
+      setIntakePopupDismissed(false);
+      setIntakePopupMinimized(false);
+    }
+  }, [planMode, unresolvedMissing.length]);
 
   // ── Session start ─────────────────────────────────────────────────────────
 
@@ -435,8 +711,10 @@ export default function PipelineAgentPage() {
         const d = await r.json().catch(() => null);
         if (r.ok && d?.session) {
           setSession(d.session);
+          setSessionMissing(normalizeMissing(d?.missing ?? [...normalizeMessages(d.session?.messages)].reverse().find((m) => m.role === "assistant")?.missing));
           setMessages(normalizeMessages(d.session?.messages));
           syncFilesFromSession(d.session);
+          await loadSourceFilesForSession(d.session);
           return;
         }
       }
@@ -446,6 +724,7 @@ export default function PipelineAgentPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error?.message ?? "Could not start session.");
       setSession(data.session);
+      setSessionMissing(normalizeMissing(data?.missing));
       setMessages(normalizeMessages(data.session?.messages));
       syncFilesFromSession(data.session);
       if (data.session?.id) {
@@ -453,30 +732,15 @@ export default function PipelineAgentPage() {
         url.searchParams.set("sessionId", data.session.id);
         window.history.replaceState({}, "", url.toString());
       }
-      if ((modeParam === "adjust" || modeParam === "from-template") && data.session?.generatedFiles == null) {
-        let sourceFiles: GeneratedFile[] = [];
-        if (templateId) {
-          const r = await fetch(`/api/v1/pipeline-templates/${templateId}/source?ref=current`, { cache: "no-store" }).catch(() => null);
-          if (r?.ok) { const sd = await r.json().catch(() => null); sourceFiles = (sd?.files ?? []).filter((f: any) => f.path && f.content !== undefined).map((f: any) => ({ path: f.path, content: f.content })); }
-        }
-        if (sourceFiles.length === 0 && studyId) {
-          const r = await fetch(`/api/v1/studies/${studyId}/pipeline-version-source`, { cache: "no-store" }).catch(() => null);
-          if (r?.ok) { const sd = await r.json().catch(() => null); sourceFiles = (sd?.files ?? []).filter((f: any) => f.path && f.content !== undefined).map((f: any) => ({ path: f.path, content: f.content })); }
-        }
-        if (sourceFiles.length > 0) {
-          setFiles(sourceFiles);
-          const executorFile = sourceFiles.find((f) => f.path.includes("executor.py")) ?? sourceFiles[0];
-          if (executorFile) { setSelectedPath(executorFile.path); setOpenTabs([executorFile.path]); }
-        }
-      }
+      await loadSourceFilesForSession(data.session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start session.");
     } finally {
       setStarting(false);
     }
-  }, [starting, session, sessionMode, studyId, templateId, resumeSessionId, modeParam]);
+  }, [loadSourceFilesForSession, resumeSessionId, session, sessionMode, starting, studyId, syncFilesFromSession, templateId]);
 
-  useEffect(() => { void startSession(); }, []);
+  useEffect(() => { void startSession(); }, [startSession]);
 
   // ── Load session list ─────────────────────────────────────────────────────
 
@@ -496,13 +760,59 @@ export default function PipelineAgentPage() {
     const d = await r.json().catch(() => null);
     if (!r.ok || !d?.session) { message.error("Could not load session."); return; }
     setSession(d.session);
+    setSessionMissing(normalizeMissing(d?.missing ?? [...normalizeMessages(d.session?.messages)].reverse().find((m) => m.role === "assistant")?.missing));
     setMessages(normalizeMessages(d.session?.messages));
     setFiles([]);
     setOpenTabs([]);
+    setSelectedPath(null);
+    setWorkspaceOpen(false);
+    setExplorerOpen(false);
     syncFilesFromSession(d.session);
     const url = new URL(window.location.href);
     url.searchParams.set("sessionId", sessionId);
     window.history.replaceState({}, "", url.toString());
+  }
+
+  async function saveGuidedIntakeAnswer() {
+    if (!session || !currentMissingField || draftAnswer == null || savingIntake) return;
+    const question = GUIDED_QUESTIONS[currentMissingField];
+    if (!question) return;
+
+    const completedField = currentMissingField;
+    const patch = { [question.key]: draftAnswer };
+    setSavingIntake(true);
+    setError(null);
+    setCompletedFieldOrder((previous) => (previous.includes(completedField) ? previous : [...previous, completedField]));
+
+    try {
+      const response = await fetch(`/api/v1/template-agent-sessions/${session.id}/intake`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ intakePatch: patch })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error?.message ?? "Could not save requirement.");
+      setSession(data.session);
+      const nextMissing = normalizeMissing(data?.missing);
+      setSessionMissing(nextMissing);
+      if (nextMissing.length === 0) {
+        addAssistantMessage(
+          [
+            "Requirements captured.",
+            "",
+            "I can prepare a short plan next, then generate the pipeline files when you confirm.",
+            "When code is generated, it will appear in the Files panel instead of being pasted into chat."
+          ].join("\n")
+        );
+        setIntakePopupDismissed(false);
+        setIntakePopupMinimized(false);
+      }
+    } catch (err) {
+      setCompletedFieldOrder((previous) => previous.filter((label) => label !== completedField));
+      setError(err instanceof Error ? err.message : "Could not save requirement.");
+    } finally {
+      setSavingIntake(false);
+    }
   }
 
   // ── Send message ──────────────────────────────────────────────────────────
@@ -564,13 +874,23 @@ export default function PipelineAgentPage() {
       }
       // Replace thinking placeholder with final assistant message
       const fullContent = streamingContentRef.current.trim() || "(no response)";
+      const displayContent = conciseAssistantDisplay(fullContent);
       setMessages((prev) => {
         const updated = [...prev];
         const thinkIdx = updated.map((m) => m.role === "thinking").lastIndexOf(true);
-        if (thinkIdx >= 0) updated[thinkIdx] = { role: "thinking", content: fullContent, streaming: false };
-        return [...updated, { role: "assistant", content: fullContent, missing: newMissing }];
+        if (thinkIdx >= 0) updated[thinkIdx] = { role: "thinking", content: displayContent, streaming: false };
+        return [...updated, { role: "assistant", content: displayContent, missing: newMissing }];
       });
-      if (newMissing !== undefined) setSession((prev) => prev ? { ...prev, status: newMissing!.length > 0 ? "INTAKE" : "CODING" } : prev);
+      if (newMissing !== undefined) setSessionMissing(newMissing);
+      setSession((prev) => {
+        if (!prev) return prev;
+        const nextIntake = intakePatch ? { ...(prev.intake ?? {}), ...intakePatch } : prev.intake;
+        return {
+          ...prev,
+          intake: nextIntake,
+          status: newMissing !== undefined ? (newMissing.length > 0 ? "INTAKE" : "CODING") : prev.status
+        };
+      });
     } catch {
       setMessages((prev) => prev.filter((m) => !(m.role === "thinking" && m.streaming)));
       try {
@@ -582,6 +902,7 @@ export default function PipelineAgentPage() {
         const data = await fallback.json().catch(() => null);
         if (!fallback.ok) throw new Error(data?.error?.message ?? "Message failed.");
         setSession(data.session);
+        setSessionMissing(normalizeMissing(data?.missing));
         setMessages(normalizeMessages(data.session?.messages));
         syncFilesFromSession(data.session);
       } catch (fallbackErr) {
@@ -619,6 +940,22 @@ export default function PipelineAgentPage() {
       if (!response.ok) throw new Error(data?.error?.message ?? "Pipeline code could not be generated.");
       setSession(data.session);
       syncFilesFromSession(data.session);
+      const generatedFiles = normalizeGeneratedFiles(data.session?.generatedFiles);
+      const preferredFile = generatedFiles.find((file) => file.path.endsWith("executor.py")) ?? generatedFiles[0] ?? null;
+      setWorkspaceOpen(generatedFiles.length > 0);
+      setExplorerOpen(generatedFiles.length > 0);
+      if (preferredFile) {
+        setSelectedPath(preferredFile.path);
+        setOpenTabs([preferredFile.path]);
+      }
+      addAssistantMessage(
+        [
+          "Code generated successfully.",
+          "",
+          `Summary: ${data.session?.resultSummary ?? `${generatedFiles.length} files are ready.`}`,
+          "Open the Files panel to inspect the generated pipeline code."
+        ].join("\n")
+      );
       if (data.session?.id) { const url = new URL(window.location.href); url.searchParams.set("sessionId", data.session.id); window.history.replaceState({}, "", url.toString()); }
     } catch (err) { setError(err instanceof Error ? err.message : "PR could not be created."); }
     finally { setApplying(false); }
@@ -638,9 +975,11 @@ export default function PipelineAgentPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const modeTitle = modeParam === "adjust" ? "Adjust Pipeline" : modeParam === "from-template" ? "Pipeline from Template" : "Develop Pipeline";
+  const modeTitle = modeParam === "adjust" ? "Customize Pipeline" : modeParam === "from-template" ? "Pipeline from Template" : "Develop Pipeline";
   const contextPrompts = promptsForFile(selectedPath);
   const steps = thoughtItems(session, missing, files, validation, streaming);
+  const intakePopupVisible = planMode && unresolvedMissing.length > 0 && !intakePopupDismissed && !intakePopupMinimized;
+  const showContinueRequirements = planMode && unresolvedMissing.length > 0 && !intakePopupVisible;
 
   // Bubble items: render assistant messages as markdown
   const bubbleItems = messages
@@ -659,149 +998,40 @@ export default function PipelineAgentPage() {
     <AppPage className="fedlify-pa-page">
       <AppPageHeader
         title={
-          <Space>
+          <Space size="small">
             <RobotOutlined />
             <span>{modeTitle}</span>
             {starting ? <LoadingOutlined style={{ fontSize: 14 }} /> : null}
           </Space>
         }
-        subtitle="Agentic pipeline development — write, review, and approve NVFlare code with AI."
         backLabel={studyId ? "Back to study" : "Back to templates"}
         onBack={() => studyId ? router.push(`/studies/${studyId}?section=pipeline`) : router.push("/templates")}
         actions={
           <Space size="small">
-            <Tooltip title={explorerOpen ? "Hide explorer" : "Show explorer"}>
-              <Button size="small" icon={explorerOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={() => setExplorerOpen((v) => !v)} />
-            </Tooltip>
-            <Tooltip title={chatOpen ? "Hide chat" : "Show chat"}>
-              <Button size="small" icon={<LayoutOutlined />} onClick={() => setChatOpen((v) => !v)} />
-            </Tooltip>
-          </Space>
-        }
-      />
-
-      {error ? <Alert type="error" showIcon closable message={error} onClose={() => setError(null)} style={{ marginBottom: 8 }} /> : null}
-
-      <Splitter className="fedlify-pa-splitter" layout="horizontal">
-        {/* ── Explorer panel ── */}
-        {explorerOpen ? (
-        <Splitter.Panel defaultSize={180} min={120} max={360} collapsible>
-        <aside className="fedlify-pa-explorer">
-          <div className="fedlify-pa-explorer-header">
-            <Typography.Text style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700, color: "var(--fedlify-muted)", letterSpacing: 0.5 }}>Explorer</Typography.Text>
-            <Typography.Text style={{ fontSize: 11, color: "var(--fedlify-muted)" }}>{files.length} files</Typography.Text>
-          </div>
-          <div className="fedlify-pa-explorer-body">
-            {tree.length === 0 ? (
-              <div className="fedlify-pa-tree-empty">
-                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                  {starting ? "Loading…" : modeParam === "adjust" ? "Loading files…" : "Files appear after generation"}
-                </Typography.Text>
+            <button
+              type="button"
+              className="fedlify-pa-header-progress"
+              onClick={() => setThoughtExpanded((v) => !v)}
+              title="Show agent progress"
+            >
+              <div className="fedlify-pa-progress-dots">
+                {steps.map((step) => (
+                  <span
+                    key={step.key}
+                    className={[
+                      "fedlify-pa-dot",
+                      step.status === "finish" ? "is-done" : step.status === "process" ? "is-active" : ""
+                    ].filter(Boolean).join(" ")}
+                  />
+                ))}
               </div>
-            ) : (
-              tree.map((node) => <FileTreeNode key={node.path} node={node} selectedPath={selectedPath} onSelect={openFileTab} />)
-            )}
-          </div>
-        </aside>
-        </Splitter.Panel>
-        ) : null}
-
-        {/* ── Editor panel ── */}
-        <Splitter.Panel min={300}>
-        <main className="fedlify-pa-editor-area">
-          {/* Tab bar */}
-          <div className="fedlify-pa-tabs">
-            {openTabs.length === 0 ? (
-              <div className="fedlify-pa-tabs-empty">
-                <CodeOutlined style={{ opacity: 0.3 }} />
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>Select a file from the explorer</Typography.Text>
-              </div>
-            ) : (
-              openTabs.map((path) => {
-                const name = path.split("/").pop() ?? path;
-                const isActive = path === selectedPath;
-                const hasChange = !!files.find((f) => f.path === path)?.proposedContent;
-                return (
-                  <button key={path} type="button" className={["fedlify-pa-tab", isActive ? "is-active" : ""].filter(Boolean).join(" ")} onClick={() => setSelectedPath(path)}>
-                    <FileTextOutlined />
-                    <span>{name}</span>
-                    {hasChange ? <Badge dot color="blue" style={{ marginRight: 2 }} /> : null}
-                    <CloseOutlined className="fedlify-pa-tab-close" onClick={(e) => closeTab(path, e)} />
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          {/* Monaco */}
-          <div className="fedlify-pa-editor">
-            {selectedFile ? (
-              editorMode === "diff" && selectedFile.proposedContent ? (
-                <MonacoDiffEditor height="100%" language={languageForPath(selectedFile.path)} original={selectedFile.content} modified={selectedFile.proposedContent} theme="vs-dark" options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12 }} />
-              ) : (
-                <MonacoEditor height="100%" language={languageForPath(selectedFile.path)} value={selectedFile.content} theme="vs-dark" options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, wordWrap: "on" }} />
-              )
-            ) : (
-              <div className="fedlify-pa-editor-empty">
-                <CodeOutlined style={{ fontSize: 40, opacity: 0.15 }} />
-                <Typography.Text type="secondary">{intakeComplete ? "Generate code to see files here" : "Complete the pipeline details to get started"}</Typography.Text>
-              </div>
-            )}
-          </div>
-
-          {/* Toolbar */}
-          <div className="fedlify-pa-editor-toolbar">
-            {session?.status === "APPLIED" ? (
-              <div className="fedlify-pa-success">
-                <CheckCircleOutlined className="fedlify-pa-success-icon" />
-                <div className="fedlify-pa-success-body">
-                  <Typography.Text strong>Pipeline code generated</Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: "block" }}>Review the files, then approve for deployment.</Typography.Text>
-                </div>
-                <Space>
-                  <Button type="primary" className="fedlify-dark-action" size="small" icon={deploying ? <LoadingOutlined /> : <CheckCircleOutlined />} loading={deploying} onClick={() => void deployPipeline()}>Approve for deployment</Button>
-                  <Button size="small" onClick={() => router.push(`/studies/${studyId}?section=pipeline`)}>Back to study</Button>
-                </Space>
-              </div>
-            ) : (
-              <Space wrap>
-                {selectedFile?.proposedContent ? (
-                  <Segmented size="small" value={editorMode} onChange={(v) => setEditorMode(v as EditorMode)} options={[{ value: "source", label: <><FileTextOutlined /> Source</> }, { value: "diff", label: <><DiffOutlined /> Diff</> }]} />
-                ) : null}
-                {files.length > 0 ? (
-                  <Button size="small" icon={<CheckCircleOutlined />} loading={validating} onClick={() => void validateFiles()}>Validate</Button>
-                ) : null}
-                {validation ? (
-                  <Tag color={validation.status === "PASSED" ? "success" : "warning"}>{validation.status === "PASSED" ? "Validation passed" : "Validation issues"}</Tag>
-                ) : null}
-                <Tooltip title={session?.status === "INTAKE" ? "Complete the pipeline details first" : intakeComplete && files.length === 0 ? "Build NVFlare files and push to Gitea" : "Push generated files to Gitea"}>
-                  <Button type="primary" className="fedlify-dark-action" size="small" icon={applying ? <LoadingOutlined /> : <GithubOutlined />} loading={applying} disabled={!session || !canCreatePR || streaming} onClick={() => void createPR()}>
-                    {intakeComplete && files.length === 0 ? "Generate & push to Gitea" : "Create PR"}
-                  </Button>
-                </Tooltip>
-              </Space>
-            )}
-          </div>
-        </main>
-        </Splitter.Panel>
-
-        {/* ── Chat panel ── */}
-        {chatOpen ? (
-        <Splitter.Panel defaultSize={360} min={260} max={560} collapsible>
-        <aside className="fedlify-pa-chat-sidebar">
-          {/* Chat header */}
-          <div className="fedlify-pa-chat-header">
-            <Space align="center">
-              <div className="fedlify-pa-agent-avatar">
-                {streaming ? <LoadingOutlined /> : <RobotOutlined />}
-              </div>
-              <div>
-                <Typography.Text strong style={{ fontSize: 13, display: "block", lineHeight: 1.3 }}>AI Agent</Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                  {streaming ? "Thinking…" : session ? "Ready" : "Starting…"}
-                </Typography.Text>
-              </div>
-            </Space>
+              <span>{steps.find((s) => s.status === "process")?.title ?? steps.filter((s) => s.status === "finish").at(-1)?.title ?? "Waiting"}</span>
+            </button>
+            <div className="fedlify-pa-header-chip">
+              {streaming ? <LoadingOutlined /> : <RobotOutlined />}
+              <span>AI assistant</span>
+              <Typography.Text type="secondary">{streaming ? "Thinking…" : session ? "Ready" : "Starting…"}</Typography.Text>
+            </div>
             <Popover
               open={sessionsPopover}
               onOpenChange={setSessionsPopover}
@@ -832,36 +1062,136 @@ export default function PipelineAgentPage() {
             >
               <Button size="small" icon={<HistoryOutlined />} type="text" style={{ color: "var(--fedlify-muted)" }}>Sessions</Button>
             </Popover>
+            <Tooltip title={workspaceOpen ? "Hide files and editor" : "Open files and editor"}>
+              <Button
+                size="small"
+                icon={explorerOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+                onClick={() => toggleWorkspace()}
+              >
+                Files
+              </Button>
+            </Tooltip>
+          </Space>
+        }
+      />
+
+      {error ? <Alert type="error" showIcon closable message={error} onClose={() => setError(null)} style={{ marginBottom: 8 }} /> : null}
+
+      <div className={["fedlify-pa-layout", `is-${layoutMode}`, workspaceOpen ? "workspace-open" : "workspace-hidden", explorerOpen ? "explorer-open" : ""].filter(Boolean).join(" ")}>
+        {workspaceOpen && explorerOpen ? (
+          <aside className="fedlify-pa-explorer" data-testid="pipeline-files">
+            <div className="fedlify-pa-explorer-header">
+              <Typography.Text style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700, color: "var(--fedlify-muted)", letterSpacing: 0.5 }}>Explorer</Typography.Text>
+              <Typography.Text style={{ fontSize: 11, color: "var(--fedlify-muted)" }}>{files.length} files</Typography.Text>
+            </div>
+            <div className="fedlify-pa-explorer-body">
+              {tree.length === 0 ? (
+                <div className="fedlify-pa-tree-empty">
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    {starting ? "Loading…" : modeParam === "adjust" ? "Loading files…" : "Files appear after generation"}
+                  </Typography.Text>
+                </div>
+              ) : (
+                tree.map((node) => <FileTreeNode key={node.path} node={node} selectedPath={selectedPath} onSelect={openFileTab} />)
+              )}
+            </div>
+          </aside>
+        ) : null}
+
+        {workspaceOpen ? (
+        <main className="fedlify-pa-editor-area fedlify-pa-code-panel" data-testid="pipeline-code-panel">
+          <div className="fedlify-pa-tabs">
+            {openTabs.length === 0 ? (
+              <div className="fedlify-pa-tabs-empty">
+                <CodeOutlined style={{ opacity: 0.3 }} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Files stay closed until you open one.
+                </Typography.Text>
+              </div>
+            ) : (
+              openTabs.map((path) => {
+                const name = path.split("/").pop() ?? path;
+                const isActive = path === selectedPath;
+                const hasChange = !!files.find((f) => f.path === path)?.proposedContent;
+                return (
+                  <button key={path} type="button" className={["fedlify-pa-tab", isActive ? "is-active" : ""].filter(Boolean).join(" ")} onClick={() => setSelectedPath(path)}>
+                    <FileTextOutlined />
+                    <span>{name}</span>
+                    {hasChange ? <Badge dot color="blue" style={{ marginRight: 2 }} /> : null}
+                    <CloseOutlined className="fedlify-pa-tab-close" onClick={(event) => closeTab(path, event)} />
+                  </button>
+                );
+              })
+            )}
           </div>
 
-          {/* Compact progress bar — expands to full ThoughtChain on click */}
-          <button
-            type="button"
-            className={["fedlify-pa-progress-bar", thoughtExpanded ? "is-expanded" : ""].filter(Boolean).join(" ")}
-            onClick={() => setThoughtExpanded((v) => !v)}
-            title="Click to expand / collapse agent progress"
-          >
-            {/* Mini dots + active step label */}
-            <div className="fedlify-pa-progress-dots">
-              {steps.map((step) => (
-                <span
-                  key={step.key}
-                  className={[
-                    "fedlify-pa-dot",
-                    step.status === "finish" ? "is-done" : step.status === "process" ? "is-active" : ""
-                  ].filter(Boolean).join(" ")}
-                  title={step.title as string}
-                />
-              ))}
-            </div>
-            <Typography.Text className="fedlify-pa-progress-label">
-              {steps.find((s) => s.status === "process")?.title
-                ?? steps.filter((s) => s.status === "finish").at(-1)?.title
-                ?? "Waiting…"}
-            </Typography.Text>
-            <span className="fedlify-pa-progress-toggle">{thoughtExpanded ? "▲" : "▼"}</span>
-          </button>
+          <div className="fedlify-pa-editor">
+            {selectedFile ? (
+              editorMode === "diff" && selectedFile.proposedContent ? (
+                <MonacoDiffEditor height="100%" language={languageForPath(selectedFile.path)} original={selectedFile.content} modified={selectedFile.proposedContent} theme="vs-dark" options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12 }} />
+              ) : (
+                <MonacoEditor height="100%" language={languageForPath(selectedFile.path)} value={selectedFile.content} theme="vs-dark" options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, wordWrap: "on" }} />
+              )
+            ) : (
+              <div className="fedlify-pa-editor-empty">
+                <div className="fedlify-pa-editor-empty-shell">
+                  <div className="fedlify-pa-editor-empty-icon">
+                    <FolderOpenOutlined />
+                  </div>
+                  <div className="fedlify-pa-editor-empty-copy">
+                    <Typography.Text strong>Open files when you need source context</Typography.Text>
+                    <Typography.Text type="secondary">
+                      {files.length > 0
+                        ? "Keep the chat in focus until you choose a file."
+                        : intakeComplete
+                        ? "Generated files will appear here. Open the explorer whenever you want to inspect them."
+                        : planMode
+                        ? "Plan mode will gather the missing requirements before code generation."
+                        : "Chat first. Open files when you need source context or when generated code is ready."}
+                    </Typography.Text>
+                  </div>
+                  <Button size="small" onClick={() => toggleWorkspace(true)}>Open files</Button>
+                </div>
+              </div>
+            )}
+          </div>
 
+          <div className="fedlify-pa-editor-toolbar">
+            {session?.status === "APPLIED" ? (
+              <div className="fedlify-pa-success">
+                <CheckCircleOutlined className="fedlify-pa-success-icon" />
+                <div className="fedlify-pa-success-body">
+                  <Typography.Text strong>Pipeline code generated</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: "block" }}>Review the files, then approve for deployment.</Typography.Text>
+                </div>
+                <Space>
+                  <Button type="primary" className="fedlify-dark-action" size="small" icon={deploying ? <LoadingOutlined /> : <CheckCircleOutlined />} loading={deploying} onClick={() => void deployPipeline()}>Approve for deployment</Button>
+                  <Button size="small" onClick={() => router.push(`/studies/${studyId}?section=pipeline`)}>Back to study</Button>
+                </Space>
+              </div>
+            ) : (
+              <Space wrap>
+                {selectedFile?.proposedContent ? (
+                  <Segmented size="small" value={editorMode} onChange={(value) => setEditorMode(value as EditorMode)} options={[{ value: "source", label: <><FileTextOutlined /> Source</> }, { value: "diff", label: <><DiffOutlined /> Diff</> }]} />
+                ) : null}
+                {files.length > 0 ? (
+                  <Button size="small" icon={<CheckCircleOutlined />} loading={validating} onClick={() => void validateFiles()}>Validate</Button>
+                ) : null}
+                {validation ? (
+                  <Tag color={validation.status === "PASSED" ? "success" : "warning"}>{validation.status === "PASSED" ? "Validation passed" : "Validation issues"}</Tag>
+                ) : null}
+                <Tooltip title={session?.status === "INTAKE" ? (planMode ? "Continue requirements in plan mode before generating" : "Keep chatting or enable plan mode to gather requirements") : intakeComplete && files.length === 0 ? "Build NVFlare files and push to Gitea" : "Push generated files to Gitea"}>
+                  <Button type="primary" className="fedlify-dark-action" size="small" icon={applying ? <LoadingOutlined /> : <GithubOutlined />} loading={applying} disabled={!session || !canCreatePR || streaming} onClick={() => void createPR()}>
+                    {intakeComplete && files.length === 0 ? "Generate & push to Gitea" : "Create PR"}
+                  </Button>
+                </Tooltip>
+              </Space>
+            )}
+          </div>
+        </main>
+        ) : null}
+
+        <aside className="fedlify-pa-chat-sidebar fedlify-pa-chat-panel" data-testid="pipeline-chat-panel">
           {/* Full ThoughtChain — only when expanded */}
           {thoughtExpanded ? (
             <div className="fedlify-pa-thought-chain-full">
@@ -870,7 +1200,7 @@ export default function PipelineAgentPage() {
           ) : null}
 
           {/* Messages */}
-          <div className="fedlify-pa-messages-area">
+          <div className="fedlify-pa-messages-area fedlify-pa-messages">
             {/* Welcome state — fresh session with no conversation yet */}
             {bubbleItems.length === 0 && !activeThinking && !starting ? (
               <WelcomeBox
@@ -933,7 +1263,7 @@ export default function PipelineAgentPage() {
                       ),
                       styles: {
                         content: {
-                          background: "#f0eefa",
+                          background: "#f6f7f9",
                           color: "#1a1a2e",
                           borderRadius: "4px 14px 14px 14px",
                           fontSize: 13,
@@ -943,18 +1273,6 @@ export default function PipelineAgentPage() {
                       }
                     }
                   }}
-                />
-              </div>
-            ) : null}
-
-            {/* Intake form — when fields are missing */}
-            {session?.status === "INTAKE" && missing.length > 0 ? (
-              <div style={{ padding: "8px 12px" }}>
-                <IntakeFormCard
-                  missing={missing}
-                  intake={(session.intake ?? {}) as Record<string, unknown>}
-                  sending={streaming}
-                  onSubmit={(patch) => void sendMessage(`Here are the pipeline details: ${JSON.stringify(patch, null, 2)}\n\nPlease generate the complete NVFlare pipeline code now.`, patch)}
                 />
               </div>
             ) : null}
@@ -978,80 +1296,134 @@ export default function PipelineAgentPage() {
             </button>
           ) : null}
 
-          {/* Input toolbar — attach, plan mode, insert file */}
-          <div className="fedlify-pa-input-toolbar">
-            <Tooltip title="Attach files">
-              <label className="fedlify-pa-toolbar-btn" style={{ cursor: "pointer" }}>
-                <PaperClipOutlined />
-                <input
-                  type="file"
-                  multiple
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files ?? []);
-                    setAttachments((prev) => [
-                      ...prev,
-                      ...files.map((f) => ({ uid: `${Date.now()}-${f.name}`, name: f.name, originFileObj: f }))
-                    ]);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </Tooltip>
-            <Tooltip title={planMode ? "Plan mode on — agent shows plan before coding" : "Plan mode: agent shows a step-by-step plan first"}>
+          {intakePopupVisible ? (
+            <div className="fedlify-pa-intake-popup" data-testid="guided-intake-modal">
+              <GuidedIntakeWizard
+                missing={unresolvedMissing}
+                intake={(session?.intake ?? {}) as Record<string, unknown>}
+                sending={savingIntake}
+                currentField={currentMissingField}
+                completedFieldOrder={completedFieldOrder}
+                answerMode={answerMode}
+                draftAnswer={draftAnswer}
+                onAnswerModeChange={setAnswerMode}
+                onDraftAnswerChange={setDraftAnswer}
+                onConfirm={() => void saveGuidedIntakeAnswer()}
+                onMinimize={() => setIntakePopupMinimized(true)}
+                onDismiss={() => setIntakePopupDismissed(true)}
+              />
+            </div>
+          ) : null}
+
+          {showContinueRequirements ? (
+            <div className="fedlify-pa-intake-resume-row">
               <button
                 type="button"
-                className={["fedlify-pa-toolbar-btn", planMode ? "is-active" : ""].filter(Boolean).join(" ")}
-                onClick={() => setPlanMode((v) => !v)}
+                className="fedlify-pa-intake-resume"
+                onClick={() => {
+                  setIntakePopupDismissed(false);
+                  setIntakePopupMinimized(false);
+                }}
               >
                 <BulbOutlined />
-                {planMode ? <span className="fedlify-pa-toolbar-label">Plan mode</span> : null}
+                <span>Continue requirements</span>
+                <Tag bordered={false} color="purple">{unresolvedMissing.length} remaining</Tag>
               </button>
-            </Tooltip>
-            {selectedFile ? (
-              <Tooltip title={`Insert ${selectedFile.path.split("/").pop()} content into message`}>
-                <button
-                  type="button"
-                  className="fedlify-pa-toolbar-btn"
-                  onClick={() => {
-                    const snippet = `\n\`\`\`${languageForPath(selectedFile.path)}\n${selectedFile.content.slice(0, 2000)}${selectedFile.content.length > 2000 ? "\n…(truncated)" : ""}\n\`\`\``;
-                    setDraft((prev) => prev + snippet);
-                  }}
-                >
-                  <FileAddOutlined />
-                </button>
-              </Tooltip>
-            ) : null}
-            {/* Show attached file chips */}
-            {attachments.map((a) => (
-              <span key={a.uid} className="fedlify-pa-attachment-chip">
-                <PaperClipOutlined />
-                <span>{a.name}</span>
-                <button type="button" onClick={() => setAttachments((prev) => prev.filter((x) => x.uid !== a.uid))}>
-                  <CloseOutlined />
-                </button>
-              </span>
-            ))}
-          </div>
+            </div>
+          ) : null}
 
           {/* Chat input */}
           <div className="fedlify-pa-chat-input">
-            <SenderBox
-              value={draft}
-              onChange={setDraft}
-              onSubmit={(text: string) => void sendMessage(text)}
-              loading={streaming}
-              disabled={!session || applying}
-              placeholder={
-                planMode
-                  ? "Describe what to build — agent will show a plan first…"
-                  : streaming
-                  ? "Agent is responding…"
-                  : "Ask the agent or describe changes…"
-              }
-              submitType="enter"
-              autoSize={{ minRows: 1, maxRows: 5 }}
-            />
+            <div className="fedlify-pa-composer-shell">
+              <input
+                ref={attachmentInputRef}
+                type="file"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  setAttachments((prev) => [
+                    ...prev,
+                    ...files.map((f) => ({ uid: `${Date.now()}-${f.name}`, name: f.name, originFileObj: f }))
+                  ]);
+                  e.target.value = "";
+                }}
+              />
+              {attachments.length > 0 ? (
+                <div className="fedlify-pa-composer-attachments">
+                  {attachments.map((a) => (
+                    <span key={a.uid} className="fedlify-pa-attachment-chip">
+                      <PaperClipOutlined />
+                      <span>{a.name}</span>
+                      <button type="button" onClick={() => setAttachments((prev) => prev.filter((x) => x.uid !== a.uid))}>
+                        <CloseOutlined />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <Dropdown
+                trigger={["click"]}
+                placement="topLeft"
+                menu={{
+                  items: [
+                    { key: "attach", icon: <PaperClipOutlined />, label: "Attach files" },
+                    {
+                      key: "intake-or-plan",
+                      icon: <BulbOutlined />,
+                      label: unresolvedMissing.length > 0
+                        ? (planMode ? "Continue intake" : "Open intake")
+                        : (planMode ? "Turn plan mode off" : "Turn plan mode on")
+                    },
+                    { key: "files", icon: <FolderOpenOutlined />, label: workspaceOpen ? "Hide files" : "Show files" },
+                    ...(selectedFile
+                      ? [{ key: "insert-file", icon: <FileAddOutlined />, label: `Insert ${selectedFile.path.split("/").pop()}` }]
+                      : [])
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "attach") attachmentInputRef.current?.click();
+                    if (key === "intake-or-plan") {
+                      if (unresolvedMissing.length > 0) {
+                        setPlanMode(true);
+                        setIntakePopupDismissed(false);
+                        setIntakePopupMinimized(false);
+                      } else {
+                        setPlanMode((current) => !current);
+                      }
+                    }
+                    if (key === "files") toggleWorkspace();
+                    if (key === "insert-file" && selectedFile) {
+                      const snippet = `\n\`\`\`${languageForPath(selectedFile.path)}\n${selectedFile.content.slice(0, 2000)}${selectedFile.content.length > 2000 ? "\n…(truncated)" : ""}\n\`\`\``;
+                      setDraft((prev) => prev + snippet);
+                    }
+                  }
+                }}
+              >
+                <button
+                  type="button"
+                  className={["fedlify-pa-composer-prefix", planMode ? "is-active" : ""].filter(Boolean).join(" ")}
+                  aria-label="Composer tools"
+                >
+                  <PlusOutlined />
+                </button>
+              </Dropdown>
+              <SenderBox
+                value={draft}
+                onChange={setDraft}
+                onSubmit={(text: string) => void sendMessage(text)}
+                loading={streaming}
+                disabled={!session || applying}
+                placeholder={
+                  planMode
+                    ? "Describe what to build — agent will show a plan first…"
+                    : streaming
+                    ? "Agent is responding…"
+                    : "Ask the agent or describe changes…"
+                }
+                submitType="enter"
+                autoSize={{ minRows: 1, maxRows: 5 }}
+              />
+            </div>
           </div>
 
           {/* Quick prompts — only when no active conversation yet */}
@@ -1066,9 +1438,7 @@ export default function PipelineAgentPage() {
             </div>
           ) : null}
         </aside>
-        </Splitter.Panel>
-        ) : null}
-      </Splitter>
+      </div>
     </AppPage>
   );
 }

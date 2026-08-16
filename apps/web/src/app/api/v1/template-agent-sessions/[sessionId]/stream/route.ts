@@ -6,7 +6,8 @@ import { problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { openAiCodeAgentConfig } from "@/lib/runtime-config";
-import { missingTemplateAgentFields, type AgentMessage, type TemplateAgentIntake } from "@/lib/template-agent";
+import { applyTemplateAgentIntakePatch, type AgentMessage, type TemplateAgentIntake } from "@/lib/template-agent";
+import { buildFedlifyAgentSkillContext, detectAgentGuardrailFindings } from "@/lib/fedlify-agent-skills";
 
 const streamSchema = z.object({
   message: z.string().trim().min(1).max(12000),
@@ -25,7 +26,8 @@ const SYSTEM_PROMPT = [
   "You help research teams design and generate complete, runnable NVFLARE federated learning pipelines.",
   "",
   "## Your capabilities",
-  "- Guide users through intake (clinical use case, data modalities, privacy constraints, aggregation strategy)",
+  "- Guide users through governed study intake (collaboration setting, data distribution, data modalities, topology, privacy/security, training strategy, clinical application, disease category, challenges, outcome definition, participating sites, governance contact, privacy constraints, approval status)",
+  "- Route work through Fedlify skill cards: study intake, data-readiness/federation design, governance/privacy/safety review, workflow planning, template-bound code generation, monitoring/failure triage, and reproducibility/audit/reporting",
   "- Generate complete Python code for SiteLocalExecutor including a real training loop",
   "- Generate NVFlare configuration files (server config, client config, meta.conf)",
   "- Explain federated learning concepts, FedAvg, differential privacy, and NVFlare APIs",
@@ -33,6 +35,7 @@ const SYSTEM_PROMPT = [
   "",
   "## Rules",
   "- Never commit raw clinical data, patient identifiers, extracts, or site-local dataset files",
+  "- Never ask for patient identifiers, credentials, secrets, raw-data paths, or dataset files; ask for metadata, aggregate counts, schema summaries, site role, and approval status instead",
   "- Keep site count, min_clients, num_rounds, and aggregation configurable via NVFlare conf files",
   "- Preserve repository shape: README.md, AGENTS.md, .fedlify/template.json, nvflare-job/, tests/",
   "- Never claim production approval or run production jobs",
@@ -66,12 +69,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     return problem(503, "AI code agent is not configured. Set OPENAI_API_KEY to enable streaming.", "ai_not_configured");
   }
 
-  const intake = {
-    ...((session.intake ?? {}) as TemplateAgentIntake),
-    ...(parsed.data.intakePatch ?? {})
-  } as TemplateAgentIntake;
-
-  const missing = missingTemplateAgentFields(intake);
+  const intakeState = applyTemplateAgentIntakePatch((session.intake ?? {}) as TemplateAgentIntake, parsed.data.intakePatch);
+  const intake = intakeState.intake;
+  const missing = intakeState.missing;
+  const guardrailFindings = detectAgentGuardrailFindings(intake);
+  const fedlifyAgentSkillContext = buildFedlifyAgentSkillContext(intake);
 
   const priorMessages = asMessageList(session.messages)
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     {
       role: "user",
       content: JSON.stringify(
-        { mode: session.mode, intake, missing, userMessage: parsed.data.message },
+        { mode: session.mode, intake, missing, guardrailFindings, fedlifyAgentSkillContext, userMessage: parsed.data.message },
         null,
         2
       )
@@ -168,7 +170,8 @@ export async function POST(request: NextRequest, { params }: Params) {
           createdAt: now,
           modelUsed: config.model,
           openAiUsed: true,
-          missing
+          missing,
+          guardrailFindings
         }
       ] as Prisma.InputJsonValue;
 
@@ -177,13 +180,13 @@ export async function POST(request: NextRequest, { params }: Params) {
         data: {
           intake,
           messages: updatedMessages,
-          status: missing.length > 0 ? "INTAKE" : "CODING",
+          status: intakeState.status,
           resultSummary: fullMessage
         }
       });
 
       // Emit a final event with the persisted session ID so the client can refresh
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "fedlify.done", sessionId: session.id, missing })}\n\n`));
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "fedlify.done", sessionId: session.id, missing, guardrailFindings })}\n\n`));
     } catch {
       // Stream errors are non-recoverable here; client will detect the closed stream
     } finally {

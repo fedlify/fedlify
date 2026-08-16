@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedstellar__workflow_orchestration__bd5dfa16",
+  "framework": "Fedstellar",
+  "criterion": "Workflow orchestration",
+  "criterion_definition": {
+    "working_definition": "Documented support for setting up, scheduling, managing, monitoring, and recovering federated jobs or collaborations.",
+    "rationale": "Framework selection for applied methods papers often depends more on orchestration support than on algorithm APIs, especially outside pure simulation settings.",
+    "health_ai_relevance": "Real healthcare FL requires operational coordination across institutions, sites, or devices, which raises the value of explicit orchestration features.",
+    "key_method_papers": "Oldenhof et al. 2023; Lowering barriers to federated learning 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Site onboarding / setup",
+      "Execution control",
+      "Monitoring / administration",
+      "Failure handling / recovery",
+      "Lifecycle integration"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "Fedstellar",
+    "primary_positioning": "decentralized FL platform",
+    "official_repo_url": "https://github.com/enriquetomasmb/fedstellar",
+    "official_docs_url": "https://github.com/enriquetomasmb/fedstellar/tree/main/docs",
+    "maintainer": "Enrique Tomás Martínez Beltrán / CyberDataLab",
+    "core_scholarly_anchor": "Fedstellar: A Platform for Decentralized Federated Learning",
+    "health_ai_relevance_notes": "The reviewed official public materials do not position Fedstellar as healthcare-specific.",
+    "selection_rationale": "Included as a decentralized FL platform, while explicitly flagging that the public repository is archived and the maintainers point users to NEBULA."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Fedstellar publicly documents a web frontend, controller, and monitoring functions.",
+      "evidence_detail": "Official materials describe experiment setup, deployment, monitoring, controller-based orchestration, and federation management tools, which together support lifecycle orchestration for legacy deployments.",
+      "source_title": "Fedstellar README | Fedstellar Installation Guide",
+      "source_url": "https://github.com/enriquetomasmb/fedstellar/blob/main/README.md | https://github.com/enriquetomasmb/fedstellar/blob/main/docs/installation.rst",
+      "source_year": "2024-07-12 | 2024-07-12",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

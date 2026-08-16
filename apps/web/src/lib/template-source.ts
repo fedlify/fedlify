@@ -1,5 +1,6 @@
 import type { PipelineTemplate } from "@prisma/client";
 import { GiteaApiError, getGiteaBranch, giteaBranchTreeUrl, readGiteaRepositoryFiles } from "@/lib/gitea";
+import { buildTemplateRepositoryFiles, templateSpecToTemplateIntake } from "@/lib/pipeline-template-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { isLegacyTemplateCommit, parseSourceRef, toReviewSourceFiles, type ReviewSourceFile } from "@/lib/source-review";
@@ -93,7 +94,26 @@ export async function loadTemplateSourceForReview(input: {
   }
 
   if (!template.giteaOwner || !template.giteaRepo || !template.giteaRepoUrl || !gitRef || isLegacyTemplateCommit(gitRef)) {
-    throw new LegacyTemplateSourceError();
+    const files = await buildTemplateRepositoryFiles({
+      name: template.name,
+      templateKey: template.templateKey,
+      description: template.description,
+      prompt: template.description ?? `Review ${template.name}.`,
+      intake: templateSpecToTemplateIntake(template.spec),
+      useAi: false
+    });
+
+    return {
+      template,
+      ref,
+      gitRef: gitRef ?? "generated-template-source",
+      commit: isLegacyTemplateCommit(gitRef) ? null : commit ?? null,
+      branchName: branchName ?? null,
+      repoUrl: template.giteaRepoUrl ?? "",
+      branchUrl: null,
+      pullRequestUrl: pullRequestUrl ?? null,
+      files: toReviewSourceFiles(files)
+    };
   }
 
   if (sourceRef.kind === "proposal" && branchName) {

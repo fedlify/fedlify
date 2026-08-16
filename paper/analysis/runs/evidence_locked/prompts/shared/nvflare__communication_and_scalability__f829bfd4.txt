@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "nvflare__communication_and_scalability__f829bfd4",
+  "framework": "NVFlare",
+  "criterion": "Communication and scalability",
+  "criterion_definition": {
+    "working_definition": "Documented support for communication-aware execution, heterogeneous participants, scale-up paths, straggler handling, or large-federation operation.",
+    "rationale": "Communication constraints are a major systems differentiator among FL frameworks, especially for studies comparing research libraries with production runtimes.",
+    "health_ai_relevance": "Hospital networks, variable site availability, and heterogeneous compute environments make communication-aware scale features practically important in health AI.",
+    "key_method_papers": "Oldenhof et al. 2023; Mehdi et al. 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Communication efficiency",
+      "Partial participation",
+      "Straggler / dropout handling",
+      "Scalability evidence",
+      "Heterogeneity-aware execution"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "NVIDIA FLARE",
+    "primary_positioning": "production-oriented runtime",
+    "official_repo_url": "https://github.com/NVIDIA/NVFlare",
+    "official_docs_url": "https://nvflare.readthedocs.io/en/main/",
+    "maintainer": "NVIDIA",
+    "core_scholarly_anchor": "NVIDIA FLARE: Federated Learning from Simulation to Real-World",
+    "health_ai_relevance_notes": "Official sources explicitly document healthcare and life-sciences use cases, including hospitals, medical imaging, and research collaborations.",
+    "selection_rationale": "Included as a secure, actively maintained runtime with strong official documentation from simulation through production deployment and explicit healthcare relevance."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Official operations docs explicitly address communication tuning and scaling behavior.",
+      "evidence_detail": "The tuning guide documents communication optimization, aggregation tuning, and asynchronous aggregation. Open quickstart and release materials also position FLARE for staged scale-up from simulation to production.",
+      "source_title": "NVIDIA FLARE Quickstart | NVIDIA FLARE Performance Tuning",
+      "source_url": "https://github.com/NVIDIA/NVFlare/blob/main/docs/quickstart.rst | https://github.com/NVIDIA/NVFlare/blob/main/docs/operations/performance_tuning.rst",
+      "source_year": "2026-04-17 | 2026-04-17",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

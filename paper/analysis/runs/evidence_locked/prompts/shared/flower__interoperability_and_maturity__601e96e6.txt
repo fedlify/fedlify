@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "flower__interoperability_and_maturity__601e96e6",
+  "framework": "Flower",
+  "criterion": "Interoperability and maturity",
+  "criterion_definition": {
+    "working_definition": "Documented integration with external ML ecosystems plus maintenance, documentation quality, and continuity signals.",
+    "rationale": "Methods papers often need to justify not just what a framework can do, but whether it remains sufficiently maintained and adaptable for cross-domain use.",
+    "health_ai_relevance": "Health AI projects often bridge ML stacks, hospital IT constraints, and domain libraries; interoperability and public maintenance affect long-term viability.",
+    "key_method_papers": "Software Engineering Aspects of Federated Learning Libraries 2025; Riedel et al. 2024; Guan et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "ML framework integration",
+      "Biomedical / health environment compatibility",
+      "Documentation clarity",
+      "Maintenance activity",
+      "Adoption / continuity signal"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "Flower",
+    "primary_positioning": "research-oriented library",
+    "official_repo_url": "https://github.com/flwrlabs/flower",
+    "official_docs_url": "https://flower.ai/docs/",
+    "maintainer": "Flower Labs",
+    "core_scholarly_anchor": "Flower: A Friendly Federated Learning Research Framework",
+    "health_ai_relevance_notes": "Official sources present Flower as general-purpose, but the reviewed official README explicitly lists MONAI and health-adjacent integrations among supported ecosystems.",
+    "selection_rationale": "Included as a highly active, general-purpose framework that spans simulation and deployment while remaining ML-framework agnostic."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Flower is both highly interoperable and very actively maintained.",
+      "evidence_detail": "The README lists broad framework compatibility, including MONAI, TensorFlow, PyTorch, JAX, TFLite, CoreML, and analytics use cases. The repository also has a very recent tagged release and current public activity.",
+      "source_title": "Flower README | Flower GitHub release framework-1.29.0",
+      "source_url": "https://github.com/flwrlabs/flower/blob/main/README.md | https://github.com/flwrlabs/flower/releases/tag/framework-1.29.0",
+      "source_year": "2026-04-16 | 2026-04-12",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

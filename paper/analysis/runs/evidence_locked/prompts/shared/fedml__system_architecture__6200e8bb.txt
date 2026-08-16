@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedml__system_architecture__6200e8bb",
+  "framework": "FedML",
+  "criterion": "System architecture",
+  "criterion_definition": {
+    "working_definition": "Documented coordination model, execution topology, and modular decomposition of the framework or platform.",
+    "rationale": "Framework-level comparisons in FL are not meaningful without identifying whether the system is simulation-centric, server-coordinated, or decentralized, and how responsibilities are split across components.",
+    "health_ai_relevance": "Healthcare collaborations often require cross-institution coordination under heterogeneous infrastructure; architectural fit directly affects feasibility.",
+    "key_method_papers": "Riedel et al. 2024; Mehdi et al. 2025; Software Engineering Aspects of Federated Learning Libraries 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Coordination model",
+      "Synchronization model",
+      "Component separation",
+      "Extensibility / modularity",
+      "Stack portability / coupling"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; summed to 0-10"
+  },
+  "framework_context": {
+    "official_name": "FedML",
+    "primary_positioning": "workflow/lifecycle platform",
+    "official_repo_url": "https://github.com/FedML-AI/FedML",
+    "official_docs_url": "https://docs.TensorOpera.ai",
+    "maintainer": "FedML-AI / TensorOpera AI",
+    "core_scholarly_anchor": "FedML: A Research Library and Benchmark for Federated Machine Learning",
+    "health_ai_relevance_notes": "Current official positioning is general-purpose and platform-oriented. Healthcare relevance is indirect in the reviewed official project materials.",
+    "selection_rationale": "Included because it spans research, deployment, and operations with current public maintenance across edge, cloud, and mobile settings."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Official sources describe FedML as a layered library-and-platform stack rather than a single simulation package.",
+      "evidence_detail": "The current README documents MLOps, scheduler, and compute layers, while the anchor paper describes three computing paradigms for on-device, distributed, and standalone execution. Together they show a multi-layer architecture with both library and platform elements.",
+      "source_title": "FedML README | FedML: A Research Library and Benchmark for Federated Machine Learning",
+      "source_url": "https://github.com/FedML-AI/FedML/blob/master/README.md | https://arxiv.org/abs/2007.13518",
+      "source_year": "2025-10-28 | 2020",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

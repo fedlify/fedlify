@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { summarizeTemplateAgentIntake, type TemplateAgentIntake } from "@/lib/template-agent";
 
 type Params = { params: Promise<{ sessionId: string }> };
 
@@ -25,5 +26,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return problem(403, "You do not have permission to access this session.", "forbidden");
   }
 
-  return json({ session });
+  const intakeState = summarizeTemplateAgentIntake((session.intake ?? {}) as TemplateAgentIntake);
+  return json({
+    session,
+    missing: intakeState.missing,
+    guardrailFindings: intakeState.guardrailFindings,
+    nextSkill: intakeState.nextSkill
+  });
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nextTemplateVersion,
+  templateSpecToTemplateIntake,
   templateKeyForName,
   templateRepoName,
   validateTemplateIntake,
@@ -103,5 +104,19 @@ describe("pipeline template catalog helpers", () => {
   it("generates immutable template catalog versions predictably", () => {
     expect(nextTemplateVersion(0)).toBe("v1.0.0");
     expect(nextTemplateVersion(2)).toBe("v3.0.0");
+  });
+
+  it("fills sparse legacy template specs with reviewable intake defaults", () => {
+    const intake = templateSpecToTemplateIntake({
+      jobType: "training",
+      workflow: "fedavg",
+      privacy: ["tls-mutual-auth", "signed-startup-kits"],
+      dataBoundary: "site-only"
+    });
+
+    expect(intake.purpose).toBe("training");
+    expect(intake.nvflareWorkflow).toBe("fedavg");
+    expect(intake.privacyConstraints).toContain("tls-mutual-auth");
+    expect(validateTemplateIntake(intake)).toEqual([]);
   });
 });

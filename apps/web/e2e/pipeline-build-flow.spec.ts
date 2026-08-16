@@ -16,6 +16,7 @@ import { expect, test } from "@playwright/test";
 
 const EMAIL = process.env.E2E_EMAIL ?? "test@fedlify.local";
 const PASSWORD = process.env.E2E_PASSWORD ?? "TestPassword123!";
+const SEEDED_TEMPLATE_ID = "template-nvflare-cross-silo-fedavg";
 
 async function signIn(page: import("@playwright/test").Page) {
   await page.goto("/signin");
@@ -53,7 +54,31 @@ test.describe("Pipeline build flow", () => {
     expect(hasDescribeBtn || hasRunBtn || hasApproveBtn).toBe(true);
   });
 
-  test("pipeline-agent page loads and starts a session", async ({ page }) => {
+  for (const entry of [
+    { mode: "develop", suffix: "" },
+    { mode: "adjust", suffix: "?mode=adjust" },
+    { mode: "from-template", suffix: `?mode=from-template&templateId=${SEEDED_TEMPLATE_ID}` }
+  ]) {
+    test(`pipeline-agent starts in chat-first layout for ${entry.mode} mode`, async ({ page }) => {
+      await signIn(page);
+
+      const studyUrl = page.url();
+      const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
+      expect(studyId).toBeTruthy();
+
+      await page.goto(`/studies/${studyId}/pipeline-agent${entry.suffix}`);
+      await page.waitForLoadState("domcontentloaded");
+      await page.waitForTimeout(3000);
+
+      await expect(page.locator(".fedlify-pa-chat-panel")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".fedlify-pa-code-panel")).toHaveCount(0);
+      await expect(page.locator(".fedlify-pa-messages")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator("[data-testid='pipeline-files']")).toHaveCount(0);
+      await expect(page.locator("[data-testid='guided-intake-modal']")).toHaveCount(0);
+    });
+  }
+
+  test("pipeline-agent only opens guided intake after plan mode is enabled", async ({ page }) => {
     await signIn(page);
 
     const studyUrl = page.url();
@@ -62,21 +87,29 @@ test.describe("Pipeline build flow", () => {
 
     await page.goto(`/studies/${studyId}/pipeline-agent`);
     await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(3000); // allow session to start
+    await page.waitForTimeout(3000);
 
-    // Chat panel should be visible
-    await expect(page.locator(".fedlify-pa-chat-panel")).toBeVisible({ timeout: 10_000 });
-
-    // A first assistant message should have appeared (session started)
-    const chatMessages = page.locator(".fedlify-pa-messages");
-    await expect(chatMessages).toBeVisible();
-
-    // Input box should be present and enabled
-    await expect(page.locator(".fedlify-pa-chat-panel textarea, .fedlify-pa-chat-panel input[type='text']").first()).toBeVisible();
-
-    // Code panel should be visible
-    await expect(page.locator(".fedlify-pa-code-panel")).toBeVisible();
+    await expect(page.locator("[data-testid='guided-intake-modal']")).toHaveCount(0);
+    await page.getByRole("button", { name: "Toggle plan mode" }).click();
+    await expect(page.locator("[data-testid='guided-intake-modal']")).toBeVisible({ timeout: 10_000 });
   });
+
+  test("pipeline-agent page opens files intentionally", async ({ page }) => {
+    await signIn(page);
+
+    const studyUrl = page.url();
+    const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
+    expect(studyId).toBeTruthy();
+
+    await page.goto(`/studies/${studyId}/pipeline-agent`);
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(3000);
+
+      await expect(page.locator("[data-testid='pipeline-files']")).toHaveCount(0);
+      await page.locator('button:has-text("Open files")').first().click();
+      await expect(page.locator("[data-testid='pipeline-files']")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".fedlify-pa-code-panel")).toBeVisible({ timeout: 10_000 });
+    });
 
   test("pipeline-agent back button navigates to study pipeline", async ({ page }) => {
     await signIn(page);

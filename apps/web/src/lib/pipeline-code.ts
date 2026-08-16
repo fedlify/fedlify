@@ -248,11 +248,11 @@ async function readDirectoryFiles(directory: string, prefix: string): Promise<Pi
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export async function buildNvflareJobPipelineFiles(input: Parameters<typeof buildPipelineFiles>[0] & { templateSpec?: Record<string, unknown> }): Promise<PipelineFile[]> {
+export async function buildNvflareJobPipelineFiles(input: Parameters<typeof buildPipelineFiles>[0] & { templateSpec?: Record<string, unknown>; useAi?: boolean }): Promise<PipelineFile[]> {
   let baseFiles = buildPipelineFiles(input).filter((file) => !file.path.startsWith("nvflare/"));
 
   // Attempt to generate real executor code via the agent
-  const aiConfig = openAiCodeAgentConfig();
+  const aiConfig = input.useAi === false ? null : openAiCodeAgentConfig();
   if (aiConfig) {
     const generatedCode = await generateExecutorCode(
       { ...(input.templateSpec ?? {}), ...(typeof input.template.spec === "object" && input.template.spec !== null ? (input.template.spec as Record<string, unknown>) : {}) },

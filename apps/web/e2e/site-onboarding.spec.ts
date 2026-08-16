@@ -331,25 +331,30 @@ test.describe.serial("site onboarding and experiment join", () => {
     expect(studyResponse.ok(), await studyResponse.text()).toBe(true);
 
     await expect(page.getByText(scenario.siteName)).toBeVisible();
-    await page.locator("button").filter({ hasText: "Open dashboard" }).click();
+    const dashboardButton = page.getByRole("button", { name: "Open onboarding dashboard" });
+    if (!(await dashboardButton.isVisible().catch(() => false))) {
+      await page.getByText(scenario.siteName).first().click();
+    }
+    await dashboardButton.click();
 
     await expect(page).toHaveURL(new RegExp(`/sites/${scenario.studySiteId}`));
     await expect(page.getByRole("heading", { name: scenario.siteName })).toBeVisible();
     await expect(page.getByText("Accept participation")).toBeVisible();
     await expect(page.getByText("Join federation")).toBeVisible();
+    await page.getByRole("tab", { name: "Startup kit" }).click();
 
     const joinPackageResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/v1/sites/${scenario.studySiteId}/join-package`) && response.request().method() === "POST"
     );
-    await page.getByRole("button", { name: "Download startup kit" }).click();
+    await page.getByRole("button", { name: "Download runner kit" }).click();
     const joinPackageResponse = await joinPackageResponsePromise;
     expect(joinPackageResponse.ok(), await joinPackageResponse.text()).toBe(true);
     const joinPackagePayload = (await joinPackageResponse.json()) as { enrollmentToken?: string };
     const token = joinPackagePayload.enrollmentToken ?? "";
 
     await expect(page.getByText("One-time enrollment token")).toBeVisible();
-    await expect(page.getByText(token)).toBeVisible();
+    await expect(page.getByText(token, { exact: true }).first()).toBeVisible();
     await expect(page.getByText("fedlify-site-startup-kit")).toBeVisible();
     expect(token, "one-time enrollment token should be returned exactly once after package generation").toMatch(/^[A-Za-z0-9_-]{32,}$/);
 
@@ -357,6 +362,7 @@ test.describe.serial("site onboarding and experiment join", () => {
       .poll(async () => prisma.siteJoinPackage.count({ where: { studySiteId: scenario.studySiteId, status: "ACTIVE" } }))
       .toBe(1);
 
+    await page.getByRole("tab", { name: "Data profile" }).click();
     await page.getByPlaceholder("e.g. 1k-5k records").fill("100-500 records");
     await page.getByPlaceholder("Cohort-level description only. Do not enter patient-level data.").fill(
       "Adult inpatient encounters prepared in the site-local warehouse."
@@ -370,6 +376,7 @@ test.describe.serial("site onboarding and experiment join", () => {
       })
       .toBe("100-500 records");
 
+    await page.getByRole("tab", { name: "Readiness" }).click();
     await page.getByRole("button", { name: "Accept policy" }).click();
     await expect
       .poll(async () => {
@@ -411,6 +418,7 @@ test.describe.serial("site onboarding and experiment join", () => {
     await expect(page.getByText("Connected").first()).toBeVisible();
     await expect(page.getByText("Passed").first()).toBeVisible();
 
+    await page.getByRole("tab", { name: "Pipeline review" }).click();
     await expect(page.getByText("E2E Site Review Pipeline")).toBeVisible();
     await expect(page.getByText("Source Bundle")).toBeVisible();
     await page.getByRole("button", { name: "Download approved pipeline bundle" }).last().click();

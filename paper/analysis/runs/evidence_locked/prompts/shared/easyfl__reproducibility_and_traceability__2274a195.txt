@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "easyfl__reproducibility_and_traceability__2274a195",
+  "framework": "EasyFL",
+  "criterion": "Reproducibility and traceability",
+  "criterion_definition": {
+    "working_definition": "Documented support for experiment records, checkpoints, metadata capture, logs, audit trails, or provenance.",
+    "rationale": "Transparent evidence workbooks and methods sections need to distinguish repeatable experiment support from ad hoc scripts or opaque operational state.",
+    "health_ai_relevance": "Traceability matters in regulated health AI settings because institutions often need to inspect what ran, with which inputs, and under whose responsibility.",
+    "key_method_papers": "Lowering barriers to federated learning 2025; Mehdi et al. 2025; Eden et al. 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Configuration versioning",
+      "Logging / tracking",
+      "Artifact management",
+      "Collaboration provenance",
+      "Replay / reconstruction"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "EasyFL",
+    "primary_positioning": "low-code platform",
+    "official_repo_url": "https://github.com/EasyFL-AI/EasyFL",
+    "official_docs_url": "https://easyfl.readthedocs.io/en/latest/",
+    "maintainer": "EasyFL-AI maintainers",
+    "core_scholarly_anchor": "EasyFL: A Low-code Federated Learning Platform For Dummies",
+    "health_ai_relevance_notes": "The reviewed official project sources are general-purpose and do not foreground healthcare-specific deployments.",
+    "selection_rationale": "Included as a low-code FL platform with a peer-reviewed anchor paper and explicit official documentation for remote training and Kubernetes-backed deployment."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "EasyFL explicitly describes itself as reproducible in official public materials.",
+      "evidence_detail": "The README labels the platform flexible, customizable, and reproducible, and the paper discusses comprehensive tracking and lifecycle concerns as part of the low-code design. This is direct documentary evidence for reproducibility-oriented intent.",
+      "source_title": "EasyFL README | EasyFL: A Low-code Federated Learning Platform For Dummies",
+      "source_url": "https://github.com/EasyFL-AI/EasyFL/blob/master/README.md | https://doi.org/10.1109/JIOT.2022.3143842",
+      "source_year": "2023-08-23 | 2022",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}
