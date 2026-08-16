@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "paddlefl__workflow_orchestration__1c7cf090",
+  "framework": "PaddleFL",
+  "criterion": "Workflow orchestration",
+  "criterion_definition": {
+    "working_definition": "Documented support for setting up, scheduling, managing, monitoring, and recovering federated jobs or collaborations.",
+    "rationale": "Framework selection for applied methods papers often depends more on orchestration support than on algorithm APIs, especially outside pure simulation settings.",
+    "health_ai_relevance": "Real healthcare FL requires operational coordination across institutions, sites, or devices, which raises the value of explicit orchestration features.",
+    "key_method_papers": "Oldenhof et al. 2023; Lowering barriers to federated learning 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Site onboarding / setup",
+      "Execution control",
+      "Monitoring / administration",
+      "Failure handling / recovery",
+      "Lifecycle integration"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "PaddleFL",
+    "primary_positioning": "research-oriented library",
+    "official_repo_url": "https://github.com/PaddlePaddle/PaddleFL",
+    "official_docs_url": "https://paddlefl.readthedocs.io/en/latest/",
+    "maintainer": "PaddlePaddle / Baidu",
+    "core_scholarly_anchor": "No canonical framework paper identified from official public sources reviewed",
+    "health_ai_relevance_notes": "Official project materials reviewed are general-purpose and ecosystem-focused rather than healthcare-focused.",
+    "selection_rationale": "Included because it documents horizontal, vertical, and MPC-backed FL within the PaddlePaddle ecosystem and remains a recurring reference point in FL framework surveys."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "The framework documents job generation and scheduler roles, but broader lifecycle tooling is limited in the reviewed public materials.",
+      "evidence_detail": "Compile-time job generation, distributed configuration, FL server, worker, and scheduler roles are explicitly documented. The reviewed public sources did not show a richer admin, audit, or collaboration management surface.",
+      "source_title": "PaddleFL README",
+      "source_url": "https://github.com/PaddlePaddle/PaddleFL/blob/develop/README.md",
+      "source_year": "2023-07-26",
+      "evidence_strength": "Partial or limited official evidence"
+    }
+  ]
+}

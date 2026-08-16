@@ -1,6 +1,8 @@
 import type { PipelineTemplate } from "@prisma/client";
+import { buildFedlifyAgentSkillContext, fedlifyAgentSkillsMarkdown } from "@/lib/fedlify-agent-skills";
 import { buildNvflareJobPipelineFiles, type PipelineFile } from "@/lib/pipeline-code";
 import { slugify } from "@/lib/slug";
+import type { TemplateAgentIntake } from "@/lib/template-agent";
 
 export type TemplateIntakeAnswers = {
   purpose: string;
@@ -16,6 +18,20 @@ export type TemplateIntakeAnswers = {
   dependencyPolicy: string;
   artifactOutputs: string;
   reviewExpectations: string;
+  collaborationSetting?: string;
+  dataDistribution?: string;
+  systemTopology?: string;
+  privacySecurityPlan?: string;
+  trainingStrategy?: string;
+  clinicalApplication?: string;
+  diseaseCategory?: string;
+  challengeProfile?: string;
+  outcomeDefinition?: string;
+  participatingSites?: string;
+  governanceContact?: string;
+  dataReadinessSummary?: string;
+  siteConstraints?: string;
+  approvalStatus?: string;
 };
 
 export function templateRepoName(name: string, prefix = "template"): string {
@@ -46,6 +62,67 @@ export function validateTemplateIntake(value: Partial<TemplateIntakeAnswers>): s
   return missing.map((field) => `Missing or invalid template intake field: ${field}`);
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringValue(value: unknown, fallback: string): string {
+  if (typeof value === "string" && value.trim()) return value;
+  if (Array.isArray(value) && value.length > 0) return value.map(String).join(", ");
+  return fallback;
+}
+
+function stringArrayValue(value: unknown, fallback: string[]): string[] {
+  if (Array.isArray(value)) {
+    const values = value.map(String).filter((item) => item.trim());
+    if (values.length > 0) return values;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  return fallback;
+}
+
+function positiveIntegerValue(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function templateSpecToTemplateIntake(spec: unknown): TemplateIntakeAnswers {
+  const record = asRecord(spec);
+  const runtimeDefaults = asRecord(record.runtimeDefaults);
+
+  return {
+    purpose: stringValue(record.purpose ?? record.jobType, "training"),
+    clinicalUseCase: stringValue(record.clinicalUseCase, "Health AI federated learning"),
+    dataModalities: stringArrayValue(record.dataModalities, ["Site-described tabular features"]),
+    siteLocalInputs: stringValue(record.siteLocalInputs, "Each site maps local tabular features into the expected template schema."),
+    syntheticFixtures: stringValue(record.syntheticFixtures, "Synthetic fixtures are generated for smoke tests only."),
+    nvflareWorkflow: stringValue(record.workflow ?? record.nvflareWorkflow, "scatter_and_gather"),
+    minClients: positiveIntegerValue(runtimeDefaults.minClients, 2),
+    numRounds: positiveIntegerValue(runtimeDefaults.numRounds, 5),
+    aggregation: stringValue(record.aggregation ?? runtimeDefaults.aggregation, "weighted FedAvg"),
+    privacyConstraints: stringValue(record.privacyConstraints ?? record.privacy, "Raw clinical data remains site-local. No patient files in Git."),
+    dependencyPolicy: stringValue(record.dependencyPolicy, "Use standard NVFLARE and scikit-learn only."),
+    artifactOutputs: stringValue(record.artifactOutputs, "server.npy, metrics summary, logs, manifest"),
+    reviewExpectations: stringValue(record.reviewExpectations, "README, manifest, NVFLARE job shape, and no raw-data paths must pass."),
+    collaborationSetting: stringValue(record.collaborationSetting, "Cross-silo hospitals or research sites with stable organizational participants."),
+    dataDistribution: stringValue(record.dataDistribution, "Horizontal FL unless sites explicitly report vertical or partial-overlap data."),
+    systemTopology: stringValue(record.systemTopology, "Centralized aggregation through a named coordinating organization."),
+    privacySecurityPlan: stringValue(record.privacySecurityPlan, "Signed artifacts, no raw-data paths, site-local execution, and human release review."),
+    trainingStrategy: stringValue(record.trainingStrategy, "Synchronous FedAvg unless site availability or heterogeneity requires another strategy."),
+    clinicalApplication: stringValue(record.clinicalApplication, "Clinical research"),
+    diseaseCategory: stringValue(record.diseaseCategory, "Other"),
+    challengeProfile: stringValue(record.challengeProfile, "Assess non-IID data, small site sample sizes, compute/network limits, reproducibility, fairness, and governance blockers."),
+    outcomeDefinition: stringValue(record.outcomeDefinition, "Site-defined supervised label or endpoint documented during study intake."),
+    participatingSites: stringValue(record.participatingSites, "Participating sites are named during governed Fedlify intake."),
+    governanceContact: stringValue(record.governanceContact, "Named study governance contact required before workflow freeze."),
+    dataReadinessSummary: stringValue(record.dataReadinessSummary, "Each site provides aggregate counts, schema notes, label availability, and missingness summary before code generation."),
+    siteConstraints: stringValue(record.siteConstraints, "Site runtime, networking, data-use, and approval constraints are recorded before kit generation."),
+    approvalStatus: stringValue(record.approvalStatus, "Draft or pending approval; production execution requires human approval.")
+  };
+}
+
 function agentsMarkdown() {
   return [
     "# Fedlify NVFLARE Template Agent Instructions",
@@ -59,6 +136,13 @@ function agentsMarkdown() {
     "- Use synthetic fixtures only for tests and smoke validation.",
     "- Do not approve, merge, publish, or run production NVFLARE jobs.",
     "- Keep runtime parameters configurable by Fedlify at job submission time.",
+    "",
+    "# Agentic skill cards",
+    "",
+    "Fedlify agents operate through bounded skill cards instead of unrestricted chat prompts.",
+    "Each card has a trigger, required inputs, task instruction, allowed tools, output schema, validation tests, stop conditions, human approval gate, and evidence basis.",
+    "",
+    fedlifyAgentSkillsMarkdown(),
     ""
   ].join("\n");
 }
@@ -91,7 +175,22 @@ function templateManifest(input: {
     privacyConstraints: input.intake.privacyConstraints,
     dependencyPolicy: input.intake.dependencyPolicy,
     artifactOutputs: input.intake.artifactOutputs,
-    reviewExpectations: input.intake.reviewExpectations
+    reviewExpectations: input.intake.reviewExpectations,
+    collaborationSetting: input.intake.collaborationSetting ?? null,
+    dataDistribution: input.intake.dataDistribution ?? null,
+    systemTopology: input.intake.systemTopology ?? null,
+    privacySecurityPlan: input.intake.privacySecurityPlan ?? null,
+    trainingStrategy: input.intake.trainingStrategy ?? null,
+    clinicalApplication: input.intake.clinicalApplication ?? null,
+    diseaseCategory: input.intake.diseaseCategory ?? null,
+    challengeProfile: input.intake.challengeProfile ?? null,
+    outcomeDefinition: input.intake.outcomeDefinition ?? null,
+    participatingSites: input.intake.participatingSites ?? null,
+    governanceContact: input.intake.governanceContact ?? null,
+    dataReadinessSummary: input.intake.dataReadinessSummary ?? null,
+    siteConstraints: input.intake.siteConstraints ?? null,
+    approvalStatus: input.intake.approvalStatus ?? null,
+    agenticWorkflow: buildFedlifyAgentSkillContext(input.intake as TemplateAgentIntake)
   };
 }
 
@@ -101,6 +200,7 @@ export async function buildTemplateRepositoryFiles(input: {
   description?: string | null;
   prompt: string;
   intake: TemplateIntakeAnswers;
+  useAi?: boolean;
 }): Promise<PipelineFile[]> {
   const runtimeFiles = await buildNvflareJobPipelineFiles({
     study: {
@@ -122,6 +222,7 @@ export async function buildTemplateRepositoryFiles(input: {
     } as Pick<PipelineTemplate, "name" | "templateKey" | "framework" | "version" | "spec">,
     projectName: input.name,
     prompt: input.prompt,
+    useAi: input.useAi,
     sites: [
       {
         id: "template-site",
@@ -149,6 +250,15 @@ export async function buildTemplateRepositoryFiles(input: {
         `- Minimum clients: ${input.intake.minClients}`,
         `- Federated rounds: ${input.intake.numRounds}`,
         `- Aggregation: ${input.intake.aggregation}`,
+        `- Collaboration setting: ${input.intake.collaborationSetting ?? "Documented during study intake"}`,
+        `- Data distribution: ${input.intake.dataDistribution ?? "Documented during study intake"}`,
+        `- System topology: ${input.intake.systemTopology ?? "Documented during study intake"}`,
+        `- Training strategy: ${input.intake.trainingStrategy ?? "Documented during study intake"}`,
+        `- Clinical application: ${input.intake.clinicalApplication ?? "Documented during study intake"}`,
+        `- Disease category: ${input.intake.diseaseCategory ?? "Documented during study intake"}`,
+        `- Outcome/label: ${input.intake.outcomeDefinition ?? "Documented during study intake"}`,
+        `- Participating sites: ${input.intake.participatingSites ?? "Documented during study intake"}`,
+        `- Approval status: ${input.intake.approvalStatus ?? "Draft"}`,
         "",
         "## Review checklist",
         input.intake.reviewExpectations,

@@ -67,7 +67,12 @@ import {
   studyProtocolReady,
   summaryReadinessItems
 } from "@/lib/study-summary";
-import { chooseSelectedStudy, SELECTED_STUDY_EVENT, SELECTED_STUDY_STORAGE_KEY, type StudySummary } from "@/lib/studies";
+import {
+  resolveUnavailableStudyTarget,
+  SELECTED_STUDY_EVENT,
+  SELECTED_STUDY_STORAGE_KEY,
+  type StudySummary
+} from "@/lib/studies";
 import {
   WORKFLOW_TERMS,
   approvedTemplateCatalog,
@@ -635,13 +640,16 @@ export default function StudyDetailPage() {
         if (response.status === 403 || response.status === 404) {
           const studiesResponse = await fetch("/api/v1/studies?status=active", { cache: "no-store" });
           const studiesBody = await studiesResponse.json().catch(() => null);
-          const selected = chooseSelectedStudy((studiesBody?.studies ?? []) as StudySummary[], null);
-          if (selected?.id && selected.id !== studyId) {
-            window.localStorage.setItem(SELECTED_STUDY_STORAGE_KEY, selected.id);
-            window.dispatchEvent(new CustomEvent(SELECTED_STUDY_EVENT, { detail: { studyId: selected.id } }));
-            router.replace(`/studies/${selected.id}${redirectSection === "overview" ? "" : `?section=${redirectSection}`}`);
-            return;
+          const studies = studiesResponse.ok ? ((studiesBody?.studies ?? []) as StudySummary[]) : [];
+          const target = resolveUnavailableStudyTarget(studies, studyId, redirectSection);
+          if (target.studyId) {
+            window.localStorage.setItem(SELECTED_STUDY_STORAGE_KEY, target.studyId);
+          } else {
+            window.localStorage.removeItem(SELECTED_STUDY_STORAGE_KEY);
           }
+          window.dispatchEvent(new CustomEvent(SELECTED_STUDY_EVENT, { detail: { studyId: target.studyId ?? undefined } }));
+          router.replace(target.href);
+          return;
         }
         throw new Error(body?.error?.message ?? "Study workspace could not be loaded.");
       }
@@ -2706,7 +2714,7 @@ export default function StudyDetailPage() {
                     <StatusTag value="APPROVED" />
                   </div>
                   <Typography.Text type="secondary" className="fedlify-psp-meta">
-                    Version: <strong>{text(latestApprovedVersion?.version)}</strong>
+                    Latest approved pipeline is ready for runtime handoff.
                     {latestApprovedVersion?.gitCommit ? <> · Commit: <code>{String(latestApprovedVersion.gitCommit).slice(0, 12)}</code></> : null}
                   </Typography.Text>
                   <Space wrap style={{ marginTop: 8 }}>
@@ -2726,7 +2734,7 @@ export default function StudyDetailPage() {
                           : router.push(`/studies/${studyId}/pipeline-agent`)
                       }
                     >
-                      Adjust & build v{(approvedVersions.length + 1).toString()}.0.0
+                      Create new version
                     </Button>
                     {latestApprovedVersion?.project?.template?.id ? (
                       <Button
@@ -2745,9 +2753,19 @@ export default function StudyDetailPage() {
           {/* All pipeline versions — shown as a compact list below the state panel when not empty */}
           {pipelineVersions.length > 0 ? (
             <div className="fedlify-psp-history">
-              <Typography.Text type="secondary" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 650 }}>
-                All pipeline versions
-              </Typography.Text>
+              <div className="fedlify-psp-history-header">
+                <div className="fedlify-psp-history-copy">
+                  <Typography.Title level={5} style={{ margin: 0 }}>
+                    Pipeline history
+                  </Typography.Title>
+                  <Typography.Text type="secondary">
+                    Review approved and draft versions in one place.
+                  </Typography.Text>
+                </div>
+                <Typography.Text type="secondary" className="fedlify-psp-history-count">
+                  {pipelineVersions.length} version{pipelineVersions.length === 1 ? "" : "s"}
+                </Typography.Text>
+              </div>
               <WorkspaceCardGrid className="fedlify-psp-version-grid">
                 {pipelineVersions.map((version) => (
                   <WorkspaceRecordCard

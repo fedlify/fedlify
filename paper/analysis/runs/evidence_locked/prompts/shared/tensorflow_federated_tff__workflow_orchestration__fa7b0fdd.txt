@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "tensorflow_federated_tff__workflow_orchestration__fa7b0fdd",
+  "framework": "TensorFlow Federated (TFF)",
+  "criterion": "Workflow orchestration",
+  "criterion_definition": {
+    "working_definition": "Documented support for setting up, scheduling, managing, monitoring, and recovering federated jobs or collaborations.",
+    "rationale": "Framework selection for applied methods papers often depends more on orchestration support than on algorithm APIs, especially outside pure simulation settings.",
+    "health_ai_relevance": "Real healthcare FL requires operational coordination across institutions, sites, or devices, which raises the value of explicit orchestration features.",
+    "key_method_papers": "Oldenhof et al. 2023; Lowering barriers to federated learning 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Site onboarding / setup",
+      "Execution control",
+      "Monitoring / administration",
+      "Failure handling / recovery",
+      "Lifecycle integration"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "TensorFlow Federated",
+    "primary_positioning": "research-oriented library",
+    "official_repo_url": "https://github.com/google-parfait/tensorflow-federated",
+    "official_docs_url": "https://www.tensorflow.org/federated",
+    "maintainer": "Google / Google-Parfait",
+    "core_scholarly_anchor": "TOWARDS FEDERATED LEARNING AT SCALE: SYSTEM DESIGN",
+    "health_ai_relevance_notes": "Official sources position TFF as a general federated research framework. The reviewed official project materials did not foreground healthcare-specific deployment evidence.",
+    "selection_rationale": "Included as a canonical research-oriented FL library in the TensorFlow ecosystem with current public maintenance and extensive official documentation."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "No dedicated public orchestration layer was identified in the reviewed official project sources.",
+      "evidence_detail": "The reviewed README and core docs focus on authoring federated computations and running simulations. They do not document site onboarding, admin dashboards, job scheduling, or collaboration lifecycle management.",
+      "source_title": "TensorFlow Federated README | TensorFlow Federated FAQ",
+      "source_url": "https://github.com/google-parfait/tensorflow-federated/blob/main/README.md | https://github.com/google-parfait/tensorflow-federated/blob/main/docs/faq.md",
+      "source_year": "2026-04-18 | 2026-04-18",
+      "evidence_strength": "Not documented in reviewed public sources"
+    }
+  ]
+}

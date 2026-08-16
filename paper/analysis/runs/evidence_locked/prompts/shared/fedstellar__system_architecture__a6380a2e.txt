@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedstellar__system_architecture__a6380a2e",
+  "framework": "Fedstellar",
+  "criterion": "System architecture",
+  "criterion_definition": {
+    "working_definition": "Documented coordination model, execution topology, and modular decomposition of the framework or platform.",
+    "rationale": "Framework-level comparisons in FL are not meaningful without identifying whether the system is simulation-centric, server-coordinated, or decentralized, and how responsibilities are split across components.",
+    "health_ai_relevance": "Healthcare collaborations often require cross-institution coordination under heterogeneous infrastructure; architectural fit directly affects feasibility.",
+    "key_method_papers": "Riedel et al. 2024; Mehdi et al. 2025; Software Engineering Aspects of Federated Learning Libraries 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Coordination model",
+      "Synchronization model",
+      "Component separation",
+      "Extensibility / modularity",
+      "Stack portability / coupling"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; summed to 0-10"
+  },
+  "framework_context": {
+    "official_name": "Fedstellar",
+    "primary_positioning": "decentralized FL platform",
+    "official_repo_url": "https://github.com/enriquetomasmb/fedstellar",
+    "official_docs_url": "https://github.com/enriquetomasmb/fedstellar/tree/main/docs",
+    "maintainer": "Enrique Tomás Martínez Beltrán / CyberDataLab",
+    "core_scholarly_anchor": "Fedstellar: A Platform for Decentralized Federated Learning",
+    "health_ai_relevance_notes": "The reviewed official public materials do not position Fedstellar as healthcare-specific.",
+    "selection_rationale": "Included as a decentralized FL platform, while explicitly flagging that the public repository is archived and the maintainers point users to NEBULA."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Fedstellar is explicitly documented for decentralized and hybrid topologies.",
+      "evidence_detail": "The README and docs describe centralized, decentralized, and semi-decentralized federated architectures, with frontend and controller components around many physical or virtualized devices.",
+      "source_title": "Fedstellar README | Fedstellar Documentation Index | Fedstellar: A Platform for Decentralized Federated Learning",
+      "source_url": "https://github.com/enriquetomasmb/fedstellar/blob/main/README.md | https://github.com/enriquetomasmb/fedstellar/blob/main/docs/index.rst | https://www.sciencedirect.com/science/article/pii/S0957417423033638",
+      "source_year": "2024-07-12 | 2024-07-12 | 2024",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

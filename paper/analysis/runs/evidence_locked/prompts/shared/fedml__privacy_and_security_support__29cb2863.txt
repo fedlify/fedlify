@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedml__privacy_and_security_support__29cb2863",
+  "framework": "FedML",
+  "criterion": "Privacy and security support",
+  "criterion_definition": {
+    "working_definition": "Documented support for privacy-preserving or security-enforcing mechanisms such as secure aggregation, differential privacy, cryptographic protocols, authentication, or policy enforcement.",
+    "rationale": "Health AI FL is motivated by data protection, but platform-level support varies widely and cannot be assumed from the term federated learning alone.",
+    "health_ai_relevance": "Healthcare collaborations face legal, ethical, and institutional constraints that often require documented privacy and security controls, not only conceptual claims.",
+    "key_method_papers": "Kaissis et al. 2020; Rieke et al. 2020; Eden et al. 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Cryptographic / secure computation",
+      "Privacy-preserving training",
+      "Authentication / access control",
+      "Threat / robustness controls",
+      "Operational security documentation"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; motivation alone does not count"
+  },
+  "framework_context": {
+    "official_name": "FedML",
+    "primary_positioning": "workflow/lifecycle platform",
+    "official_repo_url": "https://github.com/FedML-AI/FedML",
+    "official_docs_url": "https://docs.TensorOpera.ai",
+    "maintainer": "FedML-AI / TensorOpera AI",
+    "core_scholarly_anchor": "FedML: A Research Library and Benchmark for Federated Machine Learning",
+    "health_ai_relevance_notes": "Current official positioning is general-purpose and platform-oriented. Healthcare relevance is indirect in the reviewed official project materials.",
+    "selection_rationale": "Included because it spans research, deployment, and operations with current public maintenance across edge, cloud, and mobile settings."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Security and privacy are present in public materials, but the reviewed official docs provide less direct detail than some other platforms.",
+      "evidence_detail": "The anchor paper places security and privacy inside the core architecture, and the current README says jobs can run securely. The reviewed current official sources did not foreground specific cryptographic protocols or collaboration policy controls at the same level of detail as FATE, NVFlare, or PaddleFL.",
+      "source_title": "FedML: A Research Library and Benchmark for Federated Machine Learning | FedML README",
+      "source_url": "https://arxiv.org/abs/2007.13518 | https://github.com/FedML-AI/FedML/blob/master/README.md",
+      "source_year": "2020 | 2025-10-28",
+      "evidence_strength": "Partial or limited official evidence"
+    }
+  ]
+}

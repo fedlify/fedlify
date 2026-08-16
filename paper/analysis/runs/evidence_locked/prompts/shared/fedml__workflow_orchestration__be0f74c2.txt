@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedml__workflow_orchestration__be0f74c2",
+  "framework": "FedML",
+  "criterion": "Workflow orchestration",
+  "criterion_definition": {
+    "working_definition": "Documented support for setting up, scheduling, managing, monitoring, and recovering federated jobs or collaborations.",
+    "rationale": "Framework selection for applied methods papers often depends more on orchestration support than on algorithm APIs, especially outside pure simulation settings.",
+    "health_ai_relevance": "Real healthcare FL requires operational coordination across institutions, sites, or devices, which raises the value of explicit orchestration features.",
+    "key_method_papers": "Oldenhof et al. 2023; Lowering barriers to federated learning 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Site onboarding / setup",
+      "Execution control",
+      "Monitoring / administration",
+      "Failure handling / recovery",
+      "Lifecycle integration"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "FedML",
+    "primary_positioning": "workflow/lifecycle platform",
+    "official_repo_url": "https://github.com/FedML-AI/FedML",
+    "official_docs_url": "https://docs.TensorOpera.ai",
+    "maintainer": "FedML-AI / TensorOpera AI",
+    "core_scholarly_anchor": "FedML: A Research Library and Benchmark for Federated Machine Learning",
+    "health_ai_relevance_notes": "Current official positioning is general-purpose and platform-oriented. Healthcare relevance is indirect in the reviewed official project materials.",
+    "selection_rationale": "Included because it spans research, deployment, and operations with current public maintenance across edge, cloud, and mobile settings."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Current official materials document a strong orchestration layer.",
+      "evidence_detail": "The README describes Job Store, Launch, and broader FLOps/MLOps components for provisioning and running jobs. Installation docs show how devices register into the platform and how server and client components are managed through the platform interface.",
+      "source_title": "FedML README | FedML Installation and K8s Guide",
+      "source_url": "https://github.com/FedML-AI/FedML/blob/master/README.md | https://github.com/FedML-AI/FedML/blob/master/installation/README.md",
+      "source_year": "2025-10-28 | 2025-10-28",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

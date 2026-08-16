@@ -1,4 +1,9 @@
 import { openAiCodeAgentConfig } from "@/lib/runtime-config";
+import {
+  buildFedlifyAgentSkillContext,
+  detectAgentGuardrailFindings,
+  routeNextFedlifyAgentSkill
+} from "@/lib/fedlify-agent-skills";
 import type { TemplateIntakeAnswers } from "@/lib/pipeline-template-code";
 
 export type TemplateAgentIntake = Partial<
@@ -14,13 +19,28 @@ export type AgentMessage = {
   content: string;
 };
 
+export type TemplateAgentWorkflowStatus = "INTAKE" | "CODING";
+
 const requiredFields: Array<{ key: keyof TemplateAgentIntake; label: string }> = [
   { key: "templateName", label: "template name" },
   { key: "agentRequest", label: "what the template should do" },
   { key: "purpose", label: "template purpose" },
   { key: "clinicalUseCase", label: "clinical AI use case" },
+  { key: "clinicalApplication", label: "clinical application" },
+  { key: "diseaseCategory", label: "disease category" },
+  { key: "collaborationSetting", label: "collaboration setting" },
+  { key: "dataDistribution", label: "data distribution" },
   { key: "dataModalities", label: "data modalities" },
+  { key: "outcomeDefinition", label: "outcome / label definition" },
+  { key: "participatingSites", label: "participating sites" },
+  { key: "governanceContact", label: "governance contact" },
   { key: "siteLocalInputs", label: "site-local input contract" },
+  { key: "dataReadinessSummary", label: "data readiness summary" },
+  { key: "siteConstraints", label: "site constraints" },
+  { key: "systemTopology", label: "system topology" },
+  { key: "privacySecurityPlan", label: "privacy & security plan" },
+  { key: "trainingStrategy", label: "training strategy" },
+  { key: "challengeProfile", label: "challenge profile" },
   { key: "syntheticFixtures", label: "allowed synthetic fixtures" },
   { key: "nvflareWorkflow", label: "NVFLARE workflow type" },
   { key: "minClients", label: "minimum clients" },
@@ -29,6 +49,7 @@ const requiredFields: Array<{ key: keyof TemplateAgentIntake; label: string }> =
   { key: "artifactOutputs", label: "output artifacts" },
   { key: "dependencyPolicy", label: "dependency policy" },
   { key: "privacyConstraints", label: "privacy constraints" },
+  { key: "approvalStatus", label: "approval status" },
   { key: "reviewExpectations", label: "validation expectations" }
 ];
 
@@ -41,6 +62,47 @@ export function missingTemplateAgentFields(intake: TemplateAgentIntake): string[
       return typeof value !== "string" || value.trim().length < 3;
     })
     .map((field) => field.label);
+}
+
+export function mergeTemplateAgentIntake(
+  intake: TemplateAgentIntake,
+  intakePatch?: Record<string, unknown>
+): TemplateAgentIntake {
+  return {
+    ...(intake ?? {}),
+    ...(intakePatch ?? {})
+  } as TemplateAgentIntake;
+}
+
+export function summarizeTemplateAgentIntake(intake: TemplateAgentIntake): {
+  intake: TemplateAgentIntake;
+  missing: string[];
+  status: TemplateAgentWorkflowStatus;
+  guardrailFindings: string[];
+  nextSkill: ReturnType<typeof routeNextFedlifyAgentSkill>;
+} {
+  const missing = missingTemplateAgentFields(intake);
+  const guardrailFindings = detectAgentGuardrailFindings(intake);
+  return {
+    intake,
+    missing,
+    status: missing.length > 0 || guardrailFindings.length > 0 ? "INTAKE" : "CODING",
+    guardrailFindings,
+    nextSkill: routeNextFedlifyAgentSkill(intake)
+  };
+}
+
+export function applyTemplateAgentIntakePatch(
+  intake: TemplateAgentIntake,
+  intakePatch?: Record<string, unknown>
+): {
+  intake: TemplateAgentIntake;
+  missing: string[];
+  status: TemplateAgentWorkflowStatus;
+  guardrailFindings: string[];
+  nextSkill: ReturnType<typeof routeNextFedlifyAgentSkill>;
+} {
+  return summarizeTemplateAgentIntake(mergeTemplateAgentIntake(intake, intakePatch));
 }
 
 export function templateIntakeAnswersFromAgent(intake: TemplateAgentIntake): TemplateIntakeAnswers {
@@ -57,14 +119,40 @@ export function templateIntakeAnswersFromAgent(intake: TemplateAgentIntake): Tem
     privacyConstraints: String(intake.privacyConstraints),
     dependencyPolicy: String(intake.dependencyPolicy),
     artifactOutputs: String(intake.artifactOutputs),
-    reviewExpectations: String(intake.reviewExpectations)
+    reviewExpectations: String(intake.reviewExpectations),
+    collaborationSetting: String(intake.collaborationSetting),
+    dataDistribution: String(intake.dataDistribution),
+    systemTopology: String(intake.systemTopology),
+    privacySecurityPlan: String(intake.privacySecurityPlan),
+    trainingStrategy: String(intake.trainingStrategy),
+    clinicalApplication: String(intake.clinicalApplication),
+    diseaseCategory: String(intake.diseaseCategory),
+    challengeProfile: String(intake.challengeProfile),
+    outcomeDefinition: String(intake.outcomeDefinition),
+    participatingSites: String(intake.participatingSites),
+    governanceContact: String(intake.governanceContact),
+    dataReadinessSummary: String(intake.dataReadinessSummary),
+    siteConstraints: String(intake.siteConstraints),
+    approvalStatus: String(intake.approvalStatus)
   };
 }
 
-function fallbackAgentMessage(input: { missing: string[]; userMessage?: string }) {
+function fallbackAgentMessage(input: { intake?: TemplateAgentIntake; missing: string[]; userMessage?: string }) {
+  const guardrailFindings = input.intake ? detectAgentGuardrailFindings(input.intake) : [];
+  if (guardrailFindings.length > 0) {
+    return [
+      "I cannot move to generation yet because the intake appears to include restricted material.",
+      "",
+      `Guardrail findings: ${guardrailFindings.join(" ")}`,
+      "",
+      "Replace patient identifiers, credentials, raw-data paths, or dataset file references with governed metadata such as aggregate counts, modality, schema summary, site role, and approval status."
+    ].join("\n");
+  }
+
+  const nextSkill = input.intake ? routeNextFedlifyAgentSkill(input.intake) : null;
   if (input.missing.length > 0) {
     return [
-      "I need a few details before generating NVFLARE code.",
+      nextSkill ? `Next skill: ${nextSkill.title}.` : "I need a few details before generating NVFLARE code.",
       "",
       `Missing: ${input.missing.join(", ")}.`,
       "",
@@ -73,9 +161,10 @@ function fallbackAgentMessage(input: { missing: string[]; userMessage?: string }
   }
 
   return [
-    "The intake is complete. I can generate a draft NVFLARE template PR now.",
+    "The intake is complete.",
     "",
-    "The generated code will include README, AGENTS.md, `.fedlify/template.json`, `nvflare-job/`, tests, configurable runtime defaults, and a site-local data contract.",
+    "I can prepare a short plan first, then generate the pipeline files when you confirm.",
+    "Generated code will appear in the Files panel instead of being pasted into chat.",
     input.userMessage ? `Last request considered: ${input.userMessage}` : ""
   ]
     .filter(Boolean)
@@ -103,15 +192,19 @@ const SYSTEM_PROMPT = [
   "You help research teams design and generate complete, runnable NVFLARE federated learning pipelines.",
   "",
   "## Your capabilities",
-  "- Guide users through intake (clinical use case, data modalities, privacy constraints, aggregation strategy)",
+  "- Guide users through governed study intake (collaboration setting, data distribution, data modalities, topology, privacy/security, training strategy, clinical application, disease category, challenges, outcome definition, site participation, governance contact, privacy constraints, approval status)",
+  "- Route work through Fedlify skill cards: study intake, data-readiness/federation design, governance/privacy/safety review, workflow planning, template-bound code generation, monitoring/failure triage, and reproducibility/audit/reporting",
   "- Generate complete Python code for SiteLocalExecutor including a real training loop",
   "- Generate NVFlare configuration files (server config, client config, meta.conf)",
   "- Explain federated learning concepts, FedAvg, differential privacy, and NVFlare APIs",
   "- Propose code changes when the user asks to adjust existing pipelines",
   "",
   "## When to generate code",
-  "Once all required intake fields are filled, generate a complete SiteLocalExecutor implementation.",
-  "The executor must follow this NVFlare Executor pattern:",
+  "Once all required intake fields are filled, do not paste full source files into chat.",
+  "Instead, provide a concise plan or a concise generation-ready summary and direct the user to generate code into the Files panel.",
+  "If the user asks for code generation, respond with a short status message and a compact summary of what will be generated.",
+  "Only show short snippets in chat when the user explicitly asks to inspect or explain a specific file fragment.",
+  "The generated executor should still follow this NVFlare Executor pattern when the backend creates files:",
   "```python",
   "import numpy as np",
   "from nvflare.apis.executor import Executor",
@@ -149,11 +242,14 @@ const SYSTEM_PROMPT = [
   "",
   "## Rules",
   "- Never commit raw clinical data, patient identifiers, extracts, or site-local dataset files",
+  "- Never ask for patient identifiers, credentials, secrets, raw-data paths, or dataset files; ask for metadata, aggregate counts, schema summaries, and governance status instead",
   "- Keep site count, min_clients, num_rounds, and aggregation configurable via NVFlare conf files",
   "- Preserve repository shape: README.md, AGENTS.md, .fedlify/template.json, nvflare-job/, tests/",
   "- Never claim production approval or run production jobs",
-  "- When generating executor code: produce complete, runnable Python — not pseudocode or placeholders",
-  "- Include imports, class definition, __init__, and execute() with real logic for the stated use case"
+  "- In normal chat, never dump complete files, long code blocks, or full executors",
+  "- Keep generation-complete summaries concise and user-facing",
+  "- When backend file generation runs, produce complete runnable files there, not in chat",
+  "- Include imports, class definition, __init__, and execute() with real logic for the stated use case in generated files"
 ].join("\n");
 
 export async function runTemplateAgentAssistant(input: {
@@ -162,11 +258,28 @@ export async function runTemplateAgentAssistant(input: {
   userMessage?: string;
   sourceSummary?: string;
   priorMessages?: AgentMessage[];
-}): Promise<{ message: string; modelUsed: string | null; missing: string[]; openAiUsed: boolean }> {
+}): Promise<{
+  message: string;
+  modelUsed: string | null;
+  missing: string[];
+  guardrailFindings: string[];
+  status: TemplateAgentWorkflowStatus;
+  openAiUsed: boolean;
+}> {
   const missing = missingTemplateAgentFields(input.intake);
+  const guardrailFindings = detectAgentGuardrailFindings(input.intake);
+  const status = missing.length > 0 || guardrailFindings.length > 0 ? "INTAKE" : "CODING";
+  const skillContext = buildFedlifyAgentSkillContext(input.intake);
   const config = openAiCodeAgentConfig();
   if (!config) {
-    return { message: fallbackAgentMessage({ missing, userMessage: input.userMessage }), modelUsed: null, missing, openAiUsed: false };
+    return {
+      message: fallbackAgentMessage({ intake: input.intake, missing, userMessage: input.userMessage }),
+      modelUsed: null,
+      missing,
+      guardrailFindings,
+      status,
+      openAiUsed: false
+    };
   }
 
   // Build conversation history (last 8 messages) then append the current user turn
@@ -179,6 +292,8 @@ export async function runTemplateAgentAssistant(input: {
       mode: input.mode,
       intake: input.intake,
       missing,
+      guardrailFindings,
+      fedlifyAgentSkillContext: skillContext,
       sourceSummary: input.sourceSummary,
       userMessage: input.userMessage
     },
@@ -208,28 +323,34 @@ export async function runTemplateAgentAssistant(input: {
     const body = await response.json().catch(() => null);
     if (!response.ok) {
       return {
-        message: `${fallbackAgentMessage({ missing, userMessage: input.userMessage })}\n\nOpenAI call did not complete: ${
+        message: `${fallbackAgentMessage({ intake: input.intake, missing, userMessage: input.userMessage })}\n\nOpenAI call did not complete: ${
           (body as { error?: { message?: string } } | null)?.error?.message ?? response.statusText
         }`,
         modelUsed: config.model,
         missing,
+        guardrailFindings,
+        status,
         openAiUsed: false
       };
     }
 
     return {
-      message: extractResponseText(body) ?? fallbackAgentMessage({ missing, userMessage: input.userMessage }),
+      message: extractResponseText(body) ?? fallbackAgentMessage({ intake: input.intake, missing, userMessage: input.userMessage }),
       modelUsed: config.model,
       missing,
+      guardrailFindings,
+      status,
       openAiUsed: true
     };
   } catch (error) {
     return {
-      message: `${fallbackAgentMessage({ missing, userMessage: input.userMessage })}\n\nOpenAI call failed locally: ${
+      message: `${fallbackAgentMessage({ intake: input.intake, missing, userMessage: input.userMessage })}\n\nOpenAI call failed locally: ${
         error instanceof Error ? error.message : "unknown error"
       }`,
       modelUsed: config.model,
       missing,
+      guardrailFindings,
+      status,
       openAiUsed: false
     };
   }
@@ -264,6 +385,20 @@ export async function generateExecutorCode(
       nvflareWorkflow: intake.nvflareWorkflow,
       aggregation: intake.aggregation,
       privacyConstraints: intake.privacyConstraints,
+      collaborationSetting: intake.collaborationSetting,
+      dataDistribution: intake.dataDistribution,
+      systemTopology: intake.systemTopology,
+      privacySecurityPlan: intake.privacySecurityPlan,
+      trainingStrategy: intake.trainingStrategy,
+      clinicalApplication: intake.clinicalApplication,
+      diseaseCategory: intake.diseaseCategory,
+      challengeProfile: intake.challengeProfile,
+      outcomeDefinition: intake.outcomeDefinition,
+      participatingSites: intake.participatingSites,
+      governanceContact: intake.governanceContact,
+      dataReadinessSummary: intake.dataReadinessSummary,
+      siteConstraints: intake.siteConstraints,
+      approvalStatus: intake.approvalStatus,
       siteLocalInputs: intake.siteLocalInputs,
       dependencyPolicy: intake.dependencyPolicy,
       purpose: intake.purpose

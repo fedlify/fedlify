@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "flower__governance_support__61c405c3",
+  "framework": "Flower",
+  "criterion": "Governance support",
+  "criterion_definition": {
+    "working_definition": "Documented support for roles, approvals, permissions, policy enforcement, oversight, or collaboration procedures beyond pure technical execution.",
+    "rationale": "Governance is increasingly recognized as a deployment barrier in healthcare FL and should be separated from narrow security or orchestration claims.",
+    "health_ai_relevance": "Healthcare FL collaborations require trust, accountability, access control, and coordination across institutions with different obligations and authorities.",
+    "key_method_papers": "Eden et al. 2025; Rieke et al. 2020; Lowering barriers to federated learning 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Procedural mechanisms",
+      "Relational mechanisms",
+      "Structural mechanisms",
+      "Access / approval controls",
+      "Governance operationalization"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; community management alone is insufficient"
+  },
+  "framework_context": {
+    "official_name": "Flower",
+    "primary_positioning": "research-oriented library",
+    "official_repo_url": "https://github.com/flwrlabs/flower",
+    "official_docs_url": "https://flower.ai/docs/",
+    "maintainer": "Flower Labs",
+    "core_scholarly_anchor": "Flower: A Friendly Federated Learning Research Framework",
+    "health_ai_relevance_notes": "Official sources present Flower as general-purpose, but the reviewed official README explicitly lists MONAI and health-adjacent integrations among supported ecosystems.",
+    "selection_rationale": "Included as a highly active, general-purpose framework that spans simulation and deployment while remaining ML-framework agnostic."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Access-control related features are documented, but explicit governance tooling is limited.",
+      "evidence_detail": "Official runtime docs mention TLS and optional node authentication, which support controlled participation. The reviewed sources did not document broader multi-party governance constructs such as approval chains, collaboration contracts, or institutional oversight dashboards.",
+      "source_title": "Flower Runtime Comparison",
+      "source_url": "https://github.com/flwrlabs/flower/blob/main/framework/docs/source/ref-flower-runtime-comparison.rst",
+      "source_year": "2026-04-16",
+      "evidence_strength": "Partial or limited official evidence"
+    }
+  ]
+}

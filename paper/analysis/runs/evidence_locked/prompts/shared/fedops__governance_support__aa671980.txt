@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedops__governance_support__aa671980",
+  "framework": "FedOps",
+  "criterion": "Governance support",
+  "criterion_definition": {
+    "working_definition": "Documented support for roles, approvals, permissions, policy enforcement, oversight, or collaboration procedures beyond pure technical execution.",
+    "rationale": "Governance is increasingly recognized as a deployment barrier in healthcare FL and should be separated from narrow security or orchestration claims.",
+    "health_ai_relevance": "Healthcare FL collaborations require trust, accountability, access control, and coordination across institutions with different obligations and authorities.",
+    "key_method_papers": "Eden et al. 2025; Rieke et al. 2020; Lowering barriers to federated learning 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Procedural mechanisms",
+      "Relational mechanisms",
+      "Structural mechanisms",
+      "Access / approval controls",
+      "Governance operationalization"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; community management alone is insufficient"
+  },
+  "framework_context": {
+    "official_name": "FedOps",
+    "primary_positioning": "workflow/lifecycle platform",
+    "official_repo_url": "https://github.com/gachon-CCLab/FedOps",
+    "official_docs_url": "https://gachon-cclab.github.io/",
+    "maintainer": "Gachon CCLab",
+    "core_scholarly_anchor": "FLScalize: Federated Learning Lifecycle Management",
+    "health_ai_relevance_notes": "The reviewed official sources position FedOps as a general lifecycle platform rather than a healthcare-specific system.",
+    "selection_rationale": "Included because it foregrounds FL lifecycle operations, contribution evaluation, monitoring, and real-device management rather than only training algorithms."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "FedOps documents operational coordination and code-distribution control, but broader governance detail is limited.",
+      "evidence_detail": "Contribution evaluation, client selection, and code-repository integration show some coordination control. The reviewed official public materials do not document richer policy, approval, or institutional oversight workflows.",
+      "source_title": "FedOps README | FLScalize: Federated Learning Lifecycle Management",
+      "source_url": "https://github.com/gachon-CCLab/FedOps/blob/main/README.md | https://doi.org/10.1109/ACCESS.2023.3275439",
+      "source_year": "2026-04-08 | 2023",
+      "evidence_strength": "Partial or limited official evidence"
+    }
+  ]
+}

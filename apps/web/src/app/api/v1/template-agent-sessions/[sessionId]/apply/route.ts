@@ -5,6 +5,7 @@ import { createGiteaTemplateProposal, GiteaApiError, isRuntimeConfigurationError
 import { ensurePublicTemplateWorkspace, ensureStudyGiteaWorkspace } from "@/lib/gitea-workspaces";
 import { json, problem } from "@/lib/json";
 import { missingTemplateAgentFields, templateIntakeAnswersFromAgent, type TemplateAgentIntake } from "@/lib/template-agent";
+import { detectAgentGuardrailFindings } from "@/lib/fedlify-agent-skills";
 import { buildTemplateRepositoryFiles, templateKeyForName, templateRepoName, validateTemplateRepositoryFiles } from "@/lib/pipeline-template-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
@@ -34,6 +35,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const intake = (session.intake ?? {}) as TemplateAgentIntake;
+  const guardrailFindings = detectAgentGuardrailFindings(intake);
+  if (guardrailFindings.length > 0) {
+    return problem(409, `Template generation is blocked by guardrails: ${guardrailFindings.join(" ")}`, "template_agent_guardrail_blocked");
+  }
+
   const missing = missingTemplateAgentFields(intake);
   if (missing.length > 0) {
     return problem(409, `Template intake is incomplete: ${missing.join(", ")}.`, "template_intake_incomplete");

@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fate__interoperability_and_maturity__2c9fd46b",
+  "framework": "FATE",
+  "criterion": "Interoperability and maturity",
+  "criterion_definition": {
+    "working_definition": "Documented integration with external ML ecosystems plus maintenance, documentation quality, and continuity signals.",
+    "rationale": "Methods papers often need to justify not just what a framework can do, but whether it remains sufficiently maintained and adaptable for cross-domain use.",
+    "health_ai_relevance": "Health AI projects often bridge ML stacks, hospital IT constraints, and domain libraries; interoperability and public maintenance affect long-term viability.",
+    "key_method_papers": "Software Engineering Aspects of Federated Learning Libraries 2025; Riedel et al. 2024; Guan et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "ML framework integration",
+      "Biomedical / health environment compatibility",
+      "Documentation clarity",
+      "Maintenance activity",
+      "Adoption / continuity signal"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "Federated AI Technology Enabler (FATE)",
+    "primary_positioning": "production-oriented runtime",
+    "official_repo_url": "https://github.com/FederatedAI/FATE",
+    "official_docs_url": "https://fate.readthedocs.io/en/latest/",
+    "maintainer": "FederatedAI / Linux Foundation AI & Data",
+    "core_scholarly_anchor": "FATE: An Industrial Grade Platform for Collaborative Learning With Data Protection",
+    "health_ai_relevance_notes": "Official sources emphasize enterprise and institutional collaboration under privacy constraints. Healthcare relevance is indirect in the reviewed main project sources rather than a primary positioning.",
+    "selection_rationale": "Included as a mature industrial-grade cross-silo platform with strong official evidence for secure computation, orchestration, and project governance."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "FATE shows both platform breadth and current maintenance signals.",
+      "evidence_detail": "Official materials document multiple companion repositories and operational components, while the public GitHub repository still has a recent tagged release. The project also has a peer-reviewed anchor paper and Linux Foundation governance artifacts.",
+      "source_title": "FATE: An Industrial Grade Platform for Collaborative Learning With Data Protection | Federated AI Technology Enabler (FATE) GitHub release v2.2.0",
+      "source_url": "https://jmlr.csail.mit.edu/papers/v22/20-815.html | https://github.com/FederatedAI/FATE/releases/tag/v2.2.0",
+      "source_year": "2021 | 2024-07-31",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

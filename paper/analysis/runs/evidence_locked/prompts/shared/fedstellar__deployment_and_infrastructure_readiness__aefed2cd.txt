@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedstellar__deployment_and_infrastructure_readiness__aefed2cd",
+  "framework": "Fedstellar",
+  "criterion": "Deployment and infrastructure readiness",
+  "criterion_definition": {
+    "working_definition": "Documented installation, packaging, cloud/on-prem support, containerization, and practical multi-site deployment pathways.",
+    "rationale": "A framework that cannot be installed and coordinated across sites is weak support for real-world health AI studies, even if its algorithm API is rich.",
+    "health_ai_relevance": "Healthcare FL deployments typically span hospitals, regulated networks, and mixed infrastructure, making operational readiness a core methods consideration.",
+    "key_method_papers": "Riedel et al. 2024; Oldenhof et al. 2023; Rieke et al. 2020"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Installation / packaging",
+      "Containerization / orchestration",
+      "Environment breadth",
+      "Operational deployment guidance",
+      "Real deployment evidence"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; summed to 0-10"
+  },
+  "framework_context": {
+    "official_name": "Fedstellar",
+    "primary_positioning": "decentralized FL platform",
+    "official_repo_url": "https://github.com/enriquetomasmb/fedstellar",
+    "official_docs_url": "https://github.com/enriquetomasmb/fedstellar/tree/main/docs",
+    "maintainer": "Enrique Tomás Martínez Beltrán / CyberDataLab",
+    "core_scholarly_anchor": "Fedstellar: A Platform for Decentralized Federated Learning",
+    "health_ai_relevance_notes": "The reviewed official public materials do not position Fedstellar as healthcare-specific.",
+    "selection_rationale": "Included as a decentralized FL platform, while explicitly flagging that the public repository is archived and the maintainers point users to NEBULA."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Fedstellar documents webserver and Docker-based setup, but the public project is legacy.",
+      "evidence_detail": "Official docs include Docker requirements, virtual-environment setup, and a webserver for deployment and monitoring. Because the repository is archived and pointed to a successor project, current deployment readiness should be treated as limited.",
+      "source_title": "Fedstellar Installation Guide | Fedstellar GitHub repository activity",
+      "source_url": "https://github.com/enriquetomasmb/fedstellar/blob/main/docs/installation.rst | https://github.com/enriquetomasmb/fedstellar",
+      "source_year": "2024-07-12 | 2024-07-12",
+      "evidence_strength": "Partial or limited official evidence"
+    }
+  ]
+}

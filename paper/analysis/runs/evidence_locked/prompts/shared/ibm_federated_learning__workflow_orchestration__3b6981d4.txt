@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "ibm_federated_learning__workflow_orchestration__3b6981d4",
+  "framework": "IBM Federated Learning",
+  "criterion": "Workflow orchestration",
+  "criterion_definition": {
+    "working_definition": "Documented support for setting up, scheduling, managing, monitoring, and recovering federated jobs or collaborations.",
+    "rationale": "Framework selection for applied methods papers often depends more on orchestration support than on algorithm APIs, especially outside pure simulation settings.",
+    "health_ai_relevance": "Real healthcare FL requires operational coordination across institutions, sites, or devices, which raises the value of explicit orchestration features.",
+    "key_method_papers": "Oldenhof et al. 2023; Lowering barriers to federated learning 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Site onboarding / setup",
+      "Execution control",
+      "Monitoring / administration",
+      "Failure handling / recovery",
+      "Lifecycle integration"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "IBM Federated Learning",
+    "primary_positioning": "production-oriented runtime",
+    "official_repo_url": "https://github.com/IBM/federated-learning-lib",
+    "official_docs_url": "https://ibmfl.res.ibm.com/",
+    "maintainer": "IBM Research",
+    "core_scholarly_anchor": "IBM Federated Learning: an Enterprise Framework White Paper V0.1",
+    "health_ai_relevance_notes": "Official sources emphasize privacy, confidentiality, and regulatory compliance, which are relevant to health AI, but healthcare is not foregrounded as a primary deployment domain in the reviewed main public sources.",
+    "selection_rationale": "Included as an enterprise-oriented framework with documented orchestration, hybrid-cloud deployment support, and homomorphic-encryption setup."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Experiment management and orchestrator components are explicitly documented.",
+      "evidence_detail": "The README documents a notebook-based Experiment Manager Dashboard and an OpenShift-based orchestrator for deployment and monitoring. Configuration tutorials also formalize how aggregators and parties are set up.",
+      "source_title": "IBM Federated Learning README | IBM FL Configuration Tutorial",
+      "source_url": "https://github.com/IBM/federated-learning-lib/blob/main/README.md | https://github.com/IBM/federated-learning-lib/blob/main/docs/tutorials/configure_fl.md",
+      "source_year": "2025-09-17 | 2025-09-17",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

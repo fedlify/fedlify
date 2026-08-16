@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fedml__capability_coverage__e09a2f64",
+  "framework": "FedML",
+  "criterion": "Capability coverage",
+  "criterion_definition": {
+    "working_definition": "Documented support for training modes, FL paradigms, aggregation strategies, and model families.",
+    "rationale": "Methods sections need to distinguish whether a framework offers only a narrow reference implementation or broader capability coverage relevant to anticipated study designs.",
+    "health_ai_relevance": "Healthcare studies may need cross-silo, analytics, evaluation-only workflows, or specialized model classes, so capability breadth matters even without benchmarking.",
+    "key_method_papers": "Riedel et al. 2024; Mehdi et al. 2025; Software Engineering Aspects of Federated Learning Libraries 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Training modes",
+      "FL paradigms",
+      "Aggregation breadth",
+      "Model family breadth",
+      "Execution patterns"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; summed to 0-10"
+  },
+  "framework_context": {
+    "official_name": "FedML",
+    "primary_positioning": "workflow/lifecycle platform",
+    "official_repo_url": "https://github.com/FedML-AI/FedML",
+    "official_docs_url": "https://docs.TensorOpera.ai",
+    "maintainer": "FedML-AI / TensorOpera AI",
+    "core_scholarly_anchor": "FedML: A Research Library and Benchmark for Federated Machine Learning",
+    "health_ai_relevance_notes": "Current official positioning is general-purpose and platform-oriented. Healthcare relevance is indirect in the reviewed official project materials.",
+    "selection_rationale": "Included because it spans research, deployment, and operations with current public maintenance across edge, cloud, and mobile settings."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "The official public materials cover multiple execution paradigms, benchmarks, and model-serving related functions.",
+      "evidence_detail": "The anchor paper frames FedML as a research library and benchmark, while the current README extends that positioning to training, deployment, and federated operations. Public materials support broad capability coverage, even though some modes are platform-specific.",
+      "source_title": "FedML: A Research Library and Benchmark for Federated Machine Learning | FedML README",
+      "source_url": "https://arxiv.org/abs/2007.13518 | https://github.com/FedML-AI/FedML/blob/master/README.md",
+      "source_year": "2020 | 2025-10-28",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

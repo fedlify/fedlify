@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "flgo__communication_and_scalability__17364f5f",
+  "framework": "FLGo",
+  "criterion": "Communication and scalability",
+  "criterion_definition": {
+    "working_definition": "Documented support for communication-aware execution, heterogeneous participants, scale-up paths, straggler handling, or large-federation operation.",
+    "rationale": "Communication constraints are a major systems differentiator among FL frameworks, especially for studies comparing research libraries with production runtimes.",
+    "health_ai_relevance": "Hospital networks, variable site availability, and heterogeneous compute environments make communication-aware scale features practically important in health AI.",
+    "key_method_papers": "Oldenhof et al. 2023; Mehdi et al. 2025; Riedel et al. 2024"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Communication efficiency",
+      "Partial participation",
+      "Straggler / dropout handling",
+      "Scalability evidence",
+      "Heterogeneity-aware execution"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit"
+  },
+  "framework_context": {
+    "official_name": "FLGo",
+    "primary_positioning": "benchmarking / experimentation platform",
+    "official_repo_url": "https://github.com/WwZzz/easyFL",
+    "official_docs_url": "https://flgo-xmu.github.io/",
+    "maintainer": "FLGo-XMU maintainers / WwZzz",
+    "core_scholarly_anchor": "FLGo: A Fully Customizable Federated Learning Platform",
+    "health_ai_relevance_notes": "The reviewed official project sources are research- and benchmark-oriented, without explicit healthcare positioning.",
+    "selection_rationale": "Included as an active experimentation platform with strong public evidence for algorithm reproduction, benchmarking, and heterogeneity simulation."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "FLGo documents system heterogeneity simulation and asynchronous settings, but this is still experimental rather than operational scale evidence.",
+      "evidence_detail": "The README highlights custom simulators for availability, latency, dropped updates, and asynchronous methods. This supports communication-aware experimentation but not a production deployment stack.",
+      "source_title": "FLGo README | FLGo: A Fully Customizable Federated Learning Platform",
+      "source_url": "https://github.com/WwZzz/easyFL/blob/master/README.md | https://arxiv.org/abs/2306.12079",
+      "source_year": "2025-06-04 | 2023",
+      "evidence_strength": "Partial or limited official evidence"
+    }
+  ]
+}

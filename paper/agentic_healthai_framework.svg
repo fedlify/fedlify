@@ -1,0 +1,244 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1320" viewBox="0 0 1900 1320">
+  <defs>
+    <style>
+      .bg{fill:#f7f8fb}
+      .top{fill:#ffffff}
+      .layer{fill:#eef2f8;stroke:#d8deea;stroke-width:2}
+      .card{fill:#ffffff;stroke:#dfe5ef;stroke-width:2}
+      .dark{fill:#33424a}
+      .green{fill:#58a914;stroke:#377c0b;stroke-width:4}
+      .olive{fill:#a6a632}
+      .purple{fill:#a13e98}
+      .blue{fill:#0a4a73}
+      .muted{fill:#5b6472}
+      .title{font-family:Arial,Helvetica,sans-serif;font-weight:700;fill:#073b5a}
+      .head{font-family:Arial,Helvetica,sans-serif;font-weight:700;fill:#111827}
+      .text{font-family:Arial,Helvetica,sans-serif;fill:#4b5563}
+      .white{font-family:Arial,Helvetica,sans-serif;fill:#ffffff}
+      .small{font-size:18px}
+      .med{font-size:24px}
+      .large{font-size:34px}
+      .xl{font-size:50px}
+      .tiny{font-size:15px}
+      .arrow{stroke:#556070;stroke-width:4;fill:none;marker-end:url(#arrow)}
+      .thin{stroke:#9aa3b5;stroke-width:2;fill:none}
+      .dash{stroke:#7b8190;stroke-width:3;stroke-dasharray:7 7}
+      .icon{stroke:#111827;stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#556070"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1900" height="1320"/>
+  <rect class="top" width="1900" height="138"/>
+  <text class="text med" x="70" y="56">Proposal Framework</text>
+  <text class="head xl" x="70" y="112">Four-Layer Agentic HealthAI Framework for Federated Learning</text>
+
+  <!-- left flow rail -->
+  <path class="arrow" d="M115 205V1178"/>
+  <text class="title med" x="44" y="194">Study</text>
+  <text class="title med" x="34" y="1222">Evidence</text>
+
+  <!-- L1 -->
+  <rect class="layer" x="155" y="170" width="1685" height="220" rx="28"/>
+  <circle class="olive" cx="205" cy="220" r="22"/>
+  <text class="white med" x="192" y="229">L1</text>
+  <text class="title large" x="242" y="230">Health AI Applications</text>
+  <text class="text med" x="242" y="266">Clinical AI research with multimodal data and clearly defined study objectives</text>
+
+  <g transform="translate(210 300)">
+    <rect class="card" width="230" height="66" rx="10"/>
+    <text class="head small" x="20" y="29">Create study</text>
+    <text class="text tiny" x="20" y="52">title, goal, population</text>
+  </g>
+  <g transform="translate(465 300)">
+    <rect class="card" width="230" height="66" rx="10"/>
+    <text class="head small" x="20" y="29">Define outcome</text>
+    <text class="text tiny" x="20" y="52">label, endpoint, metric</text>
+  </g>
+  <g transform="translate(720 300)">
+    <rect class="card" width="230" height="66" rx="10"/>
+    <text class="head small" x="20" y="29">Select modality</text>
+    <text class="text tiny" x="20" y="52">EHR, imaging, text, wearables</text>
+  </g>
+  <g transform="translate(975 300)">
+    <rect class="card" width="230" height="66" rx="10"/>
+    <text class="head small" x="20" y="29">Invite sites</text>
+    <text class="text tiny" x="20" y="52">hospitals and roles</text>
+  </g>
+  <g transform="translate(1230 300)">
+    <rect class="card" width="230" height="66" rx="10"/>
+    <text class="head small" x="20" y="29">Review result</text>
+    <text class="text tiny" x="20" y="52">model, report, evidence</text>
+  </g>
+  <g transform="translate(1490 252)">
+    <rect class="dark" width="290" height="114" rx="12"/>
+    <text class="white small" x="22" y="34">Public message</text>
+    <text class="white tiny" x="22" y="62">The researcher describes what</text>
+    <text class="white tiny" x="22" y="84">clinical collaboration should do.</text>
+  </g>
+
+  <!-- L2 -->
+  <rect class="layer" x="155" y="430" width="1685" height="305" rx="28"/>
+  <circle class="olive" cx="205" cy="480" r="22"/>
+  <text class="white med" x="192" y="489">L2</text>
+  <text class="title large" x="242" y="490">Agentic Workflow and Governance</text>
+  <text class="text med" x="242" y="526">Agentic AI expands each study action into safe sub-tasks, tool calls, checks, and approvals</text>
+
+  <g transform="translate(205 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">Intake agent</text>
+    <text class="text tiny" x="24" y="54">protocol to fields</text>
+  </g>
+  <path class="arrow" d="M397 598H425"/>
+  <g transform="translate(425 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">FL design</text>
+    <text class="text tiny" x="24" y="54">topology, modality</text>
+  </g>
+  <path class="arrow" d="M617 598H645"/>
+  <g transform="translate(645 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">Governance</text>
+    <text class="text tiny" x="24" y="54">ethics, RBAC, policy</text>
+  </g>
+  <path class="arrow" d="M837 598H865"/>
+  <g transform="translate(865 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">Orchestrator</text>
+    <text class="text tiny" x="24" y="54">plan and gates</text>
+  </g>
+  <path class="arrow" d="M1057 598H1085"/>
+  <g transform="translate(1085 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">Code agent</text>
+    <text class="text tiny" x="24" y="54">template, tests, PR</text>
+  </g>
+  <path class="arrow" d="M1277 598H1305"/>
+  <g transform="translate(1305 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">Monitor</text>
+    <text class="text tiny" x="24" y="54">logs and triage</text>
+  </g>
+  <path class="arrow" d="M1497 598H1525"/>
+  <g transform="translate(1525 560)">
+    <rect class="card" width="190" height="76" rx="10"/>
+    <rect class="purple" width="12" height="76" rx="5"/>
+    <text class="head small" x="24" y="30">Report</text>
+    <text class="text tiny" x="24" y="54">audit evidence</text>
+  </g>
+
+  <g transform="translate(205 652)">
+    <rect class="card" width="335" height="52" rx="10"/>
+    <text class="title" font-size="16" x="18" y="24">Agent core</text>
+    <text class="text tiny" x="18" y="43">planner, memory, RAG, reflection</text>
+  </g>
+  <g transform="translate(565 652)">
+    <rect class="card" width="335" height="52" rx="10"/>
+    <text class="title" font-size="16" x="18" y="24">Tools</text>
+    <text class="text tiny" x="18" y="43">Fedlify APIs, Gitea, policy checker</text>
+  </g>
+  <g transform="translate(925 652)">
+    <rect class="card" width="335" height="52" rx="10"/>
+    <text class="title" font-size="16" x="18" y="24">Human gates</text>
+    <text class="text tiny" x="18" y="43">PI, privacy officer, site, reviewer</text>
+  </g>
+  <g transform="translate(1285 652)">
+    <rect class="dark" width="430" height="52" rx="10"/>
+    <text class="white" font-size="16" x="18" y="24">Guardrail</text>
+    <text class="white tiny" x="18" y="43">no raw data, identifiers, secrets, or unapproved release</text>
+  </g>
+
+  <!-- L3 -->
+  <rect class="layer" x="155" y="775" width="1685" height="270" rx="28"/>
+  <circle class="olive" cx="205" cy="825" r="22"/>
+  <text class="white med" x="192" y="834">L3</text>
+  <text class="title large" x="242" y="835">Federated Execution: Fedlify and NVFLARE</text>
+  <text class="text med" x="242" y="871">The approved plan becomes startup kits, aggregators, clients, training jobs, metrics, and releases</text>
+
+  <g transform="translate(205 910)">
+    <rect class="green" width="255" height="86" rx="14"/>
+    <text class="head small" x="26" y="34">Fedlify control plane</text>
+    <text class="head tiny" x="26" y="58">study, sites, RBAC, audit</text>
+  </g>
+  <path class="arrow" d="M462 953H500"/>
+  <g transform="translate(500 910)">
+    <rect class="green" width="255" height="86" rx="14"/>
+    <text class="head small" x="26" y="34">Provisioning</text>
+    <text class="head tiny" x="26" y="58">server, admin, site kits</text>
+  </g>
+  <path class="arrow" d="M757 953H795"/>
+  <g transform="translate(795 910)">
+    <rect class="green" width="255" height="86" rx="14"/>
+    <text class="head small" x="26" y="34">NVFLARE runtime</text>
+    <text class="head tiny" x="26" y="58">aggregator and site clients</text>
+  </g>
+  <path class="arrow" d="M1052 953H1090"/>
+  <g transform="translate(1090 910)">
+    <rect class="green" width="255" height="86" rx="14"/>
+    <text class="head small" x="26" y="34">FL algorithms</text>
+    <text class="head tiny" x="26" y="58">FedAvg, FedOpt, FedProx</text>
+  </g>
+  <path class="arrow" d="M1347 953H1385"/>
+  <g transform="translate(1385 910)">
+    <rect class="green" width="330" height="86" rx="14"/>
+    <text class="head small" x="26" y="34">Metrics and release</text>
+    <text class="head tiny" x="26" y="58">evaluation, signatures, model evidence</text>
+  </g>
+
+  <text class="text small" x="240" y="1025">Privacy controls: TLS, signed kits, secure aggregation, differential privacy, encryption, site-local data boundary</text>
+
+  <!-- L4 -->
+  <rect class="layer" x="155" y="1085" width="1685" height="185" rx="28"/>
+  <circle class="olive" cx="205" cy="1135" r="22"/>
+  <text class="white med" x="192" y="1144">L4</text>
+  <text class="title large" x="242" y="1145">Distributed Infrastructure</text>
+  <text class="text med" x="242" y="1181">Compute, storage, networking, GitOps, and institution-local deployment environments</text>
+
+  <g transform="translate(205 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="32" y="27">Docker</text>
+  </g>
+  <g transform="translate(370 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="24" y="27">Kubernetes</text>
+  </g>
+  <g transform="translate(535 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="20" y="27">Argo/GitOps</text>
+  </g>
+  <g transform="translate(700 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="42" y="27">Gitea</text>
+  </g>
+  <g transform="translate(865 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="28" y="27">PostgreSQL</text>
+  </g>
+  <g transform="translate(1030 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="42" y="27">MinIO</text>
+  </g>
+  <g transform="translate(1195 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="46" y="27">Vault</text>
+  </g>
+  <g transform="translate(1360 1210)">
+    <rect class="card" width="145" height="42" rx="8"/><text class="head tiny" x="42" y="27">Harbor</text>
+  </g>
+  <g transform="translate(1525 1210)">
+    <rect class="card" width="190" height="42" rx="8"/><text class="head tiny" x="30" y="27">Hospital network</text>
+  </g>
+
+  <!-- vertical arrows between layers -->
+  <path class="arrow" d="M1000 390V430"/>
+  <path class="arrow" d="M1000 735V775"/>
+  <path class="arrow" d="M1000 1045V1085"/>
+
+  <!-- right data boundary -->
+  <rect class="dark" x="1525" y="170" width="315" height="80" rx="18"/>
+  <text class="white small" x="1550" y="203">Raw clinical data stays</text>
+  <text class="white small" x="1550" y="229">inside hospital sites</text>
+  <path class="dash" d="M1775 250V1085"/>
+  <text class="text tiny" x="1340" y="1070">Agents use metadata, schemas, logs, and synthetic fixtures</text>
+</svg>

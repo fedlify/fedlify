@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "fate__privacy_and_security_support__fe6d5fa9",
+  "framework": "FATE",
+  "criterion": "Privacy and security support",
+  "criterion_definition": {
+    "working_definition": "Documented support for privacy-preserving or security-enforcing mechanisms such as secure aggregation, differential privacy, cryptographic protocols, authentication, or policy enforcement.",
+    "rationale": "Health AI FL is motivated by data protection, but platform-level support varies widely and cannot be assumed from the term federated learning alone.",
+    "health_ai_relevance": "Healthcare collaborations face legal, ethical, and institutional constraints that often require documented privacy and security controls, not only conceptual claims.",
+    "key_method_papers": "Kaissis et al. 2020; Rieke et al. 2020; Eden et al. 2025"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Cryptographic / secure computation",
+      "Privacy-preserving training",
+      "Authentication / access control",
+      "Threat / robustness controls",
+      "Operational security documentation"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; motivation alone does not count"
+  },
+  "framework_context": {
+    "official_name": "Federated AI Technology Enabler (FATE)",
+    "primary_positioning": "production-oriented runtime",
+    "official_repo_url": "https://github.com/FederatedAI/FATE",
+    "official_docs_url": "https://fate.readthedocs.io/en/latest/",
+    "maintainer": "FederatedAI / Linux Foundation AI & Data",
+    "core_scholarly_anchor": "FATE: An Industrial Grade Platform for Collaborative Learning With Data Protection",
+    "health_ai_relevance_notes": "Official sources emphasize enterprise and institutional collaboration under privacy constraints. Healthcare relevance is indirect in the reviewed main project sources rather than a primary positioning.",
+    "selection_rationale": "Included as a mature industrial-grade cross-silo platform with strong official evidence for secure computation, orchestration, and project governance."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "FATE provides direct official evidence for privacy-preserving computation primitives.",
+      "evidence_detail": "The README and JMLR paper state that FATE implements secure computation protocols based on homomorphic encryption and multi-party computation, and positions privacy protection as a core platform function.",
+      "source_title": "FATE README | FATE: An Industrial Grade Platform for Collaborative Learning With Data Protection",
+      "source_url": "https://github.com/FederatedAI/FATE/blob/master/README.md | https://jmlr.csail.mit.edu/papers/v22/20-815.html",
+      "source_year": "2024-11-19 | 2021",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

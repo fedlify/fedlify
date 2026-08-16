@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { runTemplateAgentAssistant, type AgentMessage, type TemplateAgentIntake } from "@/lib/template-agent";
+import { applyTemplateAgentIntakePatch, runTemplateAgentAssistant, type AgentMessage, type TemplateAgentIntake } from "@/lib/template-agent";
 
 const messageSchema = z.object({
   message: z.string().trim().min(1).max(12000),
@@ -38,10 +38,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     return problem(403, "You do not have permission to use this template agent session.", "forbidden");
   }
 
-  const intake = {
-    ...((session.intake ?? {}) as TemplateAgentIntake),
-    ...(parsed.data.intakePatch ?? {})
-  } as TemplateAgentIntake;
+  const intakeState = applyTemplateAgentIntakePatch((session.intake ?? {}) as TemplateAgentIntake, parsed.data.intakePatch);
+  const intake = intakeState.intake;
 
   const priorMessages = asMessageList(session.messages)
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -63,7 +61,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       createdAt: now,
       modelUsed: assistant.modelUsed,
       openAiUsed: assistant.openAiUsed,
-      missing: assistant.missing
+      missing: assistant.missing,
+      guardrailFindings: assistant.guardrailFindings
     }
   ] as Prisma.InputJsonValue;
 
@@ -72,10 +71,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     data: {
       intake,
       messages,
-      status: assistant.missing.length > 0 ? "INTAKE" : "CODING",
+      status: assistant.status,
       resultSummary: assistant.message
     }
   });
 
-  return json({ session: updated, missing: assistant.missing });
+  return json({ session: updated, missing: assistant.missing, guardrailFindings: assistant.guardrailFindings });
 }

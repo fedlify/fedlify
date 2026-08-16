@@ -222,19 +222,29 @@ async function seedLiveScenario(): Promise<LiveScenario> {
   const study = await prisma.study.create({
     data: {
       orgId: organization.id,
-      title: `E2E Live Study ${suffix}`,
-      slug: `e2e-live-study-${suffix}`,
-      description: "Live full-cycle runtime smoke test.",
-      goal: "Run a complete local NVFLARE pilot path with two synthetic sites.",
-      researchQuestion: "Can Fedlify provision, connect, and submit an approved NVFLARE job?",
+      title: `ICU Heart Failure Mortality Tutorial ${suffix}`,
+      slug: `icu-heart-failure-tutorial-${suffix}`,
+      description: "Live full-cycle tutorial for ICU mortality prediction in heart failure patients.",
+      goal: "Predict in-ICU mortality for heart failure patients across two sites without moving raw clinical data.",
+      researchQuestion: "Can Fedlify generate, provision, connect, and run a governed two-site ICU mortality prediction workflow?",
       clinicalUseCase: "RISK_PREDICTION",
-      population: "Synthetic adult inpatient cohort",
-      dataModalities: "EHR, Labs",
-      primaryOutcome: "Confirmed NVFLARE job submission",
+      population: "Adult ICU patients admitted with acute or chronic heart failure",
+      dataModalities: "EHR, Labs, Vitals",
+      primaryOutcome: "In-ICU mortality prediction",
       riskLevel: "MODERATE",
       intendedUse: "RESEARCH_ONLY",
       governanceStatus: "APPROVED",
       status: "ACTIVE",
+      studyDesign:
+        "Retrospective two-site federated tutorial study that trains a governed mortality-risk model for ICU heart failure admissions using site-local structured data only.",
+      eligibilityCriteria:
+        "Include adult ICU encounters with a primary or secondary heart failure diagnosis. Exclude pediatric encounters and records lacking a discharge disposition.",
+      primaryEndpointDetails:
+        "Primary endpoint is all-cause in-ICU mortality during the indexed ICU stay, evaluated with held-out local validation metrics aggregated across sites.",
+      analysisPlan:
+        "Use a cross-silo NVFLARE FedAvg workflow with weighted aggregation, one smoke-test round, and local validation metrics for AUROC, calibration, and class balance checks.",
+      dataHandlingPlan:
+        "All raw EHR, labs, and vitals remain site-local. Only approved code, aggregate metrics, manifests, and runtime logs leave the site environment.",
       createdById: user.id
     }
   });
@@ -384,7 +394,7 @@ test.describe.serial("live full cycle", () => {
         templateId: scenario.templateId,
         name: `Live Pipeline ${scenario.runId}`,
         prompt:
-          "Create a real NVFLARE sag_np_metrics smoke-test pipeline for two synthetic sites. Keep all data site-local and use template-only code."
+          "Create a governed NVFLARE smoke-test pipeline to predict in-ICU mortality for heart failure patients across two sites. Keep all raw EHR, labs, and vitals site-local, make site count configurable from selected sites, and use template-backed code only."
       }
     });
     expect(proposalResponse.ok(), await proposalResponse.text()).toBe(true);
@@ -429,8 +439,10 @@ test.describe.serial("live full cycle", () => {
     expect(deployment.lastError).toBeFalsy();
     expect(deployment.serverAddress).toMatch(/^localhost:\d+$/);
     expect(await readFile(path.join(deployment.workspacePath, "project.yml"), "utf8")).toContain("api_version: 3");
-    expect(await readFile(path.join(deployment.serverStartupPath, "startup", "fed_server.json"), "utf8")).toContain("admin_port");
-    expect(await readFile(path.join(deployment.adminStartupPath, "fed_admin.json"), "utf8")).toContain("admin");
+    expect(await readFile(path.join(deployment.workspacePath, "docker-compose.yml"), "utf8")).toContain("nvflare-server");
+    if (deployment.adminStartupPath) {
+      expect(await readFile(path.join(deployment.adminStartupPath, "fed_admin.json"), "utf8")).toContain("admin");
+    }
 
     const startResponse = await page.request.post(
       `/api/v1/studies/${scenario.studyId}/nvflare/deployments/${deployment.id}/start`,

@@ -71,6 +71,20 @@ export async function POST(request: NextRequest) {
     dependencyPolicy: templateSpec.dependencyPolicy ? String(templateSpec.dependencyPolicy) : undefined,
     artifactOutputs: templateSpec.artifactOutputs ? String(templateSpec.artifactOutputs) : undefined,
     reviewExpectations: templateSpec.reviewExpectations ? String(templateSpec.reviewExpectations) : undefined,
+    collaborationSetting: templateSpec.collaborationSetting ? String(templateSpec.collaborationSetting) : undefined,
+    dataDistribution: templateSpec.dataDistribution ? String(templateSpec.dataDistribution) : undefined,
+    systemTopology: templateSpec.systemTopology ? String(templateSpec.systemTopology) : undefined,
+    privacySecurityPlan: templateSpec.privacySecurityPlan ? String(templateSpec.privacySecurityPlan) : undefined,
+    trainingStrategy: templateSpec.trainingStrategy ? String(templateSpec.trainingStrategy) : undefined,
+    clinicalApplication: templateSpec.clinicalApplication ? String(templateSpec.clinicalApplication) : undefined,
+    diseaseCategory: templateSpec.diseaseCategory ? String(templateSpec.diseaseCategory) : undefined,
+    challengeProfile: templateSpec.challengeProfile ? String(templateSpec.challengeProfile) : undefined,
+    outcomeDefinition: templateSpec.outcomeDefinition ? String(templateSpec.outcomeDefinition) : undefined,
+    participatingSites: templateSpec.participatingSites ? String(templateSpec.participatingSites) : undefined,
+    governanceContact: templateSpec.governanceContact ? String(templateSpec.governanceContact) : undefined,
+    dataReadinessSummary: templateSpec.dataReadinessSummary ? String(templateSpec.dataReadinessSummary) : undefined,
+    siteConstraints: templateSpec.siteConstraints ? String(templateSpec.siteConstraints) : undefined,
+    approvalStatus: templateSpec.approvalStatus ? String(templateSpec.approvalStatus) : undefined,
   } : {};
 
   const intake = { ...specIntake, ...(parsed.data.intake ?? {}) } as TemplateAgentIntake;
@@ -96,7 +110,7 @@ export async function POST(request: NextRequest) {
       templateId: parsed.data.templateId,
       requestedById: authResult.userId,
       mode: parsed.data.mode,
-      status: assistant.missing.length > 0 ? "INTAKE" : "CODING",
+      status: assistant.status,
       intake,
       messages: [
         {
@@ -105,11 +119,12 @@ export async function POST(request: NextRequest) {
           createdAt: now,
           modelUsed: assistant.modelUsed,
           openAiUsed: assistant.openAiUsed,
-          missing: assistant.missing
+          missing: assistant.missing,
+          guardrailFindings: assistant.guardrailFindings
         }
       ]
     }
   });
 
-  return json({ session, missing: assistant.missing }, { status: 201 });
+  return json({ session, missing: assistant.missing, guardrailFindings: assistant.guardrailFindings }, { status: 201 });
 }

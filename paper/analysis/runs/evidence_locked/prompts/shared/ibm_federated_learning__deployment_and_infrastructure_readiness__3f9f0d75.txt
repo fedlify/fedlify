@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "ibm_federated_learning__deployment_and_infrastructure_readiness__3f9f0d75",
+  "framework": "IBM Federated Learning",
+  "criterion": "Deployment and infrastructure readiness",
+  "criterion_definition": {
+    "working_definition": "Documented installation, packaging, cloud/on-prem support, containerization, and practical multi-site deployment pathways.",
+    "rationale": "A framework that cannot be installed and coordinated across sites is weak support for real-world health AI studies, even if its algorithm API is rich.",
+    "health_ai_relevance": "Healthcare FL deployments typically span hospitals, regulated networks, and mixed infrastructure, making operational readiness a core methods consideration.",
+    "key_method_papers": "Riedel et al. 2024; Oldenhof et al. 2023; Rieke et al. 2020"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Installation / packaging",
+      "Containerization / orchestration",
+      "Environment breadth",
+      "Operational deployment guidance",
+      "Real deployment evidence"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; summed to 0-10"
+  },
+  "framework_context": {
+    "official_name": "IBM Federated Learning",
+    "primary_positioning": "production-oriented runtime",
+    "official_repo_url": "https://github.com/IBM/federated-learning-lib",
+    "official_docs_url": "https://ibmfl.res.ibm.com/",
+    "maintainer": "IBM Research",
+    "core_scholarly_anchor": "IBM Federated Learning: an Enterprise Framework White Paper V0.1",
+    "health_ai_relevance_notes": "Official sources emphasize privacy, confidentiality, and regulatory compliance, which are relevant to health AI, but healthcare is not foregrounded as a primary deployment domain in the reviewed main public sources.",
+    "selection_rationale": "Included as an enterprise-oriented framework with documented orchestration, hybrid-cloud deployment support, and homomorphic-encryption setup."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Public docs include local setup, Docker packaging, and hybrid-cloud orchestration.",
+      "evidence_detail": "The README documents setup guides, wheel packaging, Docker usage, and an OpenShift-based multi-cloud and hybrid-cloud orchestrator that automates deployment and monitoring of aggregator and party processes.",
+      "source_title": "IBM Federated Learning README | IBM FL Crypto Setup",
+      "source_url": "https://github.com/IBM/federated-learning-lib/blob/main/README.md | https://github.com/IBM/federated-learning-lib/blob/main/setup-crypto.md",
+      "source_year": "2025-09-17 | 2025-09-17",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

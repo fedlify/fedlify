@@ -1,0 +1,70 @@
+Task: Score one federated learning framework against one evaluation criterion for a health AI methods paper.
+
+Rules:
+- Use only the evidence packet below.
+- Do not use external knowledge or web search.
+- Score each of the five subdimensions as 0 absent/not documented, 1 partial/limited, or 2 explicit/strong.
+- Sum the five subdimension scores to produce criterion_score from 0 to 10.
+- Compute band from criterion_score: 0-4 limited, 5-6 partial, 7-10 full.
+- If evidence is ambiguous, score conservatively and explain the ambiguity.
+
+Return exactly this JSON shape:
+{
+  "framework": "...",
+  "criterion": "...",
+  "subdimension_scores": [
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]},
+    {"name": "...", "score": 0, "rationale": "...", "evidence_refs": ["..."]}
+  ],
+  "criterion_score": 0,
+  "band": "limited",
+  "confidence": "low",
+  "key_evidence_summary": "...",
+  "limitations_or_ambiguity": "..."
+}
+
+Evidence packet:
+{
+  "packet_id": "openfl__deployment_and_infrastructure_readiness__d79ecd07",
+  "framework": "OpenFL",
+  "criterion": "Deployment and infrastructure readiness",
+  "criterion_definition": {
+    "working_definition": "Documented installation, packaging, cloud/on-prem support, containerization, and practical multi-site deployment pathways.",
+    "rationale": "A framework that cannot be installed and coordinated across sites is weak support for real-world health AI studies, even if its algorithm API is rich.",
+    "health_ai_relevance": "Healthcare FL deployments typically span hospitals, regulated networks, and mixed infrastructure, making operational readiness a core methods consideration.",
+    "key_method_papers": "Riedel et al. 2024; Oldenhof et al. 2023; Rieke et al. 2020"
+  },
+  "rubric": {
+    "subdimensions": [
+      "Installation / packaging",
+      "Containerization / orchestration",
+      "Environment breadth",
+      "Operational deployment guidance",
+      "Real deployment evidence"
+    ],
+    "anchor": "0 absent, 1 partial, 2 explicit; summed to 0-10"
+  },
+  "framework_context": {
+    "official_name": "Open Federated Learning (formerly OpenFL)",
+    "primary_positioning": "healthcare-oriented platform",
+    "official_repo_url": "https://github.com/securefederatedai/openfederatedlearning",
+    "official_docs_url": "https://openfl.readthedocs.io/en/latest/",
+    "maintainer": "Secure Federated AI / Linux Foundation AI & Data",
+    "core_scholarly_anchor": "OpenFL: the open federated learning library",
+    "health_ai_relevance_notes": "Official README explicitly ties the project to the Federated Tumor Segmentation (FeTS) platform and real-world medical imaging collaboration.",
+    "selection_rationale": "Included because of its healthcare lineage, cross-silo design, and documented secure runtime patterns, while explicitly noting its current deprecation trajectory."
+  },
+  "evidence": [
+    {
+      "evidence_summary": "Official docs document local, distributed, and container-based deployment paths.",
+      "evidence_detail": "The README and releases page describe local simulation, distributed runtimes, Dockerized workspaces, and TEE-ready containers. The current public docs also document migration from local runtimes to federated deployment.",
+      "source_title": "Open Federated Learning README | Open Federated Learning Releases",
+      "source_url": "https://github.com/securefederatedai/openfederatedlearning/blob/main/README.md | https://github.com/securefederatedai/openfederatedlearning/blob/main/docs/releases.md",
+      "source_year": "2026-02-21 | 2026-02-21",
+      "evidence_strength": "Direct official evidence"
+    }
+  ]
+}

@@ -38,3 +38,21 @@ export function chooseSelectedStudy<T extends StudySummary>(studies: T[], stored
 
   return studies.find((study) => !isArchivedStudy(study)) ?? studies[0] ?? null;
 }
+
+export function resolveUnavailableStudyTarget<T extends StudySummary>(
+  studies: T[],
+  currentStudyId: string,
+  section = "overview"
+): { href: string; studyId: string | null } {
+  const selected = chooseSelectedStudy(studies, null);
+  if (!selected || selected.id === currentStudyId) return { href: "/studies/manage", studyId: null };
+
+  const params = new URLSearchParams();
+  if (section !== "overview") params.set("section", section);
+
+  const query = params.toString();
+  return {
+    href: `/studies/${selected.id}${query ? `?${query}` : ""}`,
+    studyId: selected.id
+  };
+}
