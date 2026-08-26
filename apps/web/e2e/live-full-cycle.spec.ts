@@ -40,6 +40,7 @@ type LiveScenario = {
   templateId: string;
   studySiteIds: string[];
   runtimeSiteIds: string[];
+  siteParticipants: Array<{ hospitalId: number; email: string; organizationSlug: string }>;
   composeProjects: string[];
   repo?: { owner: string; name: string };
   deploymentId?: string;
@@ -199,6 +200,11 @@ async function seedLiveScenario(): Promise<LiveScenario> {
   const runId = `${slugPrefix}-${suffix}`;
   const email = `${runId}@${emailDomain}`;
   const passwordHash = await argon2.hash(password);
+  const configuredHospitals = (process.env.EICU_E2E_HOSPITALS ?? "1,2")
+    .split(",")
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value));
+  if (configuredHospitals.length < 2) throw new Error("EICU_E2E_HOSPITALS must contain at least two hospital IDs.");
 
   const user = await prisma.user.create({
     data: {
@@ -225,8 +231,8 @@ async function seedLiveScenario(): Promise<LiveScenario> {
       title: `ICU Heart Failure Mortality Tutorial ${suffix}`,
       slug: `icu-heart-failure-tutorial-${suffix}`,
       description: "Live full-cycle tutorial for ICU mortality prediction in heart failure patients.",
-      goal: "Predict in-ICU mortality for heart failure patients across two sites without moving raw clinical data.",
-      researchQuestion: "Can Fedlify generate, provision, connect, and run a governed two-site ICU mortality prediction workflow?",
+      goal: `Predict in-ICU mortality for heart failure patients across ${configuredHospitals.length} sites without moving raw clinical data.`,
+      researchQuestion: `Can Fedlify generate, provision, connect, and run a governed ${configuredHospitals.length}-site ICU mortality prediction workflow?`,
       clinicalUseCase: "RISK_PREDICTION",
       population: "Adult ICU patients admitted with acute or chronic heart failure",
       dataModalities: "EHR, Labs, Vitals",
@@ -236,7 +242,7 @@ async function seedLiveScenario(): Promise<LiveScenario> {
       governanceStatus: "APPROVED",
       status: "ACTIVE",
       studyDesign:
-        "Retrospective two-site federated tutorial study that trains a governed mortality-risk model for ICU heart failure admissions using site-local structured data only.",
+        `Retrospective ${configuredHospitals.length}-site federated tutorial study that trains a governed mortality-risk model for ICU heart failure admissions using site-local structured data only.`,
       eligibilityCriteria:
         "Include adult ICU encounters with a primary or secondary heart failure diagnosis. Exclude pediatric encounters and records lacking a discharge disposition.",
       primaryEndpointDetails:
@@ -268,15 +274,32 @@ async function seedLiveScenario(): Promise<LiveScenario> {
 
   const studySiteIds: string[] = [];
   const runtimeSiteIds: string[] = [];
-  for (const index of [1, 2]) {
-    const code = `site_${index}_${suffix}`;
+  const siteParticipants: LiveScenario["siteParticipants"] = [];
+  for (const [index, hospitalId] of configuredHospitals.entries()) {
+    const siteUser = await prisma.user.create({
+      data: {
+        name: `E2E Hospital ${hospitalId} Approver`,
+        email: `${runId}-hospital-${hospitalId}@${emailDomain}`,
+        passwordHash
+      }
+    });
+    const siteOrganization = await prisma.organization.create({
+      data: {
+        name: `E2E Hospital ${hospitalId}`,
+        slug: `${runId}-hospital-${hospitalId}`,
+        domain: emailDomain,
+        createdById: siteUser.id
+      }
+    });
+    await prisma.orgMembership.create({ data: { orgId: siteOrganization.id, userId: siteUser.id, role: "ORG_ADMIN" } });
+    const code = `hospital_${hospitalId}_${suffix}`;
     const site = await prisma.site.create({
       data: {
         studyId: study.id,
-        organizationId: organization.id,
-        name: `Live Site ${index} ${suffix}`,
+        organizationId: siteOrganization.id,
+        name: `eICU Hospital ${hospitalId} ${suffix}`,
         code,
-        institutionName: `Live Hospital ${index}`,
+        institutionName: `eICU Hospital ${hospitalId}`,
         nvflareClientName: code,
         status: "INVITED"
       }
@@ -285,12 +308,12 @@ async function seedLiveScenario(): Promise<LiveScenario> {
       data: {
         studyId: study.id,
         siteId: site.id,
-        organizationId: organization.id,
+        organizationId: siteOrganization.id,
         code,
-        name: `Live Site ${index} ${suffix}`,
-        institutionName: `Live Hospital ${index}`,
+        name: `eICU Hospital ${hospitalId} ${suffix}`,
+        institutionName: `eICU Hospital ${hospitalId}`,
         participationStatus: "INVITED",
-        principalInvestigator: `Dr. Live ${index}`,
+        principalInvestigator: `Synthetic E2E Approver ${index + 1}`,
         resourceProfile: {
           create: { cpuCores: 4, ramGb: 8, storageGb: 100, allowByoc: false }
         },
@@ -305,12 +328,23 @@ async function seedLiveScenario(): Promise<LiveScenario> {
         readinessChecks: { create: { status: "PENDING", notes: "Live E2E initial readiness." } }
       }
     });
-    await prisma.siteMember.create({ data: { studySiteId: studySite.id, userId: user.id, role: "SITE_ADMIN", invitedById: user.id } });
+    await prisma.siteMember.create({ data: { studySiteId: studySite.id, userId: siteUser.id, role: "SITE_ADMIN", invitedById: user.id } });
     studySiteIds.push(studySite.id);
     runtimeSiteIds.push(site.id);
+    siteParticipants.push({ hospitalId, email: siteUser.email!, organizationSlug: siteOrganization.slug });
   }
 
-  return { runId, email, studyId: study.id, templateId: template.id, studySiteIds, runtimeSiteIds, composeProjects: [], tempDirs: [] };
+  return {
+    runId,
+    email,
+    studyId: study.id,
+    templateId: template.id,
+    studySiteIds,
+    runtimeSiteIds,
+    siteParticipants,
+    composeProjects: [],
+    tempDirs: []
+  };
 }
 
 async function downloadAndExtractKit(input: { url: string; token: string; composeProject: string; scenario: LiveScenario }) {
@@ -365,9 +399,12 @@ test.describe.serial("live full cycle", () => {
   });
 
   test.afterAll(async ({ playwright }) => {
-    for (const composeProject of scenario?.composeProjects ?? []) {
-      await execFileAsync("docker", ["compose", "-p", composeProject, "down"], { timeout: 120_000 }).catch(() => undefined);
-    }
+    test.setTimeout(5 * 60_000);
+    await Promise.all(
+      (scenario?.composeProjects ?? []).map((composeProject) =>
+        execFileAsync("docker", ["compose", "-p", composeProject, "down"], { timeout: 120_000 }).catch(() => undefined)
+      )
+    );
     if (scenario?.repo) {
       const request = await playwright.request.newContext();
       await giteaRequest(
@@ -394,7 +431,7 @@ test.describe.serial("live full cycle", () => {
         templateId: scenario.templateId,
         name: `Live Pipeline ${scenario.runId}`,
         prompt:
-          "Create a governed NVFLARE smoke-test pipeline to predict in-ICU mortality for heart failure patients across two sites. Keep all raw EHR, labs, and vitals site-local, make site count configurable from selected sites, and use template-backed code only."
+          `Create a governed NVFLARE smoke-test pipeline to predict in-ICU mortality for heart failure patients across ${scenario.studySiteIds.length} sites. Keep all raw EHR, labs, and vitals site-local, make site count configurable from selected sites, and use template-backed code only.`
       }
     });
     expect(proposalResponse.ok(), await proposalResponse.text()).toBe(true);
@@ -405,7 +442,9 @@ test.describe.serial("live full cycle", () => {
 
     expect(pipelineVersion.gitCommit).toMatch(/^[a-f0-9]{40}$/i);
     expect(pipelineVersion.jobWorkspacePath).toContain("nvflare-job");
-    expect(await readFile(path.join(pipelineVersion.jobWorkspacePath, "meta.conf"), "utf8")).toContain("min_clients = 2");
+    expect(await readFile(path.join(pipelineVersion.jobWorkspacePath, "meta.conf"), "utf8")).toContain(
+      `min_clients = ${scenario.studySiteIds.length}`
+    );
 
     const branchResponse = await giteaRequest(
       page.request,
@@ -450,7 +489,25 @@ test.describe.serial("live full cycle", () => {
     );
     expect(startResponse.ok(), await startResponse.text()).toBe(true);
 
+    const approvalEvidence: Array<Record<string, unknown>> = [];
     for (const [index, studySiteId] of scenario.studySiteIds.entries()) {
+      const participant = scenario.siteParticipants[index];
+      await signInWithCredentials(page, participant.email);
+      const governanceResponse = await page.request.patch(`/api/v1/sites/${studySiteId}/governance`, {
+        data: {
+          readiness: {
+            connectivityVerified: true,
+            kitInstalled: true,
+            dependenciesVerified: true,
+            policyAccepted: true,
+            notes: `Synthetic E2E approval for eICU hospital ${participant.hospitalId}; not a real expert approval.`
+          }
+        }
+      });
+      expect(governanceResponse.ok(), await governanceResponse.text()).toBe(true);
+      const governance = await governanceResponse.json();
+      const readinessCheck = governance.studySite.readinessChecks[0];
+      expect(readinessCheck.status).toBe("PASSED");
       const joinResponse = await page.request.post(`/api/v1/sites/${studySiteId}/join-package`, { data: {} });
       expect(joinResponse.ok(), await joinResponse.text()).toBe(true);
       const joinPayload = await joinResponse.json();
@@ -465,6 +522,35 @@ test.describe.serial("live full cycle", () => {
         composeProject,
         scenario
       });
+      approvalEvidence.push({
+        hospitalId: participant.hospitalId,
+        organization: participant.organizationSlug,
+        actor: participant.email,
+        decision: "APPROVED",
+        readinessCheckId: readinessCheck.id,
+        approvedAt: readinessCheck.createdAt
+      });
+    }
+
+    const protocolPath = process.env.EICU_E2E_PROTOCOL_PATH;
+    const approvalOutput = process.env.EICU_E2E_APPROVAL_OUTPUT;
+    if (protocolPath && approvalOutput) {
+      const protocol = JSON.parse(await readFile(protocolPath, "utf8"));
+      await mkdir(path.dirname(approvalOutput), { recursive: true });
+      await writeFile(
+        approvalOutput,
+        JSON.stringify(
+          {
+            schemaVersion: "1.0",
+            approvalMode: "SYNTHETIC_E2E",
+            protocolHash: protocol.protocol_hash,
+            studyId: scenario.studyId,
+            approvals: approvalEvidence
+          },
+          null,
+          2
+        )
+      );
     }
 
     await expect
@@ -475,21 +561,9 @@ test.describe.serial("live full cycle", () => {
           }),
         { timeout: 120_000 }
       )
-      .toBe(2);
+      .toBe(scenario.runtimeSiteIds.length);
 
-    for (const studySiteId of scenario.studySiteIds) {
-      await prisma.siteReadinessCheck.create({
-        data: {
-          studySiteId,
-          connectivityVerified: true,
-          kitInstalled: true,
-          dependenciesVerified: true,
-          policyAccepted: true,
-          status: "PASSED",
-          notes: "Live E2E site kit started and heartbeat received."
-        }
-      });
-    }
+    await signInWithCredentials(page, scenario.email);
 
     const statusResponse = await page.request.get(`/api/v1/studies/${scenario.studyId}/nvflare/status`);
     expect(statusResponse.ok(), await statusResponse.text()).toBe(true);

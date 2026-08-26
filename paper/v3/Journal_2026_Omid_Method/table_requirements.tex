@@ -1,0 +1,122 @@
+\newcolumntype{R}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+\begin{table*}[!tbp]
+\centering
+\caption{Evidence-informed operational requirements for end-to-end multi-institutional health AI studies.}
+\label{tab:operational-requirements}
+\begingroup
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{@{}R{0.045\textwidth}R{0.215\textwidth}R{0.705\textwidth}@{}}
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Operational definition and representative evidence} \\
+\midrule
+
+\multicolumn{3}{@{}l}{\textbf{1. Consortium and study design}}\\[-0.2ex]
+\midrule
+R01 & Clinical purpose and FL suitability & Define the intended clinical or research use, target population, decision context, expected collaborative benefit, and why FL is preferable to feasible alternatives before selecting a platform.~\cite{teo2024federated,li2025challenges,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,lekadir2023futureai} \\
+\addlinespace
+R02 & Consortium, site-readiness, and contribution planning & Select sites that can contribute clinically relevant data and sustained local capability, and assess each site's data, infrastructure, staff, constraints, incentives, and expected contribution.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,pati2022federated,schoenpflug2025navigating,schlegel2026lowering} \\
+\addlinespace
+R03 & Multidisciplinary roles, coordination, and shared vocabulary & Create a working structure that connects clinical, data-science, engineering, IT, security, privacy, ethics, legal, project-management, and patient or public perspectives across institutions.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,cremonesi2025fed,schlegel2026lowering} \\
+\addlinespace[0.7em]
+
+\multicolumn{3}{@{}l}{\textbf{2. Governance, ethics, and legal readiness}}\\[-0.2ex]
+\midrule
+R04 & Legal basis, ethics, and cross-site agreements & Establish the lawful and ethical basis for local data use, distributed computation, exchange of model artifacts, and cross-institutional collaboration in every participating jurisdiction.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,bottomly2026pragmatic} \\
+\addlinespace
+R05 & Accountability, ownership, and decision rights & Specify who owns or controls data, code, configurations, models, logs, and outputs, and who may approve, pause, release, modify, or retire them.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,bottomly2026pragmatic,cremonesi2025fed,schlegel2026lowering} \\
+\addlinespace
+R06 & Risk-proportionate oversight and approval gates & Match governance, privacy, security, validation, and release review to the sensitivity of the data, model capability, intended use, and potential clinical impact.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,lekadir2023futureai} \\
+\addlinespace
+R07 & Participation lifecycle, synchronized change control, and withdrawal & Define how sites join, approve tasks, request changes, pause, leave, or are removed while preserving safety, reproducibility, and consortium continuity.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,schlegel2026lowering} \\
+\addlinespace[0.7em]
+
+\multicolumn{3}{@{}l}{\textbf{3. Data readiness and interoperability}}\\[-0.2ex]
+\midrule
+R08 & Common data specification and semantic interoperability & Create a shared, machine-actionable definition of variables, labels, units, coding systems, metadata, and allowable mappings across sites.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,mullie2024coda,chavero2026federated,lee2023feasibility} \\
+\addlinespace
+R09 & Harmonized preprocessing, acquisition, and annotation & Ensure that local extraction, cohort construction, preprocessing, missing-data handling, acquisition, and labeling follow agreed protocols, or that deviations are measured and documented.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,pati2022federated} \\
+\addlinespace
+R10 & Data quality and training-readiness validation & Run local checks to establish whether each site's data, metadata, labels, and references are complete, valid, correctly linked, and processable before federated execution.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,pati2022federated} \\
+\addlinespace
+R11 & Representativeness, heterogeneity, and partition plan & Characterize clinical, demographic, temporal, acquisition, label, and site-level differences and design train, validation, test, and external-evaluation partitions accordingly.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,pati2022federated,lekadir2023futureai} \\
+\addlinespace[0.7em]
+
+\multicolumn{3}{@{}l}{\textbf{4. Infrastructure and site onboarding}}\\[-0.2ex]
+\midrule
+R12 & Compute, storage, network, and availability readiness & Verify that each site and coordinating service can meet agreed compute, storage, bandwidth, firewall, uptime, maintenance, and support requirements without disrupting clinical operations.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,cremonesi2025fed,schoenpflug2025navigating} \\
+\addlinespace
+R13 & Reproducible runtime and cross-site version compatibility & Standardize and version operating systems, libraries, drivers, containers or virtual environments, configurations, and update procedures so the same task executes consistently at every node.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,mullie2024coda,chavero2026federated} \\
+\addlinespace
+R14 & Clinical-system integration and secure local data access & Connect each FL node to approved local sources and third-party systems through least-privilege interfaces while preventing raw patient data from leaving the institution.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,mullie2024coda,chavero2026federated,lee2023feasibility} \\
+\addlinespace
+R15 & Site onboarding, dry-run, and readiness gates & Use repeatable onboarding and non-sensitive or synthetic dry-runs to confirm connectivity, configuration, security, workflow, observability, and staffing before real training begins.~\cite{kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,cremonesi2025fed,mullie2024coda,schoenpflug2025navigating} \\
+\addlinespace[0.7em]
+
+\multicolumn{3}{@{}l}{\textbf{5. Privacy and security engineering}}\\[-0.2ex]
+\midrule
+R16 & Threat model and risk-tiered privacy/security controls & Identify credible threats to data, model updates, code, nodes, the aggregator, users, and outputs, then select controls in proportion to likelihood, impact, and intended use.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bottomly2026pragmatic,cremonesi2025fed} \\
+\addlinespace
+R17 & Identity, authentication, authorization, and secrets management & Ensure that people, services, and sites are authenticated and receive only the permissions required for their approved roles, with controlled credential and key lifecycles.~\cite{eden2025scoping,kommusaar2025roadmap,bottomly2026pragmatic,cremonesi2025fed,mullie2024coda} \\
+\addlinespace
+R18 & Secure communication and update confidentiality & Protect model artifacts and control traffic in transit and, where justified, during aggregation, while specifying what information crosses institutional boundaries.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bottomly2026pragmatic,cremonesi2025fed,mullie2024coda} \\
+\addlinespace
+R19 & Code, model, and update integrity with incident response & Prevent, detect, contain, and recover from malicious or erroneous code, poisoned updates, compromised nodes, unauthorized changes, and security or privacy incidents.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,cremonesi2025fed} \\
+\addlinespace[0.7em]
+
+\multicolumn{3}{@{}l}{\textbf{6. Federated protocol and execution control}}\\[-0.2ex]
+\midrule
+R20 & Explicit and reproducible federated protocol & Specify the complete study protocol so another authorized team can reproduce how clients, server, data processing, training, validation, and stopping decisions interact.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,mullie2024coda,chai2024survey,schlegel2026lowering} \\
+\addlinespace
+R21 & Resource-aware orchestration and heterogeneity handling & Schedule and coordinate jobs around unequal data distributions, hardware, bandwidth, uptime, time zones, and clinical workloads without allowing resource-rich sites to dominate silently.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,cremonesi2025fed,chai2024survey,schoenpflug2025navigating} \\
+\addlinespace
+R22 & Fault tolerance, checkpointing, and recoverability & Continue safely or recover predictably when clients disconnect, nodes fail, configurations mismatch, jobs crash, or maintenance interrupts training.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,cremonesi2025fed,schoenpflug2025navigating} \\
+\addlinespace
+R23 & Execution observability, audit trail, and local approval & Give authorized central and local actors enough visibility to understand, approve, monitor, diagnose, and audit each job without exposing patient-level data.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,cremonesi2025fed,mullie2024coda,schoenpflug2025navigating,schlegel2026lowering} \\
+\addlinespace[0.7em]
+
+\multicolumn{3}{@{}l}{\textbf{7. Validation, release, and reproducibility}}\\[-0.2ex]
+\midrule
+R24 & Multidimensional local, external, and subgroup evaluation & Evaluate more than global accuracy by measuring site-level and external performance, calibration, robustness, subgroup fairness, privacy and security, communication, resource use, and scalability against relevant alternatives.~\cite{li2025challenges,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,pati2022federated,lekadir2023futureai,chai2024survey} \\
+\addlinespace
+R25 & Independent validation and controlled release gate & Require independent or site-local validation and multidisciplinary approval before a final model, code package, or result is distributed, deployed, or used for a new purpose.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,pati2022federated,lekadir2023futureai} \\
+\addlinespace
+R26 & Reproducibility, reporting, provenance, and registry package & Package the information and artifacts needed to understand, reproduce, audit, compare, and govern the study and every released model version without revealing protected data.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bottomly2026pragmatic,cremonesi2025fed,mullie2024coda,lekadir2023futureai,chavero2026federated,schlegel2026lowering} \\
+
+
+\bottomrule
+\end{tabular}
+\endgroup
+\end{table*}
+
+\begin{table*}[!tbp]
+\centering
+\begingroup
+\small
+Table~\ref{tab:operational-requirements}: Evidence-informed operational requirements (continued).
+\par\medskip
+\endgroup
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.10}
+\begin{tabular}{@{}R{0.045\textwidth}R{0.215\textwidth}R{0.705\textwidth}@{}}
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Operational definition and representative evidence} \\
+\midrule
+
+
+\multicolumn{3}{@{}l}{\textbf{8. Deployment, monitoring, and sustainability}}\\[-0.2ex]
+\midrule
+R27 & Workflow integration, usability, and stakeholder capability & Fit the model and operational process into clinical or research workflows and ensure users, data stewards, IT teams, and oversight actors can perform and understand their responsibilities.~\cite{eden2025scoping,kommusaar2025roadmap,peltonen2026federated,mullie2024coda,lekadir2023futureai} \\
+\addlinespace
+R28 & Continuous performance, drift, fairness, security, and compliance monitoring & Monitor the deployed or reused system and its federation for degradation, distribution shift, subgroup harm, misuse, access violations, security events, and regulatory or contextual change.~\cite{li2025challenges,eden2025scoping,kommusaar2025roadmap,bujotzek2025real,bottomly2026pragmatic,lekadir2023futureai} \\
+\addlinespace
+R29 & Update, retraining, rollback, retirement, and sustainability ownership & Assign durable organizational and financial ownership for maintenance, updates, retraining, rollback, incident recovery, site withdrawal, transfer, and retirement after the initial study or funding period.~\cite{eden2025scoping,kommusaar2025roadmap,bujotzek2025real,peltonen2026federated,lekadir2023futureai} \\
+
+\bottomrule
+\end{tabular}
+\endgroup
+\end{table*}

@@ -1,0 +1,64 @@
+\begin{table*}[!t]
+\centering
+\caption{Design principles, the failure each addresses, the alternative rejected, the cost accepted, and the
+test that would validate the control. The probe suite in the final column has now been run against the
+deployed platform (Table~\ref{tab:proberesults}); the cross-model regression suite for P8 has not, since all
+reported probe results use a single pinned hosted model.}
+\label{tab:principles}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.2}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\begin{tabular}{@{}L{2.3cm}L{4.3cm}L{2.9cm}L{3.1cm}L{2.6cm}@{}}
+\toprule
+\textbf{Principle} & \textbf{Failure it addresses} & \textbf{Alternative rejected} &
+\textbf{Cost accepted} & \textbf{How the control would be tested}\\
+\midrule
+P1 Capability removal over instruction &
+A consequential action remains reachable through a prompt, a retrieved document, or a compromised
+tool\cite{greshake2023not,ruan2024identifying,debenedetti2024agentdojo,ashraf2026medcta} &
+A broadly capable assistant constrained by system prompts and refusal behaviour &
+Functions needing an excluded capability fall to a person or to the platform &
+Adversarial suite covering injection, document upload, and prohibited-content probes\\
+P2 Deterministic governance &
+The assistant determines what is permitted, or which workflow state is authoritative &
+Model-mediated policy interpretation and state control &
+Policies must be expressible as code, so nuanced cases stop or escalate &
+Policy and state-transition conformance tests\\
+P3 Evidence before assertion &
+A fluent but unsupported claim enters a reviewed artifact. Models produce plausible references that do not
+resolve, or that do not support the claim drawn from them\cite{chelli2024hallucination} &
+Drafting first and attaching citations afterwards &
+Source curation, locator resolution, and freshness checking become recurring costs &
+Verifier coverage tests; measured reviewer source inspection\\
+P4 Typed memory with confirmation &
+A draft assumption or a hostile source becomes a project fact without anyone confirming it &
+Treating conversation history as accumulated project state &
+Authorized users must confirm records and resolve conflicts before work proceeds &
+Store write-rule tests; poisoned-evidence probes\\
+P5 Verification split by kind &
+Model agreement is reported as proof. Evaluator models favour their own outputs, and this follows from
+self-recognition rather than quality\cite{panickssery2024llm} &
+One undifferentiated model critic reporting a single combined pass rate &
+Two verification paths must be built, tested, and reported separately &
+Measured correlation between drafting and verification errors\\
+P6 Approval bound to exact artifacts &
+Approval accumulates without any accountable person deciding on the released version. Incorrect AI advice
+degraded mammography reading at every level of reader experience\cite{dratsch2023automation} &
+Assistant-proposed approval followed by routine human sign-off &
+Multi-site review stays on the critical path, and forcing attention may cost usability\cite{buccinca2021trust} &
+Human-factors study of gate effectiveness, defect detection, and workload\\
+P7 Non-self-executing handoff &
+Generated runtime configuration becomes a running system without a human act\cite{ashraf2026medcta} &
+Direct configuration push from the planning layer to an FL runtime &
+A qualified engineer must review and act on every handoff package &
+Export validation tests; approval-spoofing probes\\
+P8 Self-hosted, open, model-agnostic &
+Planning content leaves the institution, or safety properties change after a model or provider
+change\cite{tabassi,autio} &
+A hosted service bound to one provider's model and safety tooling &
+Consortia carry the deployment burden, and open code makes capability removals configuration rather than law &
+Local-inference deployment record; cross-model regression suite\\
+\bottomrule
+\end{tabular}
+\end{table*}

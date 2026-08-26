@@ -14,6 +14,7 @@ import {
   MonitorOutlined,
   PlayCircleOutlined,
   PlusOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -39,6 +40,7 @@ import { ArtifactList, EntityActionMenu, EntityDetailView, FieldGrid, FieldRow, 
 import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { normalizeRichTextValue, RichTextContent, RichTextEditor, richTextHasText } from "@/components/RichTextEditor";
+import { RequirementsChatWindow } from "@/components/RequirementsChatWindow";
 import { StatusTag } from "@/components/StatusTag";
 import { GateChecklist, WorkflowRail, type GateItem, type WorkflowStep } from "@/components/WorkflowRail";
 import { missingProtocolFields as missingCoreProtocolFields } from "@/lib/governance";
@@ -2119,6 +2121,15 @@ export default function StudyDetailPage() {
           icon: <CheckCircleOutlined />,
           action: currentStudy.status === "ACTIVE" ? "Activated" : "Review activation",
           onClick: () => setProtocolTab("activation")
+        },
+        {
+          key: "requirements",
+          title: "Requirements checklist",
+          detail: "Answer the 29 operational requirements. Pipeline code generation is gated on all 29 being recorded.",
+          status: "NEEDS_ATTENTION",
+          icon: <QuestionCircleOutlined />,
+          action: "Open requirements checklist",
+          onClick: () => setProtocolTab("requirements")
         }
       ];
       const renderProtocolActionCard = ({
@@ -2345,6 +2356,15 @@ export default function StudyDetailPage() {
                     <WorkspaceCardGrid>
                       {activationActionCard}
                     </WorkspaceCardGrid>
+                  </section>
+                )
+              },
+              {
+                key: "requirements",
+                label: "Requirements (29)",
+                children: (
+                  <section className="fedlify-protocol-module is-wide">
+                    <RequirementsChatWindow studyId={studyId} />
                   </section>
                 )
               }

@@ -19,3 +19,7 @@ uploads/
 *.sqlite
 *.db
 .fedlify-runtime/
+# Generated Fedlify v3 evaluation packages contain only aggregate outputs and are immutable per run.
+.fedlify-evaluation/
+probe-results/
+services/agent-orchestrator/dist/

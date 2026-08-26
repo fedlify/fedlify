@@ -1,4 +1,5 @@
 import type { EthicsStatus, GovernanceStatus, PipelineVersionStatus, ReadinessStatus } from "@prisma/client";
+import { REQUIREMENT_ORDER, type RequirementId } from "@/lib/requirements-catalog";
 
 type ProtocolMetadata = {
   title?: string | null;
@@ -96,6 +97,19 @@ export function activationGate(study: StudyActivationInput): { allowed: boolean;
   }
 
   return { allowed: true, missing: [], status: "APPROVED" };
+}
+
+/**
+ * Requires every one of the 29 operational requirements (requirements-catalog.ts, the same
+ * catalog the probe suite scores against) to have a recorded response before code generation
+ * can proceed. Forms and the requirements chat window both write responses; this gate is what
+ * turns that gathered context into a stop/proceed decision -- code generation checks it, not
+ * the other way around.
+ */
+export function requirementsGate(responses: Array<{ requirementId: string }>): { allowed: boolean; missing: RequirementId[] } {
+  const answered = new Set(responses.map((response) => response.requirementId));
+  const missing = REQUIREMENT_ORDER.filter((id) => !answered.has(id));
+  return { allowed: missing.length === 0, missing };
 }
 
 export function pipelineExecutionGate(input: PipelineExecutionInput): { allowed: boolean; missing: string[] } {

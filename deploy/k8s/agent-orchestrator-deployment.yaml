@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fedlify-agent-orchestrator
+  namespace: fedlify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fedlify-agent-orchestrator
+  template:
+    metadata:
+      labels:
+        app: fedlify-agent-orchestrator
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: orchestrator
+          image: fedlify/agent-orchestrator:0.1.0
+          ports:
+            - containerPort: 3020
+          envFrom:
+            - configMapRef:
+                name: fedlify-agent-orchestrator
+            - secretRef:
+                name: fedlify-agent-orchestrator-secrets
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3020
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3020
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi

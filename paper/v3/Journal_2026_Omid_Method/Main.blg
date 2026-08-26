@@ -1,0 +1,51 @@
+This is BibTeX, Version 0.99d (TeX Live 2025)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: Main.aux
+The style file: naturemag.bst
+Database file #1: Ref.bib
+Warning--I didn't find a database entry for "tabassi"
+Warning--I didn't find a database entry for "autio"
+Warning--empty journal in gallifant2025beyond
+Warning--empty journal in lekadir2023futureai
+You've used 68 entries,
+            2348 wiz_defined-function locations,
+            1365 strings with 27819 characters,
+and the built_in function-call counts, 27362 in all, are:
+= -- 1947
+> -- 660
+< -- 5
++ -- 330
+- -- 165
+* -- 3193
+:= -- 2991
+add.period$ -- 204
+call.type$ -- 68
+change.case$ -- 89
+chr.to.int$ -- 0
+cite$ -- 70
+duplicate$ -- 2558
+empty$ -- 2560
+format.name$ -- 229
+if$ -- 5621
+int.to.chr$ -- 0
+int.to.str$ -- 68
+missing$ -- 560
+newline$ -- 348
+num.names$ -- 68
+pop$ -- 485
+preamble$ -- 1
+purify$ -- 0
+quote$ -- 0
+skip$ -- 601
+stack$ -- 0
+substring$ -- 1109
+swap$ -- 2449
+text.length$ -- 5
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 0
+warning$ -- 2
+while$ -- 158
+width$ -- 70
+write$ -- 748
+(There were 4 warnings)

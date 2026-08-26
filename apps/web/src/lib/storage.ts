@@ -1,8 +1,11 @@
 import { CreateBucketCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const bucket = process.env.S3_BUCKET ?? "";
 let bucketReady = false;
+
+function storageBucket(): string {
+  return process.env.S3_BUCKET ?? "";
+}
 
 function s3Client(): S3Client {
   return new S3Client({
@@ -20,7 +23,7 @@ function s3Client(): S3Client {
 }
 
 export function storageConfigured(): boolean {
-  return Boolean(bucket);
+  return Boolean(storageBucket());
 }
 
 export function objectKey(parts: string[]): string {
@@ -28,6 +31,7 @@ export function objectKey(parts: string[]): string {
 }
 
 export async function createPresignedUploadUrl(key: string, contentType: string): Promise<string> {
+  const bucket = storageBucket();
   if (!bucket) throw new Error("S3_BUCKET is not configured.");
   await ensureBucket();
   return getSignedUrl(
@@ -42,6 +46,7 @@ export async function createPresignedUploadUrl(key: string, contentType: string)
 }
 
 export async function uploadObject(key: string, body: string | Buffer, contentType: string): Promise<void> {
+  const bucket = storageBucket();
   if (!bucket) throw new Error("S3_BUCKET is not configured.");
   await ensureBucket();
   await s3Client().send(
@@ -54,7 +59,17 @@ export async function uploadObject(key: string, body: string | Buffer, contentTy
   );
 }
 
+export async function readObject(key: string): Promise<Buffer> {
+  const bucket = storageBucket();
+  if (!bucket) throw new Error("S3_BUCKET is not configured.");
+  await ensureBucket();
+  const response = await s3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!response.Body) throw new Error("Stored artifact has no body.");
+  return Buffer.from(await response.Body.transformToByteArray());
+}
+
 export async function createPresignedDownloadUrl(key: string, filename: string): Promise<string> {
+  const bucket = storageBucket();
   if (!bucket) throw new Error("S3_BUCKET is not configured.");
   await ensureBucket();
   return getSignedUrl(
@@ -69,6 +84,7 @@ export async function createPresignedDownloadUrl(key: string, filename: string):
 }
 
 async function ensureBucket(): Promise<void> {
+  const bucket = storageBucket();
   if (!bucket || bucketReady) return;
   const client = s3Client();
   try {

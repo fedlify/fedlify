@@ -1,0 +1,21 @@
+\begin{table*}[ht]
+\centering
+\small
+\caption{\textbf{Performance of the five federated training approaches.} All jobs
+train on the same five hospital cohorts with identical preprocessing and are
+evaluated on the same held-out sixth hospital, so the only difference between rows
+is the federated algorithm. Two vitals fields with outcome-correlated missingness
+were excluded from the feature contract before this run (Limitations).}
+\label{tab:casestudyperformance}
+\begin{tabular}{lccccc}
+\toprule
+Approach & Held-out AUROC (95\% CI) & AUPRC & Calibration slope & Brier & Mean per-site AUROC \\
+\midrule
+FedAvg, multilayer perceptron & 0.968 (0.955--0.980) & 0.928 & 0.810 & 0.046 & 0.953 \\
+FedProx, multilayer perceptron & 0.969 (0.955--0.980) & 0.928 & 0.824 & 0.047 & 0.955 \\
+Differentially private SGD & 0.964 (0.949--0.977) & 0.917 & 0.719 & 0.038 & 0.951 \\
+Federated logistic regression & 0.939 (0.920--0.955) & 0.852 & 1.193 & 0.105 & 0.931 \\
+Histogram-based federated XGBoost & 0.977 (0.966--0.986) & 0.934 & 1.186 & 0.033 & 0.965 \\
+\bottomrule
+\end{tabular}
+\end{table*}

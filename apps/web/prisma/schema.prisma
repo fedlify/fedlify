@@ -265,6 +265,113 @@ enum NvflareJobEventType {
   REJECTED
 }
 
+enum ControlState {
+  INTAKE
+  CLASSIFIED
+  QUARANTINED
+  POLICY_AUTHORIZED
+  WORK_ITEM_SIGNED
+  EVIDENCE_ASSEMBLED
+  WORKER_COMPLETED
+  DETERMINISTIC_VERIFIED
+  SEMANTIC_VERIFIED
+  HUMAN_APPROVED
+  EXPORTED
+  STOPPED
+}
+
+enum StopCondition {
+  STOP_1_INTAKE
+  STOP_2_EVIDENCE
+  STOP_3_READINESS
+  STOP_4_DETERMINISTIC_VERIFICATION
+  STOP_5_POLICY
+  STOP_6_HUMAN_APPROVAL
+  STOP_7_EXPORT_RUNTIME
+}
+
+enum WorkItemStatus {
+  DRAFT
+  SIGNED
+  RUNNING
+  COMPLETED
+  CANCELLED
+  EXPIRED
+  FAILED
+}
+
+enum FactStatus {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+  SUPERSEDED
+  INVALIDATED
+}
+
+enum EvidenceClassification {
+  CURATED
+  UNTRUSTED
+  SENSITIVE
+  QUARANTINED
+  REJECTED
+}
+
+enum VerificationKind {
+  DETERMINISTIC
+  SEMANTIC
+}
+
+enum VerificationStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  BLOCKED
+}
+
+enum ApprovalBindingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INVALIDATED
+  EXPIRED
+}
+
+enum InvalidationStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum QuarantineStatus {
+  HELD
+  RELEASED
+  REJECTED
+}
+
+enum ProbeRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ProbeDisposition {
+  PASS
+  WRONG_LAYER
+  NOT_BLOCKED
+  INFRA_FAILURE
+}
+
+enum CaseStudyRunStatus {
+  DRAFT
+  VALIDATED
+  APPROVED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id                         String                    @id @default(cuid())
   name                       String?
@@ -420,6 +527,7 @@ model Study {
   sites                  Site[]
   studySites             StudySite[]
   ethics                 EthicsApproval[]
+  requirementResponses   RequirementResponse[]
   documents              Document[]
   needs                  NeedSubmission[]
   agentRuns              AgentRun[]
@@ -653,6 +761,20 @@ model EthicsApproval {
   updatedAt      DateTime     @updatedAt
 
   @@index([studyId, status])
+}
+
+model RequirementResponse {
+  id            String   @id @default(cuid())
+  studyId       String
+  requirementId String
+  answer        String
+  respondedById String?
+  study         Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([studyId, requirementId])
+  @@index([studyId])
 }
 
 model Document {
@@ -1239,4 +1361,403 @@ model AuditEvent {
   @@index([orgId, createdAt])
   @@index([studyId, createdAt])
   @@index([action])
+}
+
+model SkillContract {
+  id                String    @id @default(cuid())
+  studyId           String
+  name              String
+  version           Int       @default(1)
+  role              String
+  requirements      String[]
+  allowedTools      String[]
+  allowedEvidence   String[]
+  outputSchema      Json
+  tokenBudget       Int?
+  timeBudgetSeconds Int?
+  active            Boolean   @default(true)
+  contractHash      String
+  createdById       String
+  createdAt         DateTime  @default(now())
+  supersededAt      DateTime?
+
+  @@unique([studyId, name, version])
+  @@unique([contractHash])
+  @@index([studyId, active])
+}
+
+model WorkItem {
+  id                String         @id @default(cuid())
+  studyId           String
+  skillContractId   String
+  requestedById     String
+  idempotencyKey    String
+  status            WorkItemStatus @default(DRAFT)
+  controlState      ControlState   @default(INTAKE)
+  stopCondition     StopCondition?
+  purpose           String
+  inputHash         String
+  evidenceIds       String[]
+  allowedTools      String[]
+  tokenBudget       Int?
+  timeBudgetSeconds Int?
+  signature         String?
+  signatureKeyId    String?
+  version           Int            @default(1)
+  expiresAt         DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([studyId, idempotencyKey])
+  @@index([studyId, status])
+  @@index([skillContractId])
+}
+
+model FactProposal {
+  id           String     @id @default(cuid())
+  studyId      String
+  workItemId   String?
+  key          String
+  value        Json
+  valueHash    String
+  sourceIds    String[]
+  status       FactStatus @default(PROPOSED)
+  proposedById String
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([studyId, key, status])
+  @@index([workItemId])
+}
+
+model ProjectFact {
+  id            String     @id @default(cuid())
+  studyId       String
+  proposalId    String?
+  key           String
+  value         Json
+  valueHash     String
+  sourceIds     String[]
+  version       Int
+  status        FactStatus @default(CONFIRMED)
+  confirmedById String
+  confirmedAt   DateTime   @default(now())
+  supersedesId  String?
+  invalidatedAt DateTime?
+
+  @@unique([studyId, key, version])
+  @@index([studyId, key, status])
+}
+
+model EvidenceRecord {
+  id                 String                 @id @default(cuid())
+  studyId            String
+  sourceType         String
+  sourceLocator      String
+  sourceVersion      String?
+  contentHash        String
+  classification     EvidenceClassification
+  freshnessExpiresAt DateTime?
+  containsSensitive  Boolean                @default(false)
+  metadata           Json?
+  classifiedById     String
+  createdAt          DateTime               @default(now())
+
+  @@unique([studyId, sourceLocator, contentHash])
+  @@index([studyId, classification])
+}
+
+model DecisionRecord {
+  id           String   @id @default(cuid())
+  studyId      String
+  decisionType String
+  decision     Json
+  rationale    String
+  evidenceIds  String[]
+  artifactIds  String[]
+  decisionHash String
+  decidedById  String
+  createdAt    DateTime @default(now())
+
+  @@unique([decisionHash])
+  @@index([studyId, decisionType, createdAt])
+}
+
+model ArtifactRevision {
+  id             String   @id @default(cuid())
+  studyId        String
+  workItemId     String?
+  artifactType   String
+  revision       Int
+  contentHash    String
+  storageLocator String
+  sourceCommit   String?
+  policyVersion  String
+  immutable      Boolean  @default(true)
+  metadata       Json?
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  @@unique([studyId, artifactType, revision])
+  @@unique([studyId, contentHash])
+  @@index([workItemId])
+}
+
+model ApprovalBinding {
+  id                 String                @id @default(cuid())
+  studyId            String
+  artifactRevisionId String
+  artifactHash       String
+  sourceCommit       String?
+  policyVersion      String
+  evidenceHash       String
+  status             ApprovalBindingStatus @default(PENDING)
+  approvedById       String?
+  approvedAt         DateTime?
+  expiresAt          DateTime?
+  invalidatedAt      DateTime?
+  invalidationReason String?
+  version            Int                   @default(1)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([studyId, status])
+  @@index([artifactRevisionId])
+}
+
+model VerificationRun {
+  id                 String             @id @default(cuid())
+  studyId            String
+  workItemId         String?
+  artifactRevisionId String
+  kind               VerificationKind
+  status             VerificationStatus @default(PENDING)
+  verifier           String
+  checks             Json
+  findings           Json?
+  inputHash          String
+  outputHash         String?
+  modelProfile       String?
+  promptHash         String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime           @default(now())
+
+  @@index([studyId, artifactRevisionId, kind])
+  @@index([workItemId])
+}
+
+model ProvenanceEdge {
+  id        String   @id @default(cuid())
+  studyId   String
+  fromType  String
+  fromId    String
+  fromHash  String
+  toType    String
+  toId      String
+  toHash    String
+  relation  String
+  createdAt DateTime @default(now())
+
+  @@unique([studyId, fromId, toId, relation])
+  @@index([studyId, fromType, fromId])
+  @@index([studyId, toType, toId])
+}
+
+model DependencyInvalidation {
+  id           String             @id @default(cuid())
+  studyId      String
+  sourceType   String
+  sourceId     String
+  sourceHash   String
+  targetType   String
+  targetId     String
+  reason       String
+  status       InvalidationStatus @default(OPEN)
+  detectedAt   DateTime           @default(now())
+  resolvedById String?
+  resolvedAt   DateTime?
+
+  @@index([studyId, status])
+  @@index([targetType, targetId])
+}
+
+model QuarantineRecord {
+  id              String           @id @default(cuid())
+  studyId         String
+  sourceType      String
+  sourceLocator   String
+  contentHash     String
+  reasonCodes     String[]
+  status          QuarantineStatus @default(HELD)
+  metadata        Json?
+  quarantinedById String
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([studyId, status])
+}
+
+model ExportManifest {
+  id                String   @id @default(cuid())
+  studyId           String
+  approvalBindingId String
+  artifactIds       String[]
+  manifest          Json
+  manifestHash      String
+  signature         String
+  signatureKeyId    String
+  credentialFree    Boolean  @default(true)
+  exportedById      String
+  createdAt         DateTime @default(now())
+
+  @@unique([manifestHash])
+  @@index([studyId, createdAt])
+}
+
+model MutationReceipt {
+  id             String   @id @default(cuid())
+  studyId        String
+  actorUserId    String
+  idempotencyKey String
+  operation      String
+  requestHash    String
+  targetType     String
+  targetId       String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@unique([studyId, actorUserId, idempotencyKey])
+  @@index([studyId, operation, createdAt])
+}
+
+model AgentExecution {
+  id                 String    @id @default(cuid())
+  studyId            String
+  workItemId         String
+  role               String
+  provider           String
+  model              String
+  reasoningEffort    String?
+  promptHash         String
+  evidenceHash       String
+  outputHash         String?
+  artifactRevisionId String?
+  inputTokens        Int?
+  outputTokens       Int?
+  toolCalls          Int       @default(0)
+  stopReason         String?
+  verificationStatus String?
+  startedAt          DateTime  @default(now())
+  completedAt        DateTime?
+
+  @@index([studyId, workItemId])
+}
+
+model ProbeRun {
+  id              String         @id @default(cuid())
+  studyId         String?
+  suiteVersion    String
+  suiteHash       String
+  providerProfile String
+  repetition      Int            @default(1)
+  status          ProbeRunStatus @default(PENDING)
+  sourceManifest  Json
+  summary         Json?
+  startedById     String
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  results         ProbeResult[]
+
+  @@unique([suiteHash, providerProfile, repetition, createdAt])
+  @@index([studyId, status])
+}
+
+model ProbeResult {
+  id                    String           @id @default(cuid())
+  probeRunId            String
+  probeId               String
+  disposition           ProbeDisposition
+  expectedDisposition   String
+  expectedBlockingLayer String
+  observedBlockingLayer String?
+  expectedStopCondition String?
+  observedStopCondition String?
+  criticalEscape        Boolean          @default(false)
+  evidence              Json
+  fixtureHash           String
+  startedAt             DateTime?
+  completedAt           DateTime?
+  probeRun              ProbeRun         @relation(fields: [probeRunId], references: [id], onDelete: Cascade)
+
+  @@unique([probeRunId, probeId])
+  @@index([probeId, disposition])
+}
+
+model CaseStudyProtocol {
+  id                 String             @id @default(cuid())
+  studyId            String?
+  version            Int                @default(1)
+  protocolHash       String
+  datasetHash        String
+  datasetSchema      Json
+  trainingHospitals  Int[]
+  validationHospital Int
+  expectedCounts     Json
+  featureContract    Json
+  preprocessing      Json
+  jobSpecifications  Json
+  status             CaseStudyRunStatus @default(DRAFT)
+  approvedById       String?
+  approvedAt         DateTime?
+  createdById        String
+  createdAt          DateTime           @default(now())
+  runs               CaseStudyRun[]
+
+  @@unique([protocolHash])
+  @@index([studyId, status])
+}
+
+model CaseStudyRun {
+  id             String             @id @default(cuid())
+  protocolId     String
+  algorithm      String
+  seed           Int
+  status         CaseStudyRunStatus @default(DRAFT)
+  codeCommit     String?
+  containerImage String?
+  nvflareJobId   String?
+  resultHash     String?
+  failureReason  String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  protocol       CaseStudyProtocol  @relation(fields: [protocolId], references: [id], onDelete: Cascade)
+  metrics        CaseStudyMetric[]
+
+  @@unique([protocolId, algorithm, seed])
+  @@index([status])
+}
+
+model CaseStudyMetric {
+  id            String       @id @default(cuid())
+  runId         String
+  hospitalId    Int?
+  split         String
+  metric        String
+  value         Float
+  ciLower       Float?
+  ciUpper       Float?
+  baselineValue Float?
+  difference    Float?
+  metadata      Json?
+  run           CaseStudyRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+
+  @@unique([runId, hospitalId, split, metric])
+  @@index([metric, split])
 }

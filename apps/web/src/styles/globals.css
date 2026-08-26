@@ -4507,6 +4507,109 @@ h4.ant-typography {
   }
 }
 
+.fedlify-requirements-window {
+  border: 1px solid #ece7f5;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgba(34, 23, 74, 0.06);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fedlify-requirements-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.fedlify-requirements-active {
+  border: 1px solid #e8e1f3;
+  border-radius: 14px;
+  background: #fbfaff;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fedlify-requirements-active-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fedlify-primary);
+}
+
+.fedlify-requirements-active-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fedlify-requirements-complete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f2fbf4;
+  color: #1a7a3a;
+}
+
+.fedlify-requirements-list {
+  display: grid;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.fedlify-requirements-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #efecf7;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.fedlify-requirements-row:hover,
+.fedlify-requirements-row:focus-visible {
+  border-color: rgba(133, 118, 181, 0.4);
+  outline: none;
+}
+
+.fedlify-requirements-row.is-active {
+  border-color: var(--fedlify-primary);
+  background: #fbfaff;
+}
+
+.fedlify-requirements-row.is-answered .fedlify-requirements-row-check {
+  color: #1a7a3a;
+}
+
+.fedlify-requirements-row-id {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--fedlify-primary);
+}
+
+.fedlify-requirements-row-title {
+  font-size: 13px;
+  color: var(--fedlify-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .fedlify-pa-page.fedlify-workspace-panel {
     height: auto;

@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
 import { createGiteaTemplateProposal, GiteaApiError, isRuntimeConfigurationError } from "@/lib/gitea";
 import { ensurePublicTemplateWorkspace, ensureStudyGiteaWorkspace } from "@/lib/gitea-workspaces";
+import { requirementsGate } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
 import { missingTemplateAgentFields, templateIntakeAnswersFromAgent, type TemplateAgentIntake } from "@/lib/template-agent";
 import { detectAgentGuardrailFindings } from "@/lib/fedlify-agent-skills";
@@ -43,6 +44,18 @@ export async function POST(request: NextRequest, { params }: Params) {
   const missing = missingTemplateAgentFields(intake);
   if (missing.length > 0) {
     return problem(409, `Template intake is incomplete: ${missing.join(", ")}.`, "template_intake_incomplete");
+  }
+
+  if (session.studyId) {
+    const requirementResponses = await prisma.requirementResponse.findMany({ where: { studyId: session.studyId } });
+    const gate = requirementsGate(requirementResponses);
+    if (!gate.allowed) {
+      return problem(
+        409,
+        `Code generation is blocked until all 29 requirements are answered: ${gate.missing.join(", ")}.`,
+        "requirements_gate_blocked"
+      );
+    }
   }
 
   const name = String(intake.templateName);

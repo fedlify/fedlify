@@ -1,0 +1,8 @@
+\contentsline {section}{\numberline {1}Operational requirements}{1}{section.1}%
+\contentsline {section}{\numberline {2}Framework-by-framework scores}{3}{section.2}%
+\contentsline {section}{\numberline {3}Supplementary Note 1. Agreement between the expert assessment and two model families}{3}{section.3}%
+\contentsline {section}{\numberline {4}Supplementary Note 2. Model performance for the five NVFLARE jobs}{4}{section.4}%
+\contentsline {section}{\numberline {5}Supplementary Note 3. Probe outcomes, escapes and unexpected blocks}{6}{section.5}%
+\contentsline {section}{\numberline {6}Work-item lifecycle and stopping conditions}{9}{section.6}%
+\contentsline {section}{\numberline {7}The 144-probe specification}{10}{section.7}%
+\contentsline {section}{\numberline {8}Supplementary references}{13}{section.8}%

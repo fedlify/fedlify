@@ -1,0 +1,140 @@
+\clearpage
+
+\appendix
+\setcounter{table}{0}
+\setcounter{figure}{0}
+\renewcommand{\thetable}{A.\arabic{table}}
+
+\section*{Supplementary material}
+
+\section{Operational requirements}
+
+The 29 requirements were derived from three evidence lenses covering published guidance, reported multi-institutional
+implementations, and documented platform capability. A candidate was retained when it appeared in more than one lens
+and was explicitly discussed in the source. The set was frozen before any framework was scored.
+The resulting requirements and their definitions are listed in Table~\ref{tab:operational-requirements}.
+
+\input{table_requirements}
+
+\section{Reproducibility of the framework assessment}
+\label{app:agreement}
+
+Because the scale is ordinal, agreement is reported as quadratic-weighted Cohen's
+$\kappa$, which penalizes a disagreement in proportion to the square of the distance
+between the two scores\cite{cohen1968weighted}.
+%
+Rank-order consistency was assessed using Spearman’s correlation coefficient $\rho$\cite{spearman2010proof}.
+%
+Within-family stability across the
+three runs is additionally reported as ordinal Krippendorff's
+$\alpha$\cite{hayes2007answering}.
+%
+Table~\ref{tab:agreement} reports all comparisons. Both model families
+reproduced the expert assessment closely, with quadratic-weighted $\kappa$
+of 0.841 for Claude Opus 5 and 0.779 for GPT-5.6 Sol. Agreement between th two families was lower ($\kappa = 0.651$), and the expert assessment fell at or between the two family scores in 401 of 406 pairs. Claude Opus 5 scored lower than GPT-5.6 Sol in 189 pairs, equal in 209, and higher in 8, giving a mean signed difference of $-0.461$ points, equivalent to 15.4 percentage points of normalized coverage. 
+% Agreement improved substantially after
+% aggregation. 
+Spearman $\rho$ between the two families rose from 0.755 at pair level to 0.870 across frameworks, 0.898 across categories, and 0.858 across requirements. The evaluators therefore agreed on the lifecycle pattern more closely than on individual scores.
+
+\input{table_agreement}
+
+Two Claude Opus 5 pairs showed a two-point score range, but none received three distinct scores. Eight GPT-5.6 Sol pairs had the same range, five of which received three distinct scores. 
+Greater within-family consistency indicates more stable application of the scoring threshold and does not establish greater accuracy.
+%
+Table~\ref{tab:runs} shows coverage for each individual run. 
+% GPT-5.6 Sol run 1 is an outlier at 47.2\% against 39.1\% and 39.0\% for runs 2 and 3, which the family median attenuates but does not remove.
+
+\input{table_runs}
+
+Collapsing the scale to any documented support ($s \geq 1$), Claude Opus 5 and GPT-5.6 Sol agreed on 76.8\% of pairs ($\kappa = 0.475$), Claude Opus 5 and the expert on 90.4\% ($\kappa = 0.793$), and GPT-5.6 Sol and the expert on 85.0\% ($\kappa = 0.613$). At substantial or strong support ($s \geq 2$), the corresponding values were 77.3\% ($\kappa = 0.474$), 90.1\% ($\kappa = 0.717$), and 86.2\% ($\kappa = 0.693$). Agreement is consistently lower under binary collapse than under the ordinal scale, which indicates that evaluators concurred more on relative ranking than on whether a capability crosses a fixed threshold.
+
+Six pairs showed a two-point spread across the three assessments. FedML for
+consortium, site-readiness, and contribution planning (R02) and for update,
+retraining, rollback, retirement, and sustainability ownership (R29), OpenFL
+for fault tolerance, checkpointing, and recoverability (R22), PaddleFL for
+representativeness, heterogeneity, and partition plan (R11), FLGo for
+compute, storage, network, and availability readiness (R12), and Fedstellar
+for secure communication and update confidentiality (R18). In each case
+GPT-5.6 Sol identified implementation-level or source-level evidence absent
+from the Claude Opus 5 record.
+
+
+\section{case study performance report}
+\label{app:case_study}
+
+All five jobs train on the same five hospital cohorts with identical preprocessing and
+are evaluated on the same held-out sixth hospital, so the only difference between jobs
+is the federated algorithm. Table~\ref{tab:casestudyperformance} reports held-out
+performance, calibration, and mean per-site training performance for each.
+
+\input{table_case_study}
+
+The differentially private SGD job clips each per-example gradient to a fixed norm and
+adds calibrated noise before averaging. An initial configuration that reused the
+non-private jobs' learning rate and a clip norm of 1.0 clipped 86--98\% of per-example
+gradients on nearly every step, which prevented the model from converging (held-out
+AUROC 0.263, worse than chance). The reported run instead uses a clip norm and learning
+rate scaled to this model's gradient magnitude (clip norm 6.0, learning rate 0.05,
+plain SGD), with the noise multiplier held fixed so the noise-to-clip ratio is
+unchanged. The resulting analytical privacy-budget estimate ($\epsilon \approx 362$
+under a conservative small-$q$ approximation, $\delta = 10^{-5}$) is loose and is
+reported for completeness; it should not be read as a strong formal privacy guarantee
+at this operating point.
+
+Two of the dataset's raw vitals fields, \texttt{sao2\_periodic} and
+\texttt{temperature\_periodic}, are excluded from the feature contract used to
+produce Table~\ref{tab:casestudyperformance}. Both are missing for most stays
+(34.2\% and 97.3\%, respectively), and the missingness is not random with respect to
+the outcome: \texttt{temperature\_periodic} is recorded for only 2.7\% of patients,
+and that subset's in-hospital mortality rate (59.4\%) is roughly five times the
+cohort's overall rate (12.3\%). Excluding both fields changes external held-out
+AUROC by only 0.004--0.009 across the five approaches (e.g., FedAvg 0.973 to
+0.968); they were removed regardless of that small marginal contribution because
+their inclusion could not be justified once the pattern was identified, but their
+small effect on AUROC pointed to a larger issue.
+
+We traced that issue to the dataset's source SQL: every remaining laboratory and
+vital-sign feature in this case study (creatinine, BUN, white cell count, heart
+rate, and the rest) is constructed by the source extraction pipeline as the
+\emph{last} value recorded during the entire ICU stay (\texttt{ORDER BY
+labresultoffset DESC}, no lower or upper time bound), not a value at admission or
+within a fixed early window. For patients who die, a ``last'' lab or vital value is
+frequently taken close to death and reflects terminal physiology rather than
+presentation. This is confirmed by inspecting the query that builds the released
+CSV, not inferred from the modeling results alone. We quantified its effect
+directly: restricting the feature set to fields whose provenance is genuinely
+admission-time (age, height, weight, sex, and the diagnosis-code-derived
+comorbidity flags, none of which are last-value-in-stay constructions) drops
+held-out AUROC to 0.66 for both a linear model and a nonlinear tree ensemble --
+the two model families agreeing exactly is itself evidence that little real signal
+remains once the contaminated fields are removed, and 0.66 is in line with
+published demographics-only ICU mortality baselines. Table~\ref{tab:casestudyperformance}
+is reported using the released feature set (beyond the two excluded fields above)
+because the case study's purpose is to exercise the platform's governed
+multi-institutional workflow end to end, not to establish a validated clinical
+risk model, and changing the feature contract further would not change what the
+case study demonstrates about the platform. The reported AUROC should be read as
+an upper bound on admission-time predictive performance under this feature
+construction, not as an estimate of it. A properly time-windowed extraction
+pipeline (restricting every lab and vital to the first 24 hours of the ICU stay)
+already exists in the dataset's source repository as a set of unused SQL views,
+but was never connected to the query that produced the released CSV; regenerating
+a corrected, cohort-matched dataset requires credentialed access to the raw
+eICU-CRD tables that this evaluation did not have.
+
+\section{Probe escapes}
+\label{app:escapes}
+
+No probe passed every layer without an expected stop in this run: the majority
+classification across three live, oracle-blind repetitions records zero not-blocked
+outcomes among the 144 probes (main-text Table~1). The 56 probes that did not reach
+their oracle's exact predicted layer were, in every case, still stopped or routed
+appropriately at a different layer (wrong layer, not not-blocked); none involved
+prohibited content reaching a later artifact. These wrong-layer cases are grouped and
+described in Supplementary Note~3's case-by-case analysis rather than repeated here,
+following the suite's own reporting standard that a stated boundary with a measured
+failure rate is more informative than a stated boundary with no measurement.
+
+\section{The 144-probe specification}
+\label{app:probes}
+Nine categories of 16 probes each, which covers all 29 requirements at least four times and all design principles. Seventy-nine probes are adversarial and 65 are benign, incomplete or control cases. Probe types are abbreviated with A for adversarial and B for benign. Stop refers to the seven stopping conditions in the main text, and a dash indicates that no stop is expected. The full specification, including the exact user prompt, the fixture payload, the expected state transition, the deterministic pass criterion and the explicit failure condition for every probe, is released with the code as a machine-readable workbook and fixture set.

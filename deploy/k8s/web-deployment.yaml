@@ -35,6 +35,8 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: FEDLIFY_ORCHESTRATOR_URL
+              value: http://fedlify-agent-orchestrator.fedlify.svc.cluster.local:3020
           command: ["/bin/sh", "-c"]
           args:
             - |

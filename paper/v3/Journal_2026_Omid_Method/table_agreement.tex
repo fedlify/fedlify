@@ -1,0 +1,42 @@
+\begin{table}[H]
+\centering
+\caption{\textbf{Agreement statistics across the complete grid of 406
+framework--requirement pairs.} Within-family values summarize three isolated runs of
+the same family. Between-assessment values compare family-level medians with the
+expert assessment.}
+\label{tab:agreement}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}Xccc@{}}
+\toprule
+\rowcolor{gray!15}
+\multicolumn{4}{@{}l@{}}{\textbf{Within-family reproducibility}
+\enspace\textit{(three runs per model)}} \\
+\addlinespace[3pt]
+\textbf{Metric} & \makecell{\textbf{Claude Opus 5}\\\textit{three runs}} &
+\makecell{\textbf{GPT-5.6 Sol}\\\textit{three runs}} & \\
+\midrule
+Exact agreement (\%) & 70.4 & 50.5 & \\
+Within one point (\%) & 99.5 & 98.0 & \\
+Mean absolute difference & 0.167--0.229 & 0.328--0.365 & \\
+Weighted $\kappa$ & 0.813--0.861 & 0.751--0.757 & \\
+Krippendorff's $\alpha$ & 0.814 & 0.749 & \\
+\midrule
+\rowcolor{gray!15}
+\multicolumn{4}{@{}l@{}}{\textbf{Between-assessment agreement}
+\enspace\textit{(family medians)}} \\
+\addlinespace[3pt]
+\textbf{Metric} & \makecell{\textbf{Claude Opus 5}\\\textit{vs expert}} &
+\makecell{\textbf{GPT-5.6 Sol}\\\textit{vs expert}} &
+\makecell{\textbf{Claude Opus 5}\\\textit{vs GPT-5.6 Sol}} \\
+\midrule
+Exact agreement (\%) & 79.8 & 68.0 & 51.5 \\
+Within one point (\%) & 99.8 & 100.0 & 98.5 \\
+Mean absolute difference & 0.204 & 0.320 & 0.500 \\
+Weighted $\kappa$ & 0.841 & 0.779 & 0.651 \\
+Spearman $\rho$ & 0.856 & 0.821 & 0.755 \\
+\bottomrule
+\end{tabularx}
+\end{table}

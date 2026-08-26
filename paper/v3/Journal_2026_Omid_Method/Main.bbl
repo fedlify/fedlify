@@ -1,0 +1,540 @@
+\begin{thebibliography}{10}
+\expandafter\ifx\csname url\endcsname\relax
+  \def\url#1{\texttt{#1}}\fi
+\expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
+\providecommand{\bibinfo}[2]{#2}
+\providecommand{\eprint}[2][]{\url{#2}}
+
+\bibitem{balch2021bridging}
+\bibinfo{author}{Balch, J.}, \bibinfo{author}{Upchurch, G.~R.},
+  \bibinfo{author}{Bihorac, A.} \& \bibinfo{author}{Loftus, T.~J.}
+\newblock \bibinfo{title}{Bridging the artificial intelligence valley of death
+  in surgical decision-making}.
+\newblock \emph{\bibinfo{journal}{Surgery}} \textbf{\bibinfo{volume}{169}},
+  \bibinfo{pages}{746--748} (\bibinfo{year}{2021}).
+
+\bibitem{gallifant2025beyond}
+\bibinfo{author}{Gallifant, J.} \emph{et~al.}
+\newblock \bibinfo{title}{Beyond the algorithm: A field guide to deploying ai
+  agents in clinical practice}  (\bibinfo{year}{2025}).
+
+\bibitem{eapen2026navigating}
+\bibinfo{author}{Eapen, B.~R.} \& \bibinfo{author}{Singh, N.}
+\newblock \bibinfo{title}{Navigating the “valley of death”: An open-source,
+  modular framework for generative ai in healthcare}.
+\newblock In \emph{\bibinfo{booktitle}{Opening the Personal Gate between
+  Technology and Health Care}}, \bibinfo{pages}{1561--1562}
+  (\bibinfo{publisher}{IOS Press}, \bibinfo{year}{2026}).
+
+\bibitem{salwei2022sociotechnical}
+\bibinfo{author}{Salwei, M.~E.} \& \bibinfo{author}{Carayon, P.}
+\newblock \bibinfo{title}{A sociotechnical systems framework for the
+  application of artificial intelligence in health care delivery}.
+\newblock \emph{\bibinfo{journal}{Journal of cognitive engineering and decision
+  making}} \textbf{\bibinfo{volume}{16}}, \bibinfo{pages}{194--206}
+  (\bibinfo{year}{2022}).
+
+\bibitem{sokol2025artificial}
+\bibinfo{author}{Sokol, K.}, \bibinfo{author}{Fackler, J.} \&
+  \bibinfo{author}{Vogt, J.~E.}
+\newblock \bibinfo{title}{Artificial intelligence should genuinely support
+  clinical reasoning and decision making to bridge the translational gap}.
+\newblock \emph{\bibinfo{journal}{npj Digital Medicine}}
+  \textbf{\bibinfo{volume}{8}}, \bibinfo{pages}{345} (\bibinfo{year}{2025}).
+
+\bibitem{yang2024generalizability}
+\bibinfo{author}{Yang, J.} \emph{et~al.}
+\newblock \bibinfo{title}{Generalizability assessment of ai models across
+  hospitals in a low-middle and high income country}.
+\newblock \emph{\bibinfo{journal}{Nature Communications}}
+  \textbf{\bibinfo{volume}{15}}, \bibinfo{pages}{8270} (\bibinfo{year}{2024}).
+
+\bibitem{ong2024shortcut}
+\bibinfo{author}{Ong~Ly, C.} \emph{et~al.}
+\newblock \bibinfo{title}{Shortcut learning in medical ai hinders
+  generalization: method for estimating ai model generalization without
+  external data}.
+\newblock \emph{\bibinfo{journal}{NPJ digital medicine}}
+  \textbf{\bibinfo{volume}{7}}, \bibinfo{pages}{124} (\bibinfo{year}{2024}).
+
+\bibitem{ktena2024generative}
+\bibinfo{author}{Ktena, I.} \emph{et~al.}
+\newblock \bibinfo{title}{Generative models improve fairness of medical
+  classifiers under distribution shifts}.
+\newblock \emph{\bibinfo{journal}{Nature Medicine}}
+  \textbf{\bibinfo{volume}{30}}, \bibinfo{pages}{1166--1173}
+  (\bibinfo{year}{2024}).
+
+\bibitem{pati2022federated}
+\bibinfo{author}{Pati, S.} \emph{et~al.}
+\newblock \bibinfo{title}{Federated learning enables big data for rare cancer
+  boundary detection}.
+\newblock \emph{\bibinfo{journal}{Nature communications}}
+  \textbf{\bibinfo{volume}{13}}, \bibinfo{pages}{7346} (\bibinfo{year}{2022}).
+
+\bibitem{dayan2021federated}
+\bibinfo{author}{Dayan, I.} \emph{et~al.}
+\newblock \bibinfo{title}{Federated learning for predicting clinical outcomes
+  in patients with covid-19}.
+\newblock \emph{\bibinfo{journal}{Nature medicine}}
+  \textbf{\bibinfo{volume}{27}}, \bibinfo{pages}{1735--1743}
+  (\bibinfo{year}{2021}).
+
+\bibitem{lee2024international}
+\bibinfo{author}{Lee, E.~H.} \emph{et~al.}
+\newblock \bibinfo{title}{An international study presenting a federated
+  learning ai platform for pediatric brain tumors}.
+\newblock \emph{\bibinfo{journal}{Nature communications}}
+  \textbf{\bibinfo{volume}{15}}, \bibinfo{pages}{7615} (\bibinfo{year}{2024}).
+
+\bibitem{alami2024understanding}
+\bibinfo{author}{Alami, H.} \emph{et~al.}
+\newblock \bibinfo{title}{Understanding the integration of artificial
+  intelligence in healthcare organisations and systems through the nasss
+  framework: a qualitative study in a leading canadian academic centre}.
+\newblock \emph{\bibinfo{journal}{BMC health services research}}
+  \textbf{\bibinfo{volume}{24}}, \bibinfo{pages}{701} (\bibinfo{year}{2024}).
+
+\bibitem{hassan2024barriers}
+\bibinfo{author}{Hassan, M.}, \bibinfo{author}{Kushniruk, A.} \&
+  \bibinfo{author}{Borycki, E.}
+\newblock \bibinfo{title}{Barriers to and facilitators of artificial
+  intelligence adoption in health care: scoping review}.
+\newblock \emph{\bibinfo{journal}{JMIR Human Factors}}
+  \textbf{\bibinfo{volume}{11}}, \bibinfo{pages}{e48633}
+  (\bibinfo{year}{2024}).
+
+\bibitem{suleman2025assessing}
+\bibinfo{author}{Suleman, M.~U.} \emph{et~al.}
+\newblock \bibinfo{title}{Assessing the generalizability of artificial
+  intelligence in radiology: a systematic review of performance across
+  different clinical settings}.
+\newblock \emph{\bibinfo{journal}{Annals of Medicine and Surgery}}
+  \textbf{\bibinfo{volume}{87}}, \bibinfo{pages}{8803--8811}
+  (\bibinfo{year}{2025}).
+
+\bibitem{arun2025systematic}
+\bibinfo{author}{Arun, S.} \emph{et~al.}
+\newblock \bibinfo{title}{Systematic scoping review of external validation
+  studies of ai pathology models for lung cancer diagnosis}.
+\newblock \emph{\bibinfo{journal}{NPJ precision oncology}}
+  \textbf{\bibinfo{volume}{9}}, \bibinfo{pages}{166} (\bibinfo{year}{2025}).
+
+\bibitem{pandian2025generalizing}
+\bibinfo{author}{Pandian, B.} \emph{et~al.}
+\newblock \bibinfo{title}{Generalizing machine learning models from clinical
+  free text}.
+\newblock \emph{\bibinfo{journal}{Scientific Reports}}
+  \textbf{\bibinfo{volume}{15}}, \bibinfo{pages}{31668} (\bibinfo{year}{2025}).
+
+\bibitem{naderian2025systematic}
+\bibinfo{author}{Naderian, S.} \emph{et~al.}
+\newblock \bibinfo{title}{A systematic review of artificial intelligence-based
+  clinical decision support systems in prostate cancer management}.
+\newblock \emph{\bibinfo{journal}{Healthcare Technology Letters}}
+  \textbf{\bibinfo{volume}{12}}, \bibinfo{pages}{e70026}
+  (\bibinfo{year}{2025}).
+
+\bibitem{mcmahan2017communication}
+\bibinfo{author}{McMahan, B.}, \bibinfo{author}{Moore, E.},
+  \bibinfo{author}{Ramage, D.}, \bibinfo{author}{Hampson, S.} \&
+  \bibinfo{author}{y~Arcas, B.~A.}
+\newblock \bibinfo{title}{Communication-efficient learning of deep networks
+  from decentralized data}.
+\newblock In \emph{\bibinfo{booktitle}{Artificial intelligence and
+  statistics}}, \bibinfo{pages}{1273--1282} (\bibinfo{organization}{Pmlr},
+  \bibinfo{year}{2017}).
+
+\bibitem{ur2021federated}
+\bibinfo{author}{ur~Rehman, M.~H.} \& \bibinfo{author}{Gaber, M.~M.}
+\newblock \emph{\bibinfo{title}{Federated learning systems: Towards
+  next-generation AI}}, vol. \bibinfo{volume}{965}
+  (\bibinfo{publisher}{Springer Nature}, \bibinfo{year}{2021}).
+
+\bibitem{welten2024study}
+\bibinfo{author}{Welten, S.} \emph{et~al.}
+\newblock \bibinfo{title}{A study on interoperability between two personal
+  health train infrastructures in leukodystrophy data analysis}.
+\newblock \emph{\bibinfo{journal}{Scientific data}}
+  \textbf{\bibinfo{volume}{11}}, \bibinfo{pages}{663} (\bibinfo{year}{2024}).
+
+\bibitem{barbereau2025governance}
+\bibinfo{author}{Barbereau, T.}, \bibinfo{author}{Fernandez, J.~D.} \&
+  \bibinfo{author}{Menci, S.~P.}
+\newblock \bibinfo{title}{The governance of federated learning: a decision
+  framework for organisational archetypes}.
+\newblock \emph{\bibinfo{journal}{Data \& Policy}}
+  \textbf{\bibinfo{volume}{7}}, \bibinfo{pages}{e53} (\bibinfo{year}{2025}).
+
+\bibitem{eden2025scoping}
+\bibinfo{author}{Eden, R.} \emph{et~al.}
+\newblock \bibinfo{title}{A scoping review of the governance of federated
+  learning in healthcare}.
+\newblock \emph{\bibinfo{journal}{npj Digital Medicine}}
+  \textbf{\bibinfo{volume}{8}}, \bibinfo{pages}{427} (\bibinfo{year}{2025}).
+
+\bibitem{teo2024federated}
+\bibinfo{author}{Teo, Z.~L.} \emph{et~al.}
+\newblock \bibinfo{title}{Federated machine learning in healthcare: A
+  systematic review on clinical applications and technical architecture}.
+\newblock \emph{\bibinfo{journal}{Cell Reports Medicine}}
+  \textbf{\bibinfo{volume}{5}} (\bibinfo{year}{2024}).
+
+\bibitem{jafarinezhad2026centralized}
+\bibinfo{author}{Jafarinezhad, O.} \emph{et~al.}
+\newblock \bibinfo{title}{Centralized pooling and federated learning for
+  canadian patient-level data sharing in multicenter medical ai: A scoping
+  review}.
+\newblock \emph{\bibinfo{journal}{Artificial Intelligence in Medicine}}
+  \bibinfo{pages}{103422} (\bibinfo{year}{2026}).
+
+\bibitem{matschinske2023featurecloud}
+\bibinfo{author}{Matschinske, J.} \emph{et~al.}
+\newblock \bibinfo{title}{The featurecloud platform for federated learning in
+  biomedicine: unified approach}.
+\newblock \emph{\bibinfo{journal}{Journal of Medical Internet Research}}
+  \textbf{\bibinfo{volume}{25}}, \bibinfo{pages}{e42621}
+  (\bibinfo{year}{2023}).
+
+\bibitem{cremonesi2025fed}
+\bibinfo{author}{Cremonesi, F.} \emph{et~al.}
+\newblock \bibinfo{title}{Fed-biomed: Open, transparent and trusted federated
+  learning for real-world healthcare applications}.
+\newblock In \emph{\bibinfo{booktitle}{Federated Learning Systems: Towards
+  Privacy-Preserving Distributed AI}}, \bibinfo{pages}{19--41}
+  (\bibinfo{publisher}{Springer}, \bibinfo{year}{2025}).
+
+\bibitem{schneider2025generative}
+\bibinfo{author}{Schneider, J.}
+\newblock \bibinfo{title}{Generative to agentic ai: Survey, conceptualization,
+  and challenges}.
+\newblock \emph{\bibinfo{journal}{arXiv preprint arXiv:2504.18875}}
+  (\bibinfo{year}{2025}).
+
+\bibitem{bandi2025rise}
+\bibinfo{author}{Bandi, A.}, \bibinfo{author}{Kongari, B.},
+  \bibinfo{author}{Naguru, R.}, \bibinfo{author}{Pasnoor, S.} \&
+  \bibinfo{author}{Vilipala, S.~V.}
+\newblock \bibinfo{title}{The rise of agentic ai: A review of definitions,
+  frameworks, architectures, applications, evaluation metrics, and challenges}.
+\newblock \emph{\bibinfo{journal}{Future Internet}}
+  \textbf{\bibinfo{volume}{17}}, \bibinfo{pages}{404} (\bibinfo{year}{2025}).
+
+\bibitem{zhao2026agentic}
+\bibinfo{author}{Zhao, W.} \emph{et~al.}
+\newblock \bibinfo{title}{An agentic system for rare disease diagnosis with
+  traceable reasoning}.
+\newblock \emph{\bibinfo{journal}{Nature}} \textbf{\bibinfo{volume}{651}},
+  \bibinfo{pages}{775--784} (\bibinfo{year}{2026}).
+
+\bibitem{goh2026personalised}
+\bibinfo{author}{Goh, H.~L.} \emph{et~al.}
+\newblock \bibinfo{title}{Personalised health plan development using agentic ai
+  in singapore’s national preventive care programme: a pilot study}.
+\newblock \emph{\bibinfo{journal}{NPJ Digital Medicine}}
+  \textbf{\bibinfo{volume}{9}}, \bibinfo{pages}{332} (\bibinfo{year}{2026}).
+
+\bibitem{li2025helmsman}
+\bibinfo{author}{Li, H.}, \bibinfo{author}{Funk, M.} \& \bibinfo{author}{Saeed,
+  A.}
+\newblock \bibinfo{title}{Helmsman: Autonomous synthesis of federated learning
+  systems via collaborative llm agents}.
+\newblock \emph{\bibinfo{journal}{arXiv preprint arXiv:2510.14512}}
+  (\bibinfo{year}{2025}).
+
+\bibitem{ji2025lafa}
+\bibinfo{author}{Ji, H.} \emph{et~al.}
+\newblock \bibinfo{title}{Lafa: Agentic llm-driven federated analytics over
+  decentralized data sources}.
+\newblock In \emph{\bibinfo{booktitle}{2025 lEEE International Conference on
+  Cloud Computing Technology and Science (CloudCom)}}, \bibinfo{pages}{1--8}
+  (\bibinfo{organization}{IEEE}, \bibinfo{year}{2025}).
+
+\bibitem{isong2025federated}
+\bibinfo{author}{Isong, J.~A.}, \bibinfo{author}{Kanu, V.~I.},
+  \bibinfo{author}{Ajakwe, S.~O.} \& \bibinfo{author}{Kim, D.-S.}
+\newblock \bibinfo{title}{Federated agentic learning with adaptive privacy for
+  cardiovascular anomaly detection at the edge}.
+\newblock In \emph{\bibinfo{booktitle}{2025 16th International Conference on
+  Information and Communication Technology Convergence (ICTC)}},
+  \bibinfo{pages}{152--157} (\bibinfo{organization}{IEEE},
+  \bibinfo{year}{2025}).
+
+\bibitem{openai2026huggingface}
+\bibinfo{author}{{OpenAI}}.
+\newblock \bibinfo{title}{{OpenAI} and {Hugging Face} partner to address
+  security incident during model evaluation}.
+\newblock
+  \bibinfo{howpublished}{\url{https://openai.com/index/hugging-face-model-evaluation-security-incident/}}
+  (\bibinfo{year}{2026}).
+\newblock \bibinfo{note}{Published 21 July 2026; accessed 25 July 2026}.
+
+\bibitem{ashraf2026medcta}
+\bibinfo{author}{Ashraf, T.}, \bibinfo{author}{Jeong, H.},
+  \bibinfo{author}{Thoker, F.~M.} \& \bibinfo{author}{Ghanem, B.}
+\newblock \bibinfo{title}{Medcta: A benchmark for clinical tool agents}.
+\newblock \emph{\bibinfo{journal}{arXiv preprint arXiv:2606.11702}}
+  (\bibinfo{year}{2026}).
+
+\bibitem{li2025challenges}
+\bibinfo{author}{Li, M.}, \bibinfo{author}{Xu, P.}, \bibinfo{author}{Hu, J.},
+  \bibinfo{author}{Tang, Z.} \& \bibinfo{author}{Yang, G.}
+\newblock \bibinfo{title}{From challenges and pitfalls to recommendations and
+  opportunities: Implementing federated learning in healthcare}.
+\newblock \emph{\bibinfo{journal}{Medical image analysis}}
+  \textbf{\bibinfo{volume}{101}}, \bibinfo{pages}{103497}
+  (\bibinfo{year}{2025}).
+
+\bibitem{cohen1968weighted}
+\bibinfo{author}{Cohen, J.}
+\newblock \bibinfo{title}{Weighted kappa: Nominal scale agreement provision for
+  scaled disagreement or partial credit.}
+\newblock \emph{\bibinfo{journal}{Psychological bulletin}}
+  \textbf{\bibinfo{volume}{70}}, \bibinfo{pages}{213} (\bibinfo{year}{1968}).
+
+\bibitem{rose}
+\bibinfo{author}{Rose, S.}, \bibinfo{author}{Borchert, O.},
+  \bibinfo{author}{Mitchell, S.} \& \bibinfo{author}{Connelly, S.}
+\newblock \bibinfo{title}{Zero trust architecture}.
+\newblock \bibinfo{type}{Tech. Rep.} \bibinfo{number}{NIST SP 800-207},
+  \bibinfo{institution}{National Institute of Standards and Technology}
+  (\bibinfo{year}{2020}).
+
+\bibitem{booth}
+\bibinfo{author}{Souppaya, M.}, \bibinfo{author}{Scarfone, K.} \&
+  \bibinfo{author}{Dodson, D.}
+\newblock \bibinfo{title}{Secure software development framework ({SSDF})
+  version 1.1: Recommendations for mitigating the risk of software
+  vulnerabilities}.
+\newblock \bibinfo{type}{Tech. Rep.} \bibinfo{number}{NIST SP 800-218},
+  \bibinfo{institution}{National Institute of Standards and Technology}
+  (\bibinfo{year}{2022}).
+
+\bibitem{greshake2023not}
+\bibinfo{author}{Greshake, K.} \emph{et~al.}
+\newblock \bibinfo{title}{Not what you've signed up for: Compromising
+  real-world llm-integrated applications with indirect prompt injection}.
+\newblock In \emph{\bibinfo{booktitle}{Proceedings of the 16th ACM workshop on
+  artificial intelligence and security}}, \bibinfo{pages}{79--90}
+  (\bibinfo{year}{2023}).
+
+\bibitem{ruan2024identifying}
+\bibinfo{author}{Ruan, Y.} \emph{et~al.}
+\newblock \bibinfo{title}{Identifying the risks of lm agents with an
+  lm-emulated sandbox}.
+\newblock In \emph{\bibinfo{booktitle}{International Conference on Learning
+  Representations}}, vol. \bibinfo{volume}{2024}, \bibinfo{pages}{27031--27098}
+  (\bibinfo{year}{2024}).
+
+\bibitem{debenedetti2024agentdojo}
+\bibinfo{author}{Debenedetti, E.} \emph{et~al.}
+\newblock \bibinfo{title}{Agentdojo: A dynamic environment to evaluate prompt
+  injection attacks and defenses for llm agents}.
+\newblock \emph{\bibinfo{journal}{Advances in neural information processing
+  systems}} \textbf{\bibinfo{volume}{37}}, \bibinfo{pages}{82895--82920}
+  (\bibinfo{year}{2024}).
+
+\bibitem{chelli2024hallucination}
+\bibinfo{author}{Chelli, M.} \emph{et~al.}
+\newblock \bibinfo{title}{Hallucination rates and reference accuracy of chatgpt
+  and bard for systematic reviews: comparative analysis}.
+\newblock \emph{\bibinfo{journal}{Journal of Medical Internet Research}}
+  \textbf{\bibinfo{volume}{26}}, \bibinfo{pages}{e53164}
+  (\bibinfo{year}{2024}).
+
+\bibitem{panickssery2024llm}
+\bibinfo{author}{Panickssery, A.}, \bibinfo{author}{Bowman, S.~R.} \&
+  \bibinfo{author}{Feng, S.}
+\newblock \bibinfo{title}{Llm evaluators recognize and favor their own
+  generations}.
+\newblock In \emph{\bibinfo{booktitle}{Advances in Neural Information
+  Processing Systems}}, vol.~\bibinfo{volume}{37} (\bibinfo{year}{2024}).
+
+\bibitem{dratsch2023automation}
+\bibinfo{author}{Dratsch, T.} \emph{et~al.}
+\newblock \bibinfo{title}{Automation bias in mammography: the impact of
+  artificial intelligence bi-rads suggestions on reader performance}.
+\newblock \emph{\bibinfo{journal}{Radiology}} \textbf{\bibinfo{volume}{307}},
+  \bibinfo{pages}{e222176} (\bibinfo{year}{2023}).
+
+\bibitem{buccinca2021trust}
+\bibinfo{author}{Bu{\c{c}}inca, Z.}, \bibinfo{author}{Malaya, M.~B.} \&
+  \bibinfo{author}{Gajos, K.~Z.}
+\newblock \bibinfo{title}{To trust or to think: cognitive forcing functions can
+  reduce overreliance on ai in ai-assisted decision-making}.
+\newblock \emph{\bibinfo{journal}{Proceedings of the ACM on Human-computer
+  Interaction}} \textbf{\bibinfo{volume}{5}}, \bibinfo{pages}{1--21}
+  (\bibinfo{year}{2021}).
+
+\bibitem{PhysioNet-eicu-crd-2.0}
+\bibinfo{author}{Pollard, T.} \emph{et~al.}
+\newblock \bibinfo{title}{{eICU Collaborative Research Database}}.
+\newblock \emph{\bibinfo{journal}{{PhysioNet}}}  (\bibinfo{year}{2019}).
+\newblock \urlprefix\url{https://doi.org/10.13026/C2WM1R}.
+\newblock \bibinfo{note}{Version 2.0}.
+
+\bibitem{roth2022nvidia}
+\bibinfo{author}{Roth, H.~R.} \emph{et~al.}
+\newblock \bibinfo{title}{Nvidia flare: Federated learning from simulation to
+  real-world}.
+\newblock \emph{\bibinfo{journal}{arXiv preprint arXiv:2210.13291}}
+  (\bibinfo{year}{2022}).
+
+\bibitem{moon2024fedops}
+\bibinfo{author}{Moon, J.}, \bibinfo{author}{Yang, S.} \& \bibinfo{author}{Lee,
+  K.}
+\newblock \bibinfo{title}{Fedops: A platform of federated learning operations
+  with heterogeneity management}.
+\newblock \emph{\bibinfo{journal}{IEEE Access}} \textbf{\bibinfo{volume}{12}},
+  \bibinfo{pages}{4301--4314} (\bibinfo{year}{2024}).
+
+\bibitem{mccausland2024irb}
+\bibinfo{author}{McCausland, D.}, \bibinfo{author}{Haigh, M.},
+  \bibinfo{author}{McCallion, P.} \& \bibinfo{author}{McCarron, M.}
+\newblock \bibinfo{title}{Irb challenges in multisite studies: A case report
+  and commentary from the intellectual disability supplement to the irish
+  longitudinal study on ageing (ids-tilda)}.
+\newblock \emph{\bibinfo{journal}{HRB Open Research}}
+  \textbf{\bibinfo{volume}{7}}, \bibinfo{pages}{3} (\bibinfo{year}{2024}).
+
+\bibitem{ratnayake2024evaluating}
+\bibinfo{author}{Ratnayake, I.} \emph{et~al.}
+\newblock \bibinfo{title}{Evaluating the impact of delayed study startup on
+  accrual in cancer studies}.
+\newblock \emph{\bibinfo{journal}{Research Square}} \bibinfo{pages}{rs--3}
+  (\bibinfo{year}{2024}).
+
+\bibitem{lawrence2023quantitative}
+\bibinfo{author}{Lawrence, C.~E.} \emph{et~al.}
+\newblock \bibinfo{title}{Quantitative assessment of the impact of standard
+  agreement templates on multisite clinical trial start up time}.
+\newblock \emph{\bibinfo{journal}{Journal of clinical and translational
+  science}} \textbf{\bibinfo{volume}{7}}, \bibinfo{pages}{e204}
+  (\bibinfo{year}{2023}).
+
+\bibitem{harris2019redcap}
+\bibinfo{author}{Harris, P.~A.} \emph{et~al.}
+\newblock \bibinfo{title}{The redcap consortium: building an international
+  community of software platform partners}.
+\newblock \emph{\bibinfo{journal}{Journal of biomedical informatics}}
+  \textbf{\bibinfo{volume}{95}}, \bibinfo{pages}{103208}
+  (\bibinfo{year}{2019}).
+
+\bibitem{sterz2024quest}
+\bibinfo{author}{Sterz, S.} \emph{et~al.}
+\newblock \bibinfo{title}{On the quest for effectiveness in human oversight:
+  Interdisciplinary perspectives}.
+\newblock In \emph{\bibinfo{booktitle}{Proceedings of the 2024 ACM conference
+  on fairness, accountability, and transparency}}, \bibinfo{pages}{2495--2507}
+  (\bibinfo{year}{2024}).
+
+\bibitem{kommusaar2025roadmap}
+\bibinfo{author}{Kommusaar, J.} \emph{et~al.}
+\newblock \bibinfo{title}{A roadmap for federated learning projects using
+  health data to guide sustainable artificial intelligence development in the
+  european union}.
+\newblock \emph{\bibinfo{journal}{International Journal of Medical
+  Informatics}} \bibinfo{pages}{106242} (\bibinfo{year}{2025}).
+
+\bibitem{bujotzek2025real}
+\bibinfo{author}{Bujotzek, M.~R.} \emph{et~al.}
+\newblock \bibinfo{title}{Real-world federated learning in radiology: hurdles
+  to overcome and benefits to gain}.
+\newblock \emph{\bibinfo{journal}{Journal of the American Medical Informatics
+  Association}} \textbf{\bibinfo{volume}{32}}, \bibinfo{pages}{193--205}
+  (\bibinfo{year}{2025}).
+
+\bibitem{peltonen2026federated}
+\bibinfo{author}{Peltonen, L.-M.} \& \bibinfo{author}{Chomutare, T.}
+\newblock \bibinfo{title}{Federated learning’s uncomfortable truth: why human
+  networks matter more than neural networks}.
+\newblock \emph{\bibinfo{journal}{Journal of the American Medical Informatics
+  Association}} \bibinfo{pages}{ocag047} (\bibinfo{year}{2026}).
+
+\bibitem{schoenpflug2025navigating}
+\bibinfo{author}{Schoenpflug, L.~A.} \emph{et~al.}
+\newblock \bibinfo{title}{Navigating real-world challenges: A case study on
+  federated learning in computational pathology}.
+\newblock \emph{\bibinfo{journal}{Journal of Pathology Informatics}}
+  \bibinfo{pages}{100464} (\bibinfo{year}{2025}).
+
+\bibitem{mullie2024coda}
+\bibinfo{author}{Mullie, L.} \emph{et~al.}
+\newblock \bibinfo{title}{Coda: an open-source platform for federated analysis
+  and machine learning on distributed healthcare data}.
+\newblock \emph{\bibinfo{journal}{Journal of the American Medical Informatics
+  Association}} \textbf{\bibinfo{volume}{31}}, \bibinfo{pages}{651--665}
+  (\bibinfo{year}{2024}).
+
+\bibitem{bottomly2026pragmatic}
+\bibinfo{author}{Bottomly, D.} \emph{et~al.}
+\newblock \bibinfo{title}{A pragmatic framework for federated learning risk and
+  governance in academic medical centers}.
+\newblock \emph{\bibinfo{journal}{JMIR AI}} \textbf{\bibinfo{volume}{5}},
+  \bibinfo{pages}{e80022} (\bibinfo{year}{2026}).
+
+\bibitem{chavero2026federated}
+\bibinfo{author}{Chavero-Diez, M.}, \bibinfo{author}{Hernandez-Ferrer, C.},
+  \bibinfo{author}{Cod{\'o}, L.}, \bibinfo{author}{Gelp{\'\i}, J.~L.} \&
+  \bibinfo{author}{Capella-Guti{\'e}rrez, S.}
+\newblock \bibinfo{title}{Federated learning frameworks: quality and
+  interoperability for biomedical research}.
+\newblock \emph{\bibinfo{journal}{NAR Genomics and Bioinformatics}}
+  \textbf{\bibinfo{volume}{8}}, \bibinfo{pages}{lqag010}
+  (\bibinfo{year}{2026}).
+
+\bibitem{hayes2007answering}
+\bibinfo{author}{Hayes, A.~F.} \& \bibinfo{author}{Krippendorff, K.}
+\newblock \bibinfo{title}{Answering the call for a standard reliability measure
+  for coding data}.
+\newblock \emph{\bibinfo{journal}{Communication methods and measures}}
+  \textbf{\bibinfo{volume}{1}}, \bibinfo{pages}{77--89} (\bibinfo{year}{2007}).
+
+\bibitem{jansen2005software}
+\bibinfo{author}{Jansen, A.} \& \bibinfo{author}{Bosch, J.}
+\newblock \bibinfo{title}{Software architecture as a set of architectural
+  design decisions}.
+\newblock In \emph{\bibinfo{booktitle}{5th Working IEEE/IFIP Conference on
+  Software Architecture (WICSA'05)}}, \bibinfo{pages}{109--120}
+  (\bibinfo{organization}{IEEE}, \bibinfo{year}{2005}).
+
+\bibitem{lekadir2023futureai}
+\bibinfo{author}{Lekadir, K.} \emph{et~al.}
+\newblock \bibinfo{title}{Futureai: International consensus guideline for
+  trustworthy and deployable artificial intelligence in healthcare. arxiv
+  preprint arxiv: 230912325}  (\bibinfo{year}{2023}).
+
+\bibitem{schlegel2026lowering}
+\bibinfo{author}{Schlegel, M.}, \bibinfo{author}{Scheliga, D.},
+  \bibinfo{author}{Sattler, K.-U.}, \bibinfo{author}{Seeland, M.} \&
+  \bibinfo{author}{M{\"a}der, P.}
+\newblock \bibinfo{title}{Lowering barriers to federated learning:
+  collaboration management and provenance}.
+\newblock \emph{\bibinfo{journal}{Journal of Big Data}}
+  \textbf{\bibinfo{volume}{13}}, \bibinfo{pages}{28} (\bibinfo{year}{2026}).
+
+\bibitem{lee2023feasibility}
+\bibinfo{author}{Lee, G.~H.} \emph{et~al.}
+\newblock \bibinfo{title}{Feasibility study of federated learning on the
+  distributed research network of omop common data model}.
+\newblock \emph{\bibinfo{journal}{Healthcare Informatics Research}}
+  \textbf{\bibinfo{volume}{29}}, \bibinfo{pages}{168--173}
+  (\bibinfo{year}{2023}).
+
+\bibitem{chai2024survey}
+\bibinfo{author}{Chai, D.} \emph{et~al.}
+\newblock \bibinfo{title}{A survey for federated learning evaluations: Goals
+  and measures}.
+\newblock \emph{\bibinfo{journal}{IEEE transactions on knowledge and data
+  engineering}} \textbf{\bibinfo{volume}{36}}, \bibinfo{pages}{5007--5024}
+  (\bibinfo{year}{2024}).
+
+\bibitem{spearman2010proof}
+\bibinfo{author}{Spearman, C.}
+\newblock \bibinfo{title}{The proof and measurement of association between two
+  things}.
+\newblock \emph{\bibinfo{journal}{International journal of epidemiology}}
+  \textbf{\bibinfo{volume}{39}}, \bibinfo{pages}{1137--1150}
+  (\bibinfo{year}{2010}).
+
+\end{thebibliography}

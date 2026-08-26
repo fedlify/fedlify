@@ -303,7 +303,7 @@ export default function TemplateDetailPage() {
                           Fork to my study & open editor
                         </Button>
                         <Typography.Text type="secondary" style={{ marginLeft: 10, fontSize: 12 }}>
-                          Creates a branch in your study's Gitea workspace and opens the AI-assisted code editor.
+                          Creates a branch in your study&apos;s Gitea workspace and opens the AI-assisted code editor.
                         </Typography.Text>
                       </div>
                     )}

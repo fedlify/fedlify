@@ -33,6 +33,46 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  agent-orchestrator:
+    build:
+      context: ./services/agent-orchestrator
+    environment:
+      PORT: 3020
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      FEDLIFY_CONTROL_SIGNING_SECRET: ${FEDLIFY_CONTROL_SIGNING_SECRET:-replace-in-production}
+      FEDLIFY_ORCHESTRATOR_TOKEN: ${FEDLIFY_ORCHESTRATOR_TOKEN:-replace-in-production}
+      FEDLIFY_HOSTED_MODEL: ${FEDLIFY_HOSTED_MODEL:-gpt-5.6-sol}
+      FEDLIFY_HOSTED_REASONING_EFFORT: ${FEDLIFY_HOSTED_REASONING_EFFORT:-}
+      FEDLIFY_LOCAL_MODEL_BASE_URL: ${FEDLIFY_LOCAL_MODEL_BASE_URL:-http://host.docker.internal:11434/v1}
+      FEDLIFY_LOCAL_MODEL_NAME: ${FEDLIFY_LOCAL_MODEL_NAME:-gpt-oss:20b}
+      FEDLIFY_LOCAL_MODEL_API_KEY: ${FEDLIFY_LOCAL_MODEL_API_KEY:-}
+      FEDLIFY_CODEX_MODEL: ${FEDLIFY_CODEX_MODEL:-gpt-5.6-terra}
+      FEDLIFY_CODEX_SOURCE_ALLOWLIST: ${FEDLIFY_CODEX_SOURCE_ALLOWLIST:-}
+      FEDLIFY_AGENT_TIMEOUT_MS: ${FEDLIFY_AGENT_TIMEOUT_MS:-120000}
+      FEDLIFY_COORDINATOR_MAX_OUTPUT_TOKENS: ${FEDLIFY_COORDINATOR_MAX_OUTPUT_TOKENS:-2000}
+    ports:
+      - "3020:3020"
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
+  eicu-protocol-validator:
+    profiles: ["evaluation"]
+    build:
+      context: ./evaluation/eicu
+    command: ["python", "prepare_case_study.py", "--dataset", "/data/heart_failure_data_v2.csv", "--output", "/outputs/case-study"]
+    volumes:
+      - ${EICU_DATASET_PATH:-../eicu/GenAI-Multi-Site-Collaborative-Learning-2/data/eICU/heart_failure_data_v2.csv}:/data/heart_failure_data_v2.csv:ro
+      - fedlify-case-outputs:/outputs
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   fedlify-postgres:
   fedlify-minio:
+  fedlify-case-outputs:

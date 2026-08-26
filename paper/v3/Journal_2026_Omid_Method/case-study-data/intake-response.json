@@ -1,0 +1,43 @@
+{
+  "requestId": "cmsx56vmj00ci79fdrf85iu9e",
+  "policyVersion": "fedlify-v3.0",
+  "authoritativeLayer": "No block - proceed",
+  "disposition": "PROCEED_TO_DRAFT",
+  "stoppingCondition": "None",
+  "controlState": "WORK_ITEM_SIGNED",
+  "reasonCodes": [],
+  "requirements": [
+    "R01",
+    "R20"
+  ],
+  "selectedContractId": "cmsx56vm400cf79fd7f2ltnxd",
+  "selectedContractKey": "fedlify.bounded-preparation.v1",
+  "stateTransition": "Request received -> Authority/contract check -> Evidence assembly/classification -> Bounded draft -> Deterministic verification -> Semantic verification -> Named human gate",
+  "workItemId": "cmsx56vm700cg79fdsxjui2jb",
+  "inputHash": "2b700536e50dd57ff55a1158ad2b9237a7813d94c6b4fe39fd8be65b87ff4eb4",
+  "evidenceHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "modelConsulted": true,
+  "quarantineId": null,
+  "advisory": {
+    "intent": "STUDY_PREPARATION",
+    "requirementIds": [
+      "R01",
+      "R02"
+    ],
+    "riskSignals": [
+      "NONE"
+    ],
+    "confidence": 0.85
+  },
+  "execution": {
+    "provider": "openai",
+    "model": "gpt-4.1",
+    "promptHash": "8009b111b8f74d452d478dc49630cc0abece36b8cf7609a90f8fa0adc6b617b6",
+    "outputHash": "406a455c5b36c0b7ddeac460b6a2f029fcdb579aa9130c3fb01f5f246893356a",
+    "inputTokens": 589,
+    "outputTokens": 199,
+    "totalTokens": 788,
+    "durationMs": 2879,
+    "stopReason": "ADVISORY_COMPLETED"
+  }
+}
