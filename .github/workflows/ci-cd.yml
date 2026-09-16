@@ -55,7 +55,7 @@ jobs:
   publish:
     name: Build and publish ${{ matrix.name }}
     needs: verify
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && vars.HARBOR_REGISTRY != '' && vars.HARBOR_PROJECT != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -100,8 +100,9 @@ jobs:
     name: Update GitOps image references
     needs: publish
     if: >-
-      github.event_name == 'push' ||
+      (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.deploy)
+      ) && vars.FEDLIFY_GITOPS_REPOSITORY != '' && vars.FEDLIFY_GITOPS_PATH != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
