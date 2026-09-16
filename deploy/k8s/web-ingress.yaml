@@ -9,10 +9,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - app.fedlify.local
+        - app.fedlify.com
       secretName: fedlify-web-tls
   rules:
-    - host: app.fedlify.local
+    - host: app.fedlify.com
       http:
         paths:
           - path: /

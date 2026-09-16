@@ -35,6 +35,10 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: NEXTAUTH_URL
+              value: https://app.fedlify.com
+            - name: FEDLIFY_PUBLIC_BASE_URL
+              value: https://app.fedlify.com
             - name: FEDLIFY_ORCHESTRATOR_URL
               value: http://fedlify-agent-orchestrator.fedlify.svc.cluster.local:3020
           command: ["/bin/sh", "-c"]
