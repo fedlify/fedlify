@@ -1,0 +1,138 @@
+name: Fedlify CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Update the configured GitOps repository after publishing images
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fedlify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  verify:
+    name: Verify workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.6.12
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile=false
+      - name: Generate Prisma client
+        run: pnpm prisma:generate
+      - name: Lint web application
+        run: pnpm lint
+      - name: Test web and orchestrator services
+        run: pnpm --filter @fedlify/web test && pnpm --filter @fedlify/agent-orchestrator test
+      - name: Test agent worker
+        run: PYTHONPATH=services/agent-worker python3 -m unittest discover -s services/agent-worker/tests
+
+  publish:
+    name: Build and publish ${{ matrix.name }}
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web
+            image: fedlify-web
+            context: .
+            dockerfile: apps/web/Dockerfile
+          - name: agent-orchestrator
+            image: fedlify-agent-orchestrator
+            context: services/agent-orchestrator
+            dockerfile: services/agent-orchestrator/Dockerfile
+          - name: agent-worker
+            image: fedlify-agent-worker
+            context: .
+            dockerfile: services/agent-worker/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: Build and push immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ vars.HARBOR_REGISTRY }}/${{ vars.HARBOR_PROJECT }}/${{ matrix.image }}:${{ env.IMAGE_TAG }}
+            ${{ vars.HARBOR_REGISTRY }}/${{ vars.HARBOR_PROJECT }}/${{ matrix.image }}:branch-main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Update GitOps image references
+    needs: publish
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify deployment configuration
+        env:
+          GITOPS_REPOSITORY: ${{ vars.FEDLIFY_GITOPS_REPOSITORY }}
+          GITOPS_PATH: ${{ vars.FEDLIFY_GITOPS_PATH }}
+        run: |
+          test -n "$GITOPS_REPOSITORY"
+          test -n "$GITOPS_PATH"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.FEDLIFY_GITOPS_REPOSITORY }}
+          ref: ${{ vars.FEDLIFY_GITOPS_BRANCH || 'main' }}
+          path: gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+      - uses: imranismail/setup-kustomize@v2
+      - name: Update immutable image tags
+        working-directory: gitops/${{ vars.FEDLIFY_GITOPS_PATH }}
+        run: |
+          kustomize edit set image \
+            harbor.fedlify.local/fedlify/web=${{ vars.HARBOR_REGISTRY }}/${{ vars.HARBOR_PROJECT }}/fedlify-web:${{ env.IMAGE_TAG }} \
+            fedlify/agent-orchestrator=${{ vars.HARBOR_REGISTRY }}/${{ vars.HARBOR_PROJECT }}/fedlify-agent-orchestrator:${{ env.IMAGE_TAG }} \
+            harbor.fedlify.local/fedlify/agent-worker=${{ vars.HARBOR_REGISTRY }}/${{ vars.HARBOR_PROJECT }}/fedlify-agent-worker:${{ env.IMAGE_TAG }}
+      - name: Commit GitOps release
+        working-directory: gitops
+        run: |
+          git config user.name "fedlify-ci[bot]"
+          git config user.email "fedlify-ci[bot]@users.noreply.github.com"
+          git add "${{ vars.FEDLIFY_GITOPS_PATH }}"
+          git diff --cached --quiet && exit 0
+          git commit -m "deploy(fedlify): ${{ github.sha }}"
+          git push
