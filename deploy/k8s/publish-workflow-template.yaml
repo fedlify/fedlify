@@ -302,10 +302,6 @@ spec:
       inputs:
         parameters:
           - name: image-digest
-      retryStrategy:
-        limit: "20"
-        retryPolicy: Always
-        backoff: { duration: "15s", factor: "1", maxDuration: "15m" }
       container:
         # bitnami/kubectl tags were withdrawn from Docker Hub; alpine/k8s ships kubectl + bash. Mirrored into Harbor by scripts/mirror-helper-images.sh.
         image: harbor.fedlify.com/fedlify-mirror/alpine-k8s:1.31.13
@@ -314,12 +310,15 @@ spec:
           - |
             set -euo pipefail
             ns="study-{{workflow.parameters.study-slug}}"
-            live="$(kubectl -n "$ns" get deployment aggregator -o jsonpath='{.spec.template.spec.containers[0].image}')"
-            if [ "$live" != "{{inputs.parameters.image-digest}}" ]; then
+            # One pod that waits (a retry per check costs about 30s of pod startup each time).
+            for _ in $(seq 1 90); do
+              live="$(kubectl -n "$ns" get deployment aggregator -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+              [ "$live" = "{{inputs.parameters.image-digest}}" ] && break
               echo "Waiting for Argo CD to sync {{inputs.parameters.image-digest}} (live: ${live:-none})"
-              exit 1
-            fi
-            kubectl -n "$ns" rollout status deployment/aggregator --timeout=60s
+              sleep 10
+            done
+            [ "$live" = "{{inputs.parameters.image-digest}}" ] || { echo "Argo CD did not sync within 15 minutes" >&2; exit 1; }
+            kubectl -n "$ns" rollout status deployment/aggregator --timeout=300s
 
     - name: callback
       # The exit handler must not hang on an unpullable image: give up after 5 minutes (the web watchdog has
