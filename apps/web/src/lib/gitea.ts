@@ -15,7 +15,11 @@ type GiteaBranchResponse = {
 };
 
 type GiteaTreeResponse = {
-  tree?: Array<{ path?: string; type?: string }>;
+  tree?: Array<{ path?: string; type?: string; sha?: string }>;
+};
+
+type GiteaFilesResponse = {
+  commit?: { sha?: string };
 };
 
 type GiteaContentResponse = {
@@ -252,6 +256,69 @@ export async function upsertGiteaFile(input: {
   return giteaRequest(`/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/contents/${encodePath(input.path)}`, {
     method: sha ? "PUT" : "POST",
     body: JSON.stringify(body)
+  });
+}
+
+// Commits all changed files as one atomic commit (Gitea ChangeFiles API).
+// A file with content null is deleted. When baseCommit is given and the branch has
+// moved on, the save is rejected with a 409 so concurrent editors do not overwrite each other.
+export async function commitGiteaFiles(input: {
+  owner: string;
+  repo: string;
+  branchName: string;
+  baseCommit?: string;
+  files: Array<{ path: string; content: string | null }>;
+  message: string;
+  author?: { name: string; email: string };
+}): Promise<{ commitSha: string; changed: number }> {
+  const repoPath = `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}`;
+  const branch = await getGiteaBranch(input);
+  const headSha = branch.commit?.id ?? branch.commit?.sha;
+  if (!headSha) throw new GiteaApiError(`Branch ${input.branchName} has no head commit.`, 500);
+  if (input.baseCommit && input.baseCommit !== headSha) {
+    throw new GiteaApiError(`Branch ${input.branchName} moved to ${headSha}; reload before saving.`, 409, { headSha });
+  }
+
+  const tree = await giteaRequest<GiteaTreeResponse>(`${repoPath}/git/trees/${encodeURIComponent(headSha)}?recursive=1`);
+  const existing = new Map(
+    (tree.tree ?? []).filter((item) => item.type === "blob" && item.path && item.sha).map((item) => [item.path as string, item.sha as string])
+  );
+
+  const operations = input.files.flatMap((file): Array<{ operation: string; path: string; content?: string; sha?: string }> => {
+    const sha = existing.get(file.path);
+    if (file.content === null) return sha ? [{ operation: "delete", path: file.path, sha }] : [];
+    const content = Buffer.from(file.content).toString("base64");
+    return sha ? [{ operation: "update", path: file.path, content, sha }] : [{ operation: "create", path: file.path, content }];
+  });
+  if (operations.length === 0) return { commitSha: headSha, changed: 0 };
+
+  const result = await giteaRequest<GiteaFilesResponse>(`${repoPath}/contents`, {
+    method: "POST",
+    body: JSON.stringify({
+      branch: input.branchName,
+      message: input.message,
+      ...(input.author ? { author: input.author, committer: input.author } : {}),
+      files: operations
+    })
+  });
+  const commitSha = result.commit?.sha;
+  if (!commitSha) throw new GiteaApiError("Gitea did not return a commit for the save.", 502, result);
+  return { commitSha, changed: operations.length };
+}
+
+// Freezes a published version. Re-tagging the same commit is a no-op; a tag on another commit is a conflict.
+export async function ensureGiteaTag(input: { owner: string; repo: string; tagName: string; commitSha: string; message: string }) {
+  const repoPath = `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}`;
+  const existing = await giteaRequestNullable<{ commit?: { sha?: string } }>(`${repoPath}/tags/${encodeURIComponent(input.tagName)}`);
+  if (existing) {
+    if (existing.commit?.sha !== input.commitSha) {
+      throw new GiteaApiError(`Tag ${input.tagName} already points at another commit.`, 409, existing);
+    }
+    return existing;
+  }
+  return giteaRequest(`${repoPath}/tags`, {
+    method: "POST",
+    body: JSON.stringify({ tag_name: input.tagName, target: input.commitSha, message: input.message })
   });
 }
 

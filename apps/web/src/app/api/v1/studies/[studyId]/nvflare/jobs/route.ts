@@ -9,6 +9,7 @@ import { submitNvflareJob } from "@/lib/nvflare";
 import { pipelineRunWorkspacePath, prepareNvflareJobWorkspaceForRun, runtimeParametersForSelectedSites } from "@/lib/pipeline-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { adapterSubmitJob, adapterSystemInfo, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
 
 const submitJobSchema = z.object({
   pipelineVersionId: z.string().min(1),
@@ -102,6 +103,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     return problem(409, "Start an active NVFLARE deployment before submitting jobs.", "deployment_required");
   }
 
+  const publishedRuntime = deployment.runtimeMode === "k8s";
+  if (publishedRuntime && deployment.pipelineVersionId !== pipelineVersion.id) {
+    return problem(
+      409,
+      "The aggregator serves a different published version. Run the published version, or publish this one first.",
+      "version_not_published"
+    );
+  }
+
   const selectedSites = studySites.map((site) => ({
     studySiteId: site.id,
     siteId: site.siteId,
@@ -110,6 +120,23 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   }));
   if (selectedSites.length === 0) {
     return problem(409, "Select at least one ready participant site before submitting a job.", "no_selected_sites");
+  }
+
+  if (publishedRuntime) {
+    // Connection state comes from the aggregator itself, not from site heartbeats.
+    let connected: Set<string>;
+    try {
+      connected = new Set((await adapterSystemInfo({ studyId, adapterUrl: deployment.adapterUrl })).clients.map((client) => client.name));
+    } catch (error) {
+      if (error instanceof StudyRuntimeError) return problem(error.status, error.message, "aggregator_unreachable");
+      throw error;
+    }
+    const offline = studySites
+      .map((site) => nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }))
+      .filter((name) => !connected.has(name));
+    if (offline.length > 0) {
+      return problem(409, `These sites are not connected to the aggregator yet: ${offline.join(", ")}.`, "sites_not_connected");
+    }
   }
 
   const runtimeParameters = runtimeParametersForSelectedSites({
@@ -138,24 +165,37 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
 
   let submitted: Awaited<ReturnType<typeof submitNvflareJob>>;
   try {
-    if (!pipelineVersion.jobWorkspacePath) {
-      throw new Error("The approved pipeline version does not have a local NVFLARE job workspace path.");
+    if (publishedRuntime) {
+      // The aggregator runs the job baked into the published image; rounds and min clients are set per run.
+      const result = await adapterSubmitJob(
+        { studyId, adapterUrl: deployment.adapterUrl },
+        { jobName: `fedlify-${created.id}`, numRounds: runtimeParameters.numRounds, minClients: runtimeParameters.minClients }
+      );
+      submitted = {
+        nvflareJobId: result.nvflareJobId,
+        status: "SUBMITTED",
+        summary: `Submitted ${pipelineVersion.version} to ${deployment.hostname} for ${selectedSites.length} site(s); min_clients=${runtimeParameters.minClients}, num_rounds=${runtimeParameters.numRounds}.`
+      };
+    } else {
+      if (!pipelineVersion.jobWorkspacePath) {
+        throw new Error("The approved pipeline version does not have a local NVFLARE job workspace path.");
+      }
+      const runWorkspacePath = pipelineRunWorkspacePath({ studyId, jobId: created.id });
+      await prepareNvflareJobWorkspaceForRun({
+        sourceWorkspacePath: pipelineVersion.jobWorkspacePath,
+        destinationWorkspacePath: runWorkspacePath,
+        runtimeParameters
+      });
+      submitted = await submitNvflareJob({
+        fedlifyJobId: created.id,
+        pipelineVersionId: pipelineVersion.id,
+        selectedSiteCodes: selectedSites.map((site) => site.code),
+        deployment,
+        gitCommit: pipelineVersion.gitCommit,
+        jobWorkspacePath: runWorkspacePath,
+        runtimeParameters
+      });
     }
-    const runWorkspacePath = pipelineRunWorkspacePath({ studyId, jobId: created.id });
-    await prepareNvflareJobWorkspaceForRun({
-      sourceWorkspacePath: pipelineVersion.jobWorkspacePath,
-      destinationWorkspacePath: runWorkspacePath,
-      runtimeParameters
-    });
-    submitted = await submitNvflareJob({
-      fedlifyJobId: created.id,
-      pipelineVersionId: pipelineVersion.id,
-      selectedSiteCodes: selectedSites.map((site) => site.code),
-      deployment,
-      gitCommit: pipelineVersion.gitCommit,
-      jobWorkspacePath: runWorkspacePath,
-      runtimeParameters
-    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "FLARE API submit_job failed.";
     await prisma.$transaction([

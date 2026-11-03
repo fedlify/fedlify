@@ -44,6 +44,25 @@ describe("governance gates", () => {
     expect(gate.allowed).toBe(true);
   });
 
+  it("requires all 29 requirement answers before activation when responses are supplied", () => {
+    const partial = activationGate({
+      ...completeProtocol,
+      ethics: [{ status: "APPROVED" }],
+      studySites: [{ id: "site-1" }],
+      requirementResponses: [{ requirementId: "R01" }, { requirementId: "R02" }]
+    });
+    expect(partial.allowed).toBe(false);
+    expect(partial.missing).toEqual(["requirements (2/29 answered)"]);
+
+    const complete = activationGate({
+      ...completeProtocol,
+      ethics: [{ status: "APPROVED" }],
+      studySites: [{ id: "site-1" }],
+      requirementResponses: Array.from({ length: 29 }, (_, index) => ({ requirementId: `R${String(index + 1).padStart(2, "0")}` }))
+    });
+    expect(complete.allowed).toBe(true);
+  });
+
   it("allows activation only after study design, site, and ethics clearance", () => {
     const gate = activationGate({
       ...completeProtocol,

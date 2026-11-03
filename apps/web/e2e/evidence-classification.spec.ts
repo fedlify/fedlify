@@ -179,7 +179,7 @@ test.describe.serial("evidence classification probes, walked through the real in
       ? `${probe.id} style: real fixture deterministically classifies as "${probe.disposition}" / ${probe.authoritativeLayer}`
       : `${probe.id} style: no deterministic rule matches the real fixture, so a live model call decides`;
     test(title, async ({ playwright }) => {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
       const fixtureContent = readFixture(probe.fixture);
       const response = await intakePost(api, studyId, {
@@ -206,7 +206,7 @@ test.describe.serial("evidence classification probes, walked through the real in
   }
 
   test("depth: evidence submitted without a sourceVersion is genuinely classified UNTRUSTED by classifyEvidence, a real, separate check from the intake-text layer", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const content = "Site F external validation protocol addendum, no version tag attached.";
 
@@ -230,7 +230,7 @@ test.describe.serial("evidence classification probes, walked through the real in
   });
 
   test("depth: createSignedWorkItem genuinely refuses to sign a work item over UNTRUSTED evidence -- not just an intake-layer label, a real block on a real mutation", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const content = "Site F external validation protocol addendum, second unversioned instance.";
 

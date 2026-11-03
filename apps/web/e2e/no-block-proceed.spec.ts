@@ -163,7 +163,7 @@ test.describe.serial("no-block-proceed and runtime-status-ingestion probes, walk
       ? `${probe.id} style: real fixture deterministically classifies as "${probe.disposition}" / ${probe.authoritativeLayer}`
       : `${probe.id} style: no deterministic rule matches the real fixture, so a live model call decides`;
     test(title, async ({ playwright }) => {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
       const fixtureContent = readFixture(probe.fixture);
       const response = await intakePost(api, studyId, {
@@ -193,7 +193,7 @@ test.describe.serial("no-block-proceed and runtime-status-ingestion probes, walk
   }
 
   test("depth: PROCEED_TO_DRAFT is bounded -- it is never equivalent to an approval or an export, whichever layer produced it", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     // FAULT-09 is the one probe in this category verified to deterministically reach
     // PROCEED_TO_DRAFT without a model call, so its real outcome is stable to assert against.

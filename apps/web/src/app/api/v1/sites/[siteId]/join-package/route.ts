@@ -1,14 +1,16 @@
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
-import { directoryToArchiveMap, zipFiles } from "@/lib/archive";
+import { directoryToArchiveMap, unzipToArchiveMap, zipFiles, type ArchiveFileMap } from "@/lib/archive";
 import { audit } from "@/lib/audit";
 import { randomToken, sha256 } from "@/lib/crypto";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
 import { publicBaseUrl } from "@/lib/runtime-config";
+import { buildPublishedSiteKitFiles } from "@/lib/site-kit";
 import { buildStartupKitFiles, buildStartupPackageManifest, startupPackageChecksum } from "@/lib/site-onboarding";
-import { createPresignedDownloadUrl, objectKey, storageConfigured, uploadObject } from "@/lib/storage";
+import { createPresignedDownloadUrl, objectKey, readObject, storageConfigured, uploadObject } from "@/lib/storage";
+import { clientKitStorageKey, nvflareClientName } from "@/lib/study-runtime";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ siteId: string }> }) {
   const authResult = await requireUser();
@@ -37,6 +39,24 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     where: { studyId: studySite.studyId, active: true },
     orderBy: { updatedAt: "desc" }
   });
+  const publishedRuntime = activeDeployment?.runtimeMode === "k8s";
+  const clientName = publishedRuntime
+    ? nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site.nvflareClientName })
+    : studySite.site.nvflareClientName;
+  if (publishedRuntime) {
+    const provisioned = Array.isArray(activeDeployment.provisionedSites)
+      ? (activeDeployment.provisionedSites as Array<{ name?: string }>).some((site) => site.name === clientName)
+      : false;
+    if (activeDeployment.status !== "ACTIVE" || !activeDeployment.imageDigest || !activeDeployment.clientKitPrefix) {
+      return problem(409, "The study aggregator is not published yet. Publish the study before releasing site kits.", "aggregator_not_published");
+    }
+    if (!provisioned) {
+      return problem(409, "This site joined after the last publish. Republish the study to issue its certificate.", "site_not_provisioned");
+    }
+    if (!process.env.FEDLIFY_STUDY_PULL_USERNAME || !process.env.FEDLIFY_STUDY_PULL_PASSWORD) {
+      return problem(503, "Study image pull credentials (FEDLIFY_STUDY_PULL_USERNAME/PASSWORD) are not configured.", "registry_not_configured");
+    }
+  }
   const manifest = buildStartupPackageManifest({
     apiBaseUrl: publicBaseUrl(request.nextUrl.origin),
     studyId: studySite.studyId,
@@ -45,14 +65,39 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     siteId: studySite.site.id,
     siteCode: studySite.code,
     siteName: studySite.name,
-    nvflareClientName: studySite.site.nvflareClientName,
+    nvflareClientName: clientName,
     deployment: activeDeployment,
     expiresAt
   });
-  const startupFiles = buildStartupKitFiles(manifest);
-  const clientStartupPaths = activeDeployment?.clientStartupPaths as Record<string, string> | null | undefined;
-  const clientStartupPath = clientStartupPaths?.[studySite.id];
-  const realNvflareFiles = clientStartupPath ? await directoryToArchiveMap(clientStartupPath, "nvflare").catch(() => ({})) : {};
+  let startupFiles: ArchiveFileMap;
+  let realNvflareFiles: ArchiveFileMap;
+  let clientStartupPath: string | undefined;
+  if (publishedRuntime) {
+    try {
+      realNvflareFiles = await unzipToArchiveMap(await readObject(clientKitStorageKey(activeDeployment.clientKitPrefix!, clientName)));
+    } catch (error) {
+      return problem(
+        503,
+        `The client startup kit for ${clientName} could not be read from storage: ${error instanceof Error ? error.message : "unknown error"}`,
+        "client_kit_unavailable"
+      );
+    }
+    startupFiles = buildPublishedSiteKitFiles({
+      manifest,
+      hostname: activeDeployment.hostname!,
+      imageDigest: activeDeployment.imageDigest!,
+      registry: {
+        server: process.env.FEDLIFY_STUDY_REGISTRY ?? activeDeployment.imageDigest!.split("/")[0],
+        username: process.env.FEDLIFY_STUDY_PULL_USERNAME!,
+        password: process.env.FEDLIFY_STUDY_PULL_PASSWORD!
+      }
+    });
+  } else {
+    startupFiles = buildStartupKitFiles(manifest);
+    const clientStartupPaths = activeDeployment?.clientStartupPaths as Record<string, string> | null | undefined;
+    clientStartupPath = clientStartupPaths?.[studySite.id];
+    realNvflareFiles = clientStartupPath ? await directoryToArchiveMap(clientStartupPath, "nvflare").catch(() => ({})) : {};
+  }
   const manifestBody = await zipFiles({ ...startupFiles, ...realNvflareFiles });
   const checksum = startupPackageChecksum(manifest);
   let sizeBytes = BigInt(0);
@@ -99,7 +144,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
         storageKey,
         checksum,
         sizeBytes,
-        expiresAt
+        expiresAt,
+        deploymentId: activeDeployment?.id,
+        imageDigest: publishedRuntime ? activeDeployment.imageDigest : null
       }
     });
 
@@ -122,7 +169,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       storageError,
       deploymentId: activeDeployment?.id,
       serverAddress: activeDeployment?.serverAddress,
-      realNvflareStartupIncluded: Boolean(clientStartupPath && Object.keys(realNvflareFiles).length > 0)
+      runtimeMode: activeDeployment?.runtimeMode,
+      imageDigest: publishedRuntime ? activeDeployment.imageDigest : undefined,
+      realNvflareStartupIncluded: Object.keys(realNvflareFiles).some((path) => path.endsWith("startup/fed_client.json"))
     },
     request
   });

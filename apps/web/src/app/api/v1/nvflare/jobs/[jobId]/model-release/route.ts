@@ -6,9 +6,11 @@ import { audit } from "@/lib/audit";
 import { json, problem } from "@/lib/json";
 import {
   collectModelResultArtifacts,
+  collectModelResultArtifactsFromStorage,
   modelReleaseChecksum,
   modelReleaseStoragePrefix,
-  nextModelReleaseVersion
+  nextModelReleaseVersion,
+  resultPathAvailable
 } from "@/lib/model-results";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
@@ -53,8 +55,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
   if (!job.result.artifacts.some((artifact) => artifact.kind === "AGGREGATED_MODEL")) {
     return problem(409, "The synced result does not include an aggregated model artifact.", "model_artifact_required");
   }
-  if (!job.result.resultPath) {
-    return problem(409, "The synced result does not have a local result path. Sync the result again before promotion.", "result_path_required");
+  // The synced artifacts in object storage are the durable copy (the local result directory only exists on
+  // the local-docker runtime, and even there only until the next restart). Prefer storage when the local
+  // directory is gone; fall back to disk for local runs without storage.
+  const localAvailable = await resultPathAvailable(job.result.resultPath);
+  if (!localAvailable && !storageConfigured()) {
+    return problem(409, "The synced result is no longer available locally and object storage is not configured. Sync the result again before promotion.", "result_path_required");
   }
 
   const existingVersions = await prisma.modelRelease.findMany({
@@ -63,16 +69,18 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
   });
   const version = nextModelReleaseVersion(existingVersions.map((release) => release.version));
   const storagePrefix = modelReleaseStoragePrefix(job.studyId, version);
+  const identity = {
+    studyId: job.studyId,
+    jobId: job.id,
+    nvflareJobId: job.nvflareJobId,
+    pipelineVersionId: job.pipelineVersionId,
+    storagePrefix
+  };
   let collected: Awaited<ReturnType<typeof collectModelResultArtifacts>>;
   try {
-    collected = await collectModelResultArtifacts({
-      resultPath: job.result.resultPath,
-      studyId: job.studyId,
-      jobId: job.id,
-      nvflareJobId: job.nvflareJobId,
-      pipelineVersionId: job.pipelineVersionId,
-      storagePrefix
-    });
+    collected = localAvailable
+      ? await collectModelResultArtifacts({ ...identity, resultPath: job.result.resultPath! })
+      : await collectModelResultArtifactsFromStorage({ ...identity, storedArtifacts: job.result.artifacts });
   } catch (error) {
     return problem(
       409,

@@ -1,8 +1,29 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { collectModelResultArtifacts, nextModelReleaseVersion, parseNpyMetadata } from "@/lib/model-results";
+import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import {
+  collectModelResultArtifacts,
+  collectModelResultArtifactsFromStorage,
+  nextModelReleaseVersion,
+  parseNpyMetadata,
+  resultPathAvailable
+} from "@/lib/model-results";
+
+const storedObjects = new Map<string, Buffer>();
+vi.mock("@/lib/storage", () => ({
+  objectKey: (parts: string[]) => parts.map((part) => part.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/"),
+  readObject: async (key: string) => {
+    const body = storedObjects.get(key);
+    if (!body) throw new Error(`NoSuchKey: ${key}`);
+    return body;
+  }
+}));
+
+function sha256Hex(body: Buffer) {
+  return createHash("sha256").update(body).digest("hex");
+}
 
 function npyHeaderBuffer() {
   const magic = Buffer.from("\x93NUMPY", "latin1");
@@ -58,6 +79,43 @@ describe("model result helpers", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("reports whether the local result directory still holds the aggregated model", async () => {
+    expect(await resultPathAvailable(null)).toBe(false);
+    expect(await resultPathAvailable(path.join(os.tmpdir(), "fedlify-does-not-exist"))).toBe(false);
+    const root = await mkdtemp(path.join(os.tmpdir(), "fedlify-model-result-test-"));
+    try {
+      await mkdir(path.join(root, "workspace", "models"), { recursive: true });
+      await writeFile(path.join(root, "workspace", "models", "server.npy"), npyHeaderBuffer());
+      expect(await resultPathAvailable(root)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds the result package from object storage and verifies the recorded checksums", async () => {
+    const identity = { studyId: "study", jobId: "job", nvflareJobId: "nvflare-job", pipelineVersionId: "pv", storagePrefix: "studies/study/model-releases/model-v1.0.0" };
+    const model = npyHeaderBuffer();
+    const log = Buffer.from("completed");
+    storedObjects.set("studies/study/nvflare-jobs/job/results/server.npy", model);
+    storedObjects.set("studies/study/nvflare-jobs/job/results/log.txt", log);
+    const stored = [
+      { kind: "AGGREGATED_MODEL" as const, filename: "server.npy", contentType: "application/octet-stream", storageKey: "studies/study/nvflare-jobs/job/results/server.npy", checksum: sha256Hex(model) },
+      { kind: "LOG" as const, filename: "log.txt", contentType: "text/plain", storageKey: "studies/study/nvflare-jobs/job/results/log.txt", checksum: sha256Hex(log) }
+    ];
+
+    const result = await collectModelResultArtifactsFromStorage({ ...identity, storedArtifacts: stored });
+    expect(result.modelShape).toEqual([3, 3]);
+    expect(result.resultPath).toBe("s3://studies/study/model-releases/model-v1.0.0");
+    expect(result.artifacts.map((artifact) => artifact.kind).sort()).toEqual(["AGGREGATED_MODEL", "LOG", "MANIFEST"]);
+
+    // A stored object that no longer matches its sync-time checksum is refused.
+    storedObjects.set("studies/study/nvflare-jobs/job/results/server.npy", Buffer.from("tampered"));
+    await expect(collectModelResultArtifactsFromStorage({ ...identity, storedArtifacts: stored })).rejects.toThrow(/checksum/);
+
+    // A missing aggregated model row is refused; a missing optional artifact is skipped.
+    await expect(collectModelResultArtifactsFromStorage({ ...identity, storedArtifacts: [stored[1]] })).rejects.toThrow(/AGGREGATED_MODEL/);
   });
 });
 

@@ -51,7 +51,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     include: {
       ethics: { orderBy: { createdAt: "desc" }, take: 1 },
       studySites: { include: { site: true } },
-      nvflareDeployments: true
+      nvflareDeployments: true,
+      requirementResponses: { select: { requirementId: true } }
     }
   });
   if (!study) return problem(404, "Study not found.", "not_found");
@@ -71,7 +72,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     dataHandlingPlan: study.dataHandlingPlan,
     intendedUse: study.intendedUse,
     ethics: study.ethics,
-    studySites: study.studySites
+    studySites: study.studySites,
+    requirementResponses: study.requirementResponses
   });
   if (!gate.allowed) {
     return problem(409, `NVFLARE deployment provisioning is blocked by missing requirements: ${gate.missing.join(", ")}.`, "activation_gate");

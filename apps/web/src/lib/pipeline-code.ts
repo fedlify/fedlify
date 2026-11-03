@@ -346,6 +346,14 @@ export async function prepareNvflareJobWorkspaceForRun(input: {
   await writeFile(serverConfigPath, serverConfig);
 }
 
+const prohibitedPathPatterns = [/patient/i, /patients/i, /clinical[-_ ]?extract/i, /raw[-_ ]?data/i, /\.csv$/i, /\.parquet$/i];
+
+// Pipeline repositories carry code only; data-like paths must never reach Gitea.
+export function isProhibitedDataPath(filePath: string): boolean {
+  if (filePath === "README.md" || filePath === "fedlify-pipeline.json") return false;
+  return prohibitedPathPatterns.some((pattern) => pattern.test(filePath));
+}
+
 export function validatePipelineFiles(files: PipelineFile[]): PipelineValidationResult {
   const paths = new Set(files.map((file) => file.path));
   const requiredBase = ["README.md", "fedlify-pipeline.json"];
@@ -364,10 +372,8 @@ export function validatePipelineFiles(files: PipelineFile[]): PipelineValidation
       errors.push(`Missing required file: ${missing}`);
     }
   }
-  const prohibitedPathPatterns = [/patient/i, /patients/i, /clinical[-_ ]?extract/i, /raw[-_ ]?data/i, /\.csv$/i, /\.parquet$/i];
-
   for (const file of files) {
-    if (file.path !== "README.md" && file.path !== "fedlify-pipeline.json" && prohibitedPathPatterns.some((pattern) => pattern.test(file.path))) {
+    if (isProhibitedDataPath(file.path)) {
       errors.push(`Pipeline bundle contains a prohibited data-like path: ${file.path}`);
     }
   }

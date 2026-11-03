@@ -1,0 +1,31 @@
+{
+  "packageType": "fedlify-study-pipeline",
+  "schemaVersion": 1,
+  "name": "Heart failure in-hospital mortality (FedAvg logistic regression)",
+  "entrypoint": "client.py",
+  "dataBoundary": "site-only",
+  "dataContract": {
+    "format": "csv",
+    "location": "FEDLIFY_DATA_PATH (a CSV file, or a folder of CSV files, mounted read-only at each site)",
+    "label": "hospitaldischargestatus",
+    "positiveValue": "Expired",
+    "features": [
+      "age", "admissionheight", "admissionweight", "creatinine", "chloride", "glucose", "hct", "hgb",
+      "platelets_x_1000", "ptt", "pt", "sodium", "bun", "wbc_x_1000", "mchc", "rbc", "rdw", "heartrate",
+      "o2_saturation", "respiratory_rate", "sao2_periodic", "temperature_periodic", "diabetes", "sepsis",
+      "hypertension", "chronic_kidney_disease", "copd"
+    ],
+    "minimumRows": 50
+  },
+  "hyperparameters": {
+    "learningRate": 0.1,
+    "localEpochs": 5,
+    "l2": 0.001,
+    "validationFraction": 0.2,
+    "seed": 42
+  },
+  "runtimeDefaults": {
+    "numRounds": 5,
+    "minClients": 2
+  }
+}

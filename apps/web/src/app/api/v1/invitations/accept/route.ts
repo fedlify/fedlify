@@ -6,19 +6,19 @@ import { sha256 } from "@/lib/crypto";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 
-const acceptSchema = z.object({
-  token: z.string().min(20)
-});
+// Either the emailed token or, for the signed-in recipient acting from the dashboard, the invitation id.
+// Both paths require the signed-in email to match the invitation, so the id form grants nothing extra.
+const acceptSchema = z.union([z.object({ token: z.string().min(20) }), z.object({ invitationId: z.string().min(1) })]);
 
 export async function POST(request: NextRequest) {
   const authResult = await requireUser();
   if ("response" in authResult) return authResult.response;
 
-  const parsed = acceptSchema.safeParse(await request.json());
+  const parsed = acceptSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return problem(400, "Invalid invitation token.");
 
   const invitation = await prisma.invitation.findUnique({
-    where: { tokenHash: sha256(parsed.data.token) },
+    where: "token" in parsed.data ? { tokenHash: sha256(parsed.data.token) } : { id: parsed.data.invitationId },
     include: { study: true }
   });
 

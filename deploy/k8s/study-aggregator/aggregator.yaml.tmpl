@@ -1,0 +1,190 @@
+# Rendered by the publish workflow into fedlify-gitops: studies/${SLUG}/aggregator.yaml
+# (python string.Template placeholders). Argo CD's "fedlify-studies" ApplicationSet syncs it.
+#
+# Hospitals reach ${HOSTNAME}:443; ingress-nginx passes the TLS stream through untouched (routed by
+# SNI) to the NVFLARE server on 8002. The FLARE API adapter is a sidecar that reaches the admin port
+# via hostAliases (${HOSTNAME} -> 127.0.0.1), so admin traffic never leaves the pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aggregator-workspace
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: fedlify-aggregator
+    fedlify.com/study-id: "${STUDY_ID}"
+    fedlify.com/study-slug: "${SLUG}"
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: fedlify-aggregator
+    fedlify.com/study-id: "${STUDY_ID}"
+    fedlify.com/study-slug: "${SLUG}"
+  annotations:
+    fedlify.com/deployment-id: "${DEPLOYMENT_ID}"
+    fedlify.com/pipeline-version-id: "${PIPELINE_VERSION_ID}"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fedlify-aggregator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fedlify-aggregator
+        fedlify.com/study-id: "${STUDY_ID}"
+        fedlify.com/study-slug: "${SLUG}"
+      annotations:
+        # Changing the image (republish) or the kit generation (re-provision) rolls the aggregator.
+        fedlify.com/kit-generation: "${KIT_GENERATION}"
+    spec:
+      hostAliases:
+        - ip: "127.0.0.1"
+          hostnames: ["${HOSTNAME}"]
+      imagePullSecrets:
+        - name: harbor-registry
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      initContainers:
+        - name: unpack-kits
+          image: ${IMAGE}
+          command: ["sh", "-c", "mkdir -p /kits/server /kits/admin && tar -xzf /secrets/server-kit.tgz -C /kits/server && tar -xzf /secrets/admin-kit.tgz -C /kits/admin"]
+          volumeMounts:
+            - { name: kit-secrets, mountPath: /secrets, readOnly: true }
+            - { name: kits, mountPath: /kits }
+      containers:
+        - name: nvflare-server
+          image: ${IMAGE}
+          args: ["server"]
+          env:
+            - { name: FEDLIFY_KIT_DIR, value: /kits/server }
+            - { name: FEDLIFY_WORKSPACE_DIR, value: /workspace/participant }
+          ports:
+            - { name: fl, containerPort: 8002 }
+            - { name: admin, containerPort: 8003 }
+          readinessProbe:
+            tcpSocket: { port: fl }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "2", memory: 4Gi }
+          volumeMounts:
+            - { name: kits, mountPath: /kits, readOnly: true }
+            - { name: workspace, mountPath: /workspace }
+        - name: flare-adapter
+          image: ${IMAGE}
+          command: ["python3", "-u", "/opt/fedlify/adapter/fedlify_flare_api_adapter.py"]
+          env:
+            - { name: NVFLARE_FLARE_API_HOST, value: "0.0.0.0" }
+            - { name: NVFLARE_FLARE_API_PORT, value: "3010" }
+            - { name: FEDLIFY_ADMIN_KIT_DIR, value: /kits/admin }
+            - { name: FEDLIFY_SERVER_WORKSPACE, value: /workspace/participant }
+            - name: FEDLIFY_ADAPTER_TOKEN
+              valueFrom:
+                secretKeyRef: { name: fedlify-adapter, key: token }
+          ports:
+            - { name: adapter, containerPort: 3010 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: adapter }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - { name: kits, mountPath: /kits, readOnly: true }
+            - { name: workspace, mountPath: /workspace, readOnly: true }
+      volumes:
+        - name: kit-secrets
+          secret:
+            secretName: nvflare-kits
+        - name: kits
+          emptyDir: {}
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: aggregator-workspace
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggregator
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: fedlify-aggregator
+    fedlify.com/study-id: "${STUDY_ID}"
+    fedlify.com/study-slug: "${SLUG}"
+spec:
+  selector:
+    app.kubernetes.io/name: fedlify-aggregator
+  ports:
+    - { name: fl, port: 8002, targetPort: fl }
+    - { name: adapter, port: 3010, targetPort: adapter }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aggregator
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: fedlify-aggregator
+    fedlify.com/study-id: "${STUDY_ID}"
+    fedlify.com/study-slug: "${SLUG}"
+  annotations:
+    # Raw TLS passthrough routed by SNI: NVFLARE terminates its own mutual TLS.
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    external-dns.alpha.kubernetes.io/expose: "true"
+    external-dns.alpha.kubernetes.io/hostname: "${HOSTNAME}"
+    external-dns.alpha.kubernetes.io/target: "${INGRESS_TARGET}"
+    # Cloudflare's proxy only carries HTTP(S); NVFLARE gRPC/mTLS must go straight to the cluster.
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "${HOSTNAME}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aggregator
+                port: { name: fl }
+---
+# Only the Fedlify web app (namespace fedlify) and ingress-nginx may reach the aggregator pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aggregator
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: fedlify-aggregator
+    fedlify.com/study-id: "${STUDY_ID}"
+    fedlify.com/study-slug: "${SLUG}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fedlify-aggregator
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports:
+        - { port: 8002 }
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: fedlify }
+      ports:
+        - { port: 3010 }

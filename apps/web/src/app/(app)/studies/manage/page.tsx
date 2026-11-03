@@ -26,6 +26,7 @@ import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { CardListState } from "@/components/LoadStates";
 import { FormError } from "@/components/FormFeedback";
 import { IntakeSteps } from "@/components/IntakeSteps";
+import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { StatusTag } from "@/components/StatusTag";
 import {
   CLINICAL_USE_CASE_OPTIONS,
@@ -384,6 +385,12 @@ export default function ManageStudiesPage() {
           </>
         ) : (
           <>
+            <PendingInvitationsCard
+              onAccepted={(studyId) => {
+                void load();
+                router.push(`/studies/${studyId}`);
+              }}
+            />
             <AppPageHeader
               title="Study management"
               subtitle="Create, open, edit, archive, or restore governed study workspaces."

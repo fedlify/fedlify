@@ -12,6 +12,16 @@ export async function zipFiles(files: ArchiveFileMap): Promise<Buffer> {
   return Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 }
 
+export async function unzipToArchiveMap(body: Buffer): Promise<ArchiveFileMap> {
+  const zip = await JSZip.loadAsync(body);
+  const files: ArchiveFileMap = {};
+  for (const entry of Object.values(zip.files)) {
+    if (entry.dir || entry.name.split("/").includes("..")) continue;
+    files[entry.name] = await entry.async("nodebuffer");
+  }
+  return files;
+}
+
 async function addDirectory(zip: JSZip, directory: string, prefix: string) {
   const entries = await readdir(directory);
   for (const entry of entries) {

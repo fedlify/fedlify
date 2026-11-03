@@ -162,7 +162,8 @@ export async function POST(request: NextRequest) {
           dataHandlingPlan: parsed.data.dataHandlingPlan,
           intendedUse: parsed.data.intendedUse,
           ethics: [],
-          studySites: []
+          studySites: [],
+          requirementResponses: []
         }).status,
         createdById: authResult.userId,
         status: "DRAFT"

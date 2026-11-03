@@ -222,7 +222,7 @@ test.describe.serial("deterministic + semantic verifier probes, walked through t
       ? `${probe.id} style: real fixture deterministically classifies as "${probe.disposition}" / ${probe.authoritativeLayer}`
       : `${probe.id} style: no deterministic rule matches the real fixture, so a live model call decides`;
     test(title, async ({ playwright }) => {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
       const fixtureContent = readFixture(probe.fixture);
       const response = await intakePost(api, studyId, {
@@ -249,7 +249,7 @@ test.describe.serial("deterministic + semantic verifier probes, walked through t
   }
 
   test("EVID-02 style depth: recordVerification ignores a caller's false PASSED claim and independently fails a hash-mismatched artifact for real", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const suffix = randomUUID().slice(0, 10);
     const badContent = 'expected_evidence_hash: "sha256:AAA"\nobserved_evidence_hash: "sha256:BBB"\n';
@@ -290,7 +290,7 @@ test.describe.serial("deterministic + semantic verifier probes, walked through t
   });
 
   test("EVID-05 style depth: recordVerification also corrects a false FAILED claim back to PASSED on genuinely clean content -- real bidirectional recomputation", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const suffix = randomUUID().slice(0, 10);
     // Deliberately clean: a single, consistent outcome definition with no conflicting claim

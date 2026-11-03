@@ -6,6 +6,7 @@ import { abortNvflareJob } from "@/lib/nvflare";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { adapterAbortJob, StudyRuntimeError } from "@/lib/study-runtime";
 
 const abortSchema = z.object({
   reason: z.string().trim().max(1000).optional()
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
   const parsed = abortSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid abort request.");
 
-  const job = await prisma.nvflareJob.findUnique({ where: { id: jobId }, include: { study: true } });
+  const job = await prisma.nvflareJob.findUnique({ where: { id: jobId }, include: { study: true, deployment: true } });
   if (!job) return problem(404, "NVFLARE job not found.", "not_found");
 
   try {
@@ -33,7 +34,21 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
     return problem(409, `Job ${job.status} cannot be aborted.`, "invalid_state");
   }
 
-  const result = await abortNvflareJob({ nvflareJobId: job.nvflareJobId, reason: parsed.data.reason });
+  let result: Awaited<ReturnType<typeof abortNvflareJob>>;
+  if (job.deployment?.runtimeMode === "k8s") {
+    try {
+      if (job.nvflareJobId) await adapterAbortJob({ studyId: job.studyId, adapterUrl: job.deployment.adapterUrl }, job.nvflareJobId);
+    } catch (error) {
+      if (error instanceof StudyRuntimeError) return problem(error.status, error.message, "aggregator_unreachable");
+      throw error;
+    }
+    result = {
+      status: "ABORTED",
+      summary: `Abort requested on ${job.deployment.hostname} for ${job.nvflareJobId ?? "unsubmitted job"}${parsed.data.reason ? `: ${parsed.data.reason}` : "."}`
+    };
+  } else {
+    result = await abortNvflareJob({ nvflareJobId: job.nvflareJobId, reason: parsed.data.reason });
+  }
   const updated = await prisma.$transaction(async (tx) => {
     const next = await tx.nvflareJob.update({
       where: { id: jobId },

@@ -5,19 +5,23 @@ namespace: fedlify
 
 resources:
   - namespace.yaml
+  - postgres.yaml
+  - minio.yaml
   - web-deployment.yaml
   - web-service.yaml
   - web-ingress.yaml
   - agent-workflow-template.yaml
+  - pipeline-workflow-template.yaml
+  - publish-workflow-template.yaml
   - agent-orchestrator-config.yaml
   - agent-orchestrator-deployment.yaml
   - agent-orchestrator-service.yaml
 
 images:
-  - name: harbor.fedlify.local/fedlify/web
-    newTag: latest
-  - name: harbor.fedlify.local/fedlify/agent-worker
+  - name: harbor.fedlify.com/fedlify/web
+    newTag: r20261103-4
+  - name: harbor.fedlify.com/fedlify/agent-worker
     newTag: latest
   - name: fedlify/agent-orchestrator
-    newName: harbor.fedlify.local/fedlify/agent-orchestrator
-    newTag: latest
+    newName: harbor.fedlify.com/fedlify/agent-orchestrator
+    newTag: r20261022-1

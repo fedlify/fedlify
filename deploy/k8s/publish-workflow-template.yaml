@@ -1,0 +1,382 @@
+# Publish = saved commit -> validated -> study image in Harbor -> (kits) -> aggregator live at <slug>.fedlify.com.
+# Submitted by the Fedlify web app (POST /api/v1/studies/{id}/pipeline-projects/{id}/publish).
+#
+# Secrets expected in namespace fedlify:
+#   gitea-credentials           baseUrl, username, token          (clone study repo)
+#   gitops-write                repoUrl, branch, username, token, authorName, authorEmail
+#   harbor-registry-credentials registry, username, password      (push to fedlify-studies)
+#   harbor-studies-pull         registry, username, password      (read-only robot: aggregator + sites pull)
+#   fedlify-adapter-signing     secret                            (adapter token = HMAC(secret, "adapter:"+studyId))
+#   fedlify-artifacts-s3        endpoint, region, bucket, accessKeyId, secretAccessKey
+#   argo-webhook-secret         secret                            (HMAC for callbacks)
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: fedlify-study-publish
+  labels:
+    app.kubernetes.io/name: fedlify-study-publish
+spec:
+  entrypoint: publish
+  onExit: report-exit
+  serviceAccountName: fedlify-pipeline-ci
+  ttlStrategy:
+    secondsAfterCompletion: 86400
+  podGC:
+    strategy: OnWorkflowSuccess
+  activeDeadlineSeconds: 3600
+  arguments:
+    parameters:
+      - name: pipeline-version-id
+      - name: ci-run-id
+      - name: deployment-id
+      - name: study-id
+      - name: study-slug
+      - name: hostname
+      - name: gitea-owner
+      - name: gitea-repo
+      - name: git-commit
+      - name: version-tag
+      - name: sites-json            # [{"name": "site_a"}, ...] NVFLARE client names
+      - name: provision             # "true" on first publish or when the site list changed
+      - name: kit-generation        # bumps the aggregator rollout when kits change
+      - name: callback-url
+      - name: base-image
+        value: harbor.fedlify.com/fedlify/nvflare-base:branch-main
+      - name: study-image-repo
+        value: harbor.fedlify.com/fedlify-studies
+      - name: ingress-target
+        value: 206.12.103.4
+  volumeClaimTemplates:
+    - metadata:
+        name: work
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 4Gi
+
+  templates:
+    - name: publish
+      steps:
+        - - name: clone-validate
+            template: clone-validate
+        - - name: build-image
+            template: build-image
+        - - name: provision-kits
+            template: provision-kits
+            when: "{{workflow.parameters.provision}} == true"
+        - - name: prepare-namespace
+            template: prepare-namespace
+        - - name: upload-client-kits
+            template: upload-client-kits
+            when: "{{workflow.parameters.provision}} == true"
+        - - name: update-gitops
+            template: update-gitops
+            arguments:
+              parameters:
+                - name: image-digest
+                  value: "{{steps.build-image.outputs.parameters.image-digest}}"
+        - - name: wait-ready
+            template: wait-ready
+            arguments:
+              parameters:
+                - name: image-digest
+                  value: "{{steps.build-image.outputs.parameters.image-digest}}"
+        - - name: report-published
+            template: callback
+            arguments:
+              parameters:
+                - { name: phase, value: Succeeded }
+                - { name: stage, value: published }
+                - { name: image-digest, value: "{{steps.build-image.outputs.parameters.image-digest}}" }
+                - { name: summary, value: "Aggregator live at {{workflow.parameters.hostname}}:443." }
+
+    - name: report-exit
+      steps:
+        - - name: callback
+            template: callback
+            when: "{{workflow.status}} != Succeeded"
+            arguments:
+              parameters:
+                - { name: phase, value: "{{workflow.status}}" }
+                - { name: stage, value: failed }
+                - { name: image-digest, value: "" }
+                - { name: summary, value: "Publish {{workflow.status}}: {{workflow.failures}}" }
+
+    # 1. Clone the exact saved commit, run the same checks as deploy/local-e2e, stage the build context.
+    - name: clone-validate
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            repo_url="${GITEA_BASE_URL%/}/{{workflow.parameters.gitea-owner}}/{{workflow.parameters.gitea-repo}}.git"
+            git -c "http.extraHeader=Authorization: token ${GITEA_TOKEN}" clone --quiet "$repo_url" /work/repo
+            cd /work/repo
+            git checkout --quiet --detach "{{workflow.parameters.git-commit}}"
+            python3 /opt/fedlify/runtime/validate_repo.py /work/repo
+            if grep -qvE '^[[:space:]]*(#|$)' requirements.txt 2>/dev/null; then
+              pip install --quiet --target /work/pydeps -r requirements.txt
+            fi
+            if [ -d tests ]; then
+              PYTHONPATH="/work/pydeps:/work/repo:${PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
+            fi
+            rm -rf .git /work/pydeps
+            cp /opt/fedlify/runtime/study.Dockerfile /work/Dockerfile
+            # Adapter token = HMAC(signing secret, "adapter:<studyId>"); the web app derives the same value.
+            python3 -c 'import hmac,hashlib,os,sys; sys.stdout.write(hmac.new(os.environ["ADAPTER_SIGNING_SECRET"].encode(), ("adapter:" + sys.argv[1]).encode(), hashlib.sha256).hexdigest())' \
+              "{{workflow.parameters.study-id}}" > /work/adapter-token
+        env:
+          - name: ADAPTER_SIGNING_SECRET
+            valueFrom: { secretKeyRef: { name: fedlify-adapter-signing, key: secret } }
+          - name: GITEA_BASE_URL
+            valueFrom: { secretKeyRef: { name: gitea-credentials, key: baseUrl } }
+          - name: GITEA_TOKEN
+            valueFrom: { secretKeyRef: { name: gitea-credentials, key: token } }
+          - { name: HOME, value: /tmp }
+        securityContext: { runAsUser: 0 }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 2. Unprivileged kaniko build: base image + study code at /opt/fedlify/code, pushed by digest.
+    - name: build-image
+      outputs:
+        parameters:
+          - name: image-digest
+            valueFrom: { path: /work/image-digest }
+      container:
+        image: gcr.io/kaniko-project/executor:v1.23.2-debug
+        command: ["/busybox/sh", "-c"]
+        args:
+          - |
+            set -eu
+            auth="$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 | tr -d '\n')"
+            printf '{"auths":{"%s":{"auth":"%s"}}}' "$HARBOR_REGISTRY" "$auth" > /kaniko/.docker/config.json
+            repo="{{workflow.parameters.study-image-repo}}/{{workflow.parameters.study-slug}}"
+            /kaniko/executor \
+              --context=dir:///work/repo \
+              --dockerfile=/work/Dockerfile \
+              --build-arg=BASE_IMAGE={{workflow.parameters.base-image}} \
+              --build-arg=GIT_COMMIT={{workflow.parameters.git-commit}} \
+              --build-arg=STUDY_SLUG={{workflow.parameters.study-slug}} \
+              --build-arg=PIPELINE_VERSION={{workflow.parameters.version-tag}} \
+              --destination="${repo}:{{workflow.parameters.version-tag}}" \
+              --digest-file=/work/digest-only
+            printf '%s@%s' "$repo" "$(cat /work/digest-only)" > /work/image-digest
+            echo "Published $(cat /work/image-digest)"
+        env:
+          - name: HARBOR_REGISTRY
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: registry } }
+          - name: REGISTRY_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: username } }
+          - name: REGISTRY_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: password } }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 3. Issue NVFLARE kits for <slug>.fedlify.com and the study's sites (same code as local e2e).
+    - name: provision-kits
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            python3 -m fedlify_runtime.provision \
+              --hostname "{{workflow.parameters.hostname}}" \
+              --sites '{{workflow.parameters.sites-json}}' \
+              --out /work/kits
+            rm -rf /work/kits/kits
+        securityContext: { runAsUser: 0 }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 4. Study namespace with the kits Secret, the adapter token, and the read-only pull secret.
+    - name: prepare-namespace
+      container:
+        image: bitnami/kubectl:1.31.4
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            ns="study-{{workflow.parameters.study-slug}}"
+            kubectl create namespace "$ns" --dry-run=client -o yaml \
+              | kubectl label --local -f - fedlify.com/study-id="{{workflow.parameters.study-id}}" app.kubernetes.io/managed-by=fedlify -o yaml \
+              | kubectl apply -f -
+            kubectl -n "$ns" create secret generic fedlify-adapter --from-file=token=/work/adapter-token --dry-run=client -o yaml | kubectl apply -f -
+            kubectl -n "$ns" create secret docker-registry harbor-registry \
+              --docker-server="$PULL_REGISTRY" --docker-username="$PULL_USERNAME" --docker-password="$PULL_PASSWORD" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            if [ -f /work/kits/server-kit.tgz ]; then
+              kubectl -n "$ns" create secret generic nvflare-kits \
+                --from-file=server-kit.tgz=/work/kits/server-kit.tgz \
+                --from-file=admin-kit.tgz=/work/kits/admin-kit.tgz \
+                --dry-run=client -o yaml | kubectl apply -f -
+            fi
+            kubectl -n "$ns" get secret nvflare-kits >/dev/null
+        env:
+          - name: PULL_REGISTRY
+            valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: registry } }
+          - name: PULL_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: username } }
+          - name: PULL_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: password } }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 5. Client kits go to object storage; the web app packages each one into that site's join kit.
+    - name: upload-client-kits
+      container:
+        image: amazon/aws-cli:2.17.0
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            endpoint_args=()
+            [ -n "${S3_ENDPOINT:-}" ] && endpoint_args=(--endpoint-url "$S3_ENDPOINT")
+            aws "${endpoint_args[@]}" s3 cp --recursive /work/kits/clients \
+              "s3://${S3_BUCKET}/studies/{{workflow.parameters.study-id}}/deployments/{{workflow.parameters.deployment-id}}/clients/"
+        env:
+          - name: S3_ENDPOINT
+            valueFrom: { secretKeyRef: { name: fedlify-artifacts-s3, key: endpoint } }
+          - name: AWS_DEFAULT_REGION
+            valueFrom: { secretKeyRef: { name: fedlify-artifacts-s3, key: region } }
+          - name: S3_BUCKET
+            valueFrom: { secretKeyRef: { name: fedlify-artifacts-s3, key: bucket } }
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom: { secretKeyRef: { name: fedlify-artifacts-s3, key: accessKeyId } }
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom: { secretKeyRef: { name: fedlify-artifacts-s3, key: secretAccessKey } }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 6. Write studies/<slug>/ into fedlify-gitops; the fedlify-studies ApplicationSet deploys it.
+    - name: update-gitops
+      inputs:
+        parameters:
+          - name: image-digest
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            git -c "http.extraHeader=Authorization: token ${GITOPS_TOKEN}" clone --quiet "$GITOPS_REPO_URL" /tmp/gitops
+            cd /tmp/gitops
+            git checkout --quiet -B "$GITOPS_BRANCH" "origin/$GITOPS_BRANCH" 2>/dev/null || git checkout --quiet -B "$GITOPS_BRANCH"
+            python3 -m fedlify_runtime.render_aggregator --gitops-dir /tmp/gitops \
+              --path "studies/{{workflow.parameters.study-slug}}" \
+              --var SLUG="{{workflow.parameters.study-slug}}" \
+              --var NAMESPACE="study-{{workflow.parameters.study-slug}}" \
+              --var HOSTNAME="{{workflow.parameters.hostname}}" \
+              --var IMAGE="{{inputs.parameters.image-digest}}" \
+              --var STUDY_ID="{{workflow.parameters.study-id}}" \
+              --var DEPLOYMENT_ID="{{workflow.parameters.deployment-id}}" \
+              --var PIPELINE_VERSION_ID="{{workflow.parameters.pipeline-version-id}}" \
+              --var KIT_GENERATION="{{workflow.parameters.kit-generation}}" \
+              --var INGRESS_TARGET="{{workflow.parameters.ingress-target}}"
+            git config user.name "$GIT_AUTHOR_NAME"
+            git config user.email "$GIT_AUTHOR_EMAIL"
+            git add "studies/{{workflow.parameters.study-slug}}"
+            git commit --quiet -m "Publish {{workflow.parameters.study-slug}} {{workflow.parameters.version-tag}} ({{workflow.parameters.git-commit}})" || echo "GitOps already up to date."
+            git -c "http.extraHeader=Authorization: token ${GITOPS_TOKEN}" push --quiet origin "$GITOPS_BRANCH"
+        env:
+          - name: GITOPS_REPO_URL
+            valueFrom: { secretKeyRef: { name: gitops-write, key: repoUrl } }
+          - name: GITOPS_BRANCH
+            valueFrom: { secretKeyRef: { name: gitops-write, key: branch } }
+          - name: GITOPS_TOKEN
+            valueFrom: { secretKeyRef: { name: gitops-write, key: token } }
+          - name: GIT_AUTHOR_NAME
+            valueFrom: { secretKeyRef: { name: gitops-write, key: authorName } }
+          - name: GIT_AUTHOR_EMAIL
+            valueFrom: { secretKeyRef: { name: gitops-write, key: authorEmail } }
+          - { name: HOME, value: /tmp }
+
+    # 7. Wait for Argo CD to sync and the aggregator (server + adapter) to become ready.
+    - name: wait-ready
+      inputs:
+        parameters:
+          - name: image-digest
+      retryStrategy:
+        limit: "20"
+        retryPolicy: Always
+        backoff: { duration: "15s", factor: "1", maxDuration: "15m" }
+      container:
+        image: bitnami/kubectl:1.31.4
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            ns="study-{{workflow.parameters.study-slug}}"
+            live="$(kubectl -n "$ns" get deployment aggregator -o jsonpath='{.spec.template.spec.containers[0].image}')"
+            if [ "$live" != "{{inputs.parameters.image-digest}}" ]; then
+              echo "Waiting for Argo CD to sync {{inputs.parameters.image-digest}} (live: ${live:-none})"
+              exit 1
+            fi
+            kubectl -n "$ns" rollout status deployment/aggregator --timeout=60s
+
+    - name: callback
+      inputs:
+        parameters:
+          - name: phase
+          - name: stage
+          - name: image-digest
+          - name: summary
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["python3", "-c"]
+        args:
+          - |
+            import hashlib, hmac, json, os, urllib.request
+            payload = {
+              "kind": "study-publish",
+              "pipelineVersionId": "{{workflow.parameters.pipeline-version-id}}",
+              "ciRunId": "{{workflow.parameters.ci-run-id}}",
+              "deploymentId": "{{workflow.parameters.deployment-id}}",
+              "workflowId": "{{workflow.name}}",
+              "phase": "{{inputs.parameters.phase}}",
+              "stage": "{{inputs.parameters.stage}}",
+              "imageDigest": "{{inputs.parameters.image-digest}}",
+              "hostname": "{{workflow.parameters.hostname}}",
+              "validationSummary": """{{inputs.parameters.summary}}"""[:2000],
+            }
+            body = json.dumps(payload, separators=(",", ":")).encode()
+            signature = hmac.new(os.environ["ARGO_WEBHOOK_SECRET"].encode(), body, hashlib.sha256).hexdigest()
+            request = urllib.request.Request("{{workflow.parameters.callback-url}}", data=body, method="POST",
+              headers={"Content-Type": "application/json", "X-Fedlify-Signature": "sha256=" + signature})
+            with urllib.request.urlopen(request, timeout=30) as response:
+              print(response.status, response.read().decode()[:500])
+        env:
+          - name: ARGO_WEBHOOK_SECRET
+            valueFrom: { secretKeyRef: { name: argo-webhook-secret, key: secret } }
+---
+# The publish workflow manages study-* namespaces (namespace, secrets) and waits on their aggregators.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fedlify-study-publisher
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "create", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fedlify-study-publisher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fedlify-study-publisher
+subjects:
+  - kind: ServiceAccount
+    name: fedlify-pipeline-ci
+    namespace: fedlify

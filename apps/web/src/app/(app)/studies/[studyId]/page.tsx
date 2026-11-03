@@ -41,7 +41,11 @@ import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { normalizeRichTextValue, RichTextContent, RichTextEditor, richTextHasText } from "@/components/RichTextEditor";
 import { RequirementsChatWindow } from "@/components/RequirementsChatWindow";
+import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { StatusTag } from "@/components/StatusTag";
+import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
+
+const REQUIREMENTS_TOTAL = REQUIREMENT_ORDER.length;
 import { GateChecklist, WorkflowRail, type GateItem, type WorkflowStep } from "@/components/WorkflowRail";
 import { missingProtocolFields as missingCoreProtocolFields } from "@/lib/governance";
 import {
@@ -137,6 +141,7 @@ type StudyDetail = {
   invitations: EntityRecord[];
   ethics: EntityRecord[];
   documents: EntityRecord[];
+  requirementResponses?: EntityRecord[];
   sites: Array<EntityRecord & { heartbeats?: EntityRecord[]; studySite?: EntityRecord }>;
   studySites: EntityRecord[];
   agentRuns: EntityRecord[];
@@ -588,6 +593,8 @@ export default function StudyDetailPage() {
   const [jobLogLoadingId, setJobLogLoadingId] = useState<string | null>(null);
   const [jobLogDetail, setJobLogDetail] = useState<JobLogsPayload | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  // Shown once after an invitation is created: the token is only known at creation time and email may not be configured.
+  const [lastInvite, setLastInvite] = useState<{ email: string; inviteUrl: string; emailSent: boolean } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
 
   function openCreate(mode: NonNullable<typeof activeCreate>) {
@@ -606,6 +613,7 @@ export default function StudyDetailPage() {
   function closeCreate() {
     setActiveCreate(null);
     setFormError(null);
+    setLastInvite(null);
     setSelectedFile(null);
     setEthicsEditingRecord(null);
   }
@@ -1087,11 +1095,28 @@ export default function StudyDetailPage() {
             layout="vertical"
             className="fedlify-inline-create-form"
             onFinish={async (values) => {
-              const result = await post(`/api/v1/studies/${studyId}/invitations`, values, "Invitation sent.");
-              if (result) closeCreate();
+              const result = await post(`/api/v1/studies/${studyId}/invitations`, values, "Invitation created.");
+              if (result?.inviteUrl) {
+                setLastInvite({ email: String(values.email), inviteUrl: String(result.inviteUrl), emailSent: Boolean(result.emailSent) });
+              } else if (result) {
+                closeCreate();
+              }
             }}
           >
             <FormError title="Invitation was not sent" message={formError} />
+            {lastInvite ? (
+              <Alert
+                type={lastInvite.emailSent ? "success" : "warning"}
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={lastInvite.emailSent ? `Invitation emailed to ${lastInvite.email}` : `Invitation created for ${lastInvite.email}. Email is not configured, so send this link yourself.`}
+                description={
+                  <Typography.Text copyable={{ text: lastInvite.inviteUrl }} style={{ wordBreak: "break-all" }}>
+                    {lastInvite.inviteUrl}
+                  </Typography.Text>
+                }
+              />
+            ) : null}
             <div className="fedlify-intake-field-grid">
               <Form.Item name="email" label="Recipient email" rules={[{ required: true, type: "email" }]}>
                 <Input placeholder="member@institution.ca" />
@@ -1361,10 +1386,13 @@ export default function StudyDetailPage() {
     const ethicsReady = ethicsGatePassed(study);
     const participantSiteCount = study.studySites?.length ?? study.sites.length;
     const hasParticipantSite = participantSiteCount > 0;
+    const requirementsAnswered = study.requirementResponses?.length ?? 0;
+    const requirementsReady = requirementsAnswered >= REQUIREMENTS_TOTAL;
     const missingActivationItems = [
       ...missingProtocolFieldLabels,
       ethicsReady ? null : "Ethics decision",
-      hasParticipantSite ? null : "Participant site"
+      hasParticipantSite ? null : "Participant site",
+      requirementsReady ? null : `Requirements checklist (${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered)`
     ].filter(Boolean) as string[];
     return {
       missingProtocolFields,
@@ -1374,7 +1402,9 @@ export default function StudyDetailPage() {
       ethicsReady,
       participantSiteCount,
       hasParticipantSite,
-      activationReady: protocolMetadataReady && ethicsReady && hasParticipantSite
+      requirementsAnswered,
+      requirementsReady,
+      activationReady: protocolMetadataReady && ethicsReady && hasParticipantSite && requirementsReady
     };
   }
 
@@ -2029,6 +2059,7 @@ export default function StudyDetailPage() {
 
       return (
         <div className="fedlify-section-stack">
+          <PendingInvitationsCard />
           <WorkspaceCardGrid className="fedlify-summary-dashboard-grid">
             {dashboardCards.map((card) => {
               const isNext = nextAction.section === card.section;
@@ -2067,6 +2098,8 @@ export default function StudyDetailPage() {
         ethicsReady,
         participantSiteCount,
         hasParticipantSite,
+        requirementsAnswered,
+        requirementsReady,
         activationReady
       } = protocolStatus(currentStudy);
       const protocolModules = [
@@ -2114,6 +2147,17 @@ export default function StudyDetailPage() {
           onClick: () => router.push(sectionUrl("sites"))
         },
         {
+          key: "requirements",
+          title: "Requirements checklist",
+          detail: requirementsReady
+            ? `All ${REQUIREMENTS_TOTAL} operational requirements answered.`
+            : `${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered. All ${REQUIREMENTS_TOTAL} are needed before activation and code generation.`,
+          status: requirementsReady ? "READY" : "NEEDS_ATTENTION",
+          icon: <QuestionCircleOutlined />,
+          action: requirementsReady ? "Review requirements" : "Open requirements checklist",
+          onClick: () => setProtocolTab("requirements")
+        },
+        {
           key: "activation",
           title: "Activation",
           detail: activationReady ? "Study is ready for activation." : `Missing: ${summarizeMissingLabels(missingActivationItems)}.`,
@@ -2121,15 +2165,6 @@ export default function StudyDetailPage() {
           icon: <CheckCircleOutlined />,
           action: currentStudy.status === "ACTIVE" ? "Activated" : "Review activation",
           onClick: () => setProtocolTab("activation")
-        },
-        {
-          key: "requirements",
-          title: "Requirements checklist",
-          detail: "Answer the 29 operational requirements. Pipeline code generation is gated on all 29 being recorded.",
-          status: "NEEDS_ATTENTION",
-          icon: <QuestionCircleOutlined />,
-          action: "Open requirements checklist",
-          onClick: () => setProtocolTab("requirements")
         }
       ];
       const renderProtocolActionCard = ({
@@ -2339,6 +2374,15 @@ export default function StudyDetailPage() {
                 )
               },
               {
+                key: "requirements",
+                label: `Requirements (${requirementsAnswered}/${REQUIREMENTS_TOTAL})`,
+                children: (
+                  <section className="fedlify-protocol-module is-wide">
+                    <RequirementsChatWindow studyId={studyId} onChange={() => void load(activeSection)} />
+                  </section>
+                )
+              },
+              {
                 key: "activation",
                 label: "Activation",
                 children: (
@@ -2349,22 +2393,13 @@ export default function StudyDetailPage() {
                       className="fedlify-protocol-note"
                       message={
                         activationReady
-                          ? "This study has the study design, ethics decision, and participant site information required for activation."
+                          ? "This study has the study design, ethics decision, participant sites, and the 29 requirement answers required for activation."
                           : activationBlockedMessage
                       }
                     />
                     <WorkspaceCardGrid>
                       {activationActionCard}
                     </WorkspaceCardGrid>
-                  </section>
-                )
-              },
-              {
-                key: "requirements",
-                label: "Requirements (29)",
-                children: (
-                  <section className="fedlify-protocol-module is-wide">
-                    <RequirementsChatWindow studyId={studyId} />
                   </section>
                 )
               }
@@ -2608,6 +2643,11 @@ export default function StudyDetailPage() {
 
       return (
         <div className="fedlify-section-stack">
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <Button type="primary" ghost icon={<CodeOutlined />} onClick={() => router.push(`/studies/${studyId}/projects`)}>
+              Code, publish &amp; run
+            </Button>
+          </div>
           <div className="fedlify-pipeline-state-panel">
 
             {/* ── State A: No pipeline yet ── */}

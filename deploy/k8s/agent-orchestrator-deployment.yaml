@@ -14,8 +14,12 @@ spec:
         app: fedlify-agent-orchestrator
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: harbor-registry
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -30,7 +34,7 @@ spec:
                 name: fedlify-agent-orchestrator-secrets
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /health
               port: 3020
           livenessProbe:
             httpGet:

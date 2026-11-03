@@ -219,7 +219,7 @@ test.describe.serial("handoff exporter probes, walked through the real export AP
 
   for (const probe of PROBES) {
     test(`${probe.id} style: export inspection reads the real stored artifact bytes from object storage and ${probe.expectPass ? "signs a real export manifest for clean content" : "rejects prohibited content before ever signing anything"}`, async ({ playwright }) => {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
 
       const suffix = randomUUID().slice(0, 10);
@@ -306,7 +306,7 @@ test.describe.serial("handoff exporter probes, walked through the real export AP
   }
 
   test("control contrast: the same prohibited content stored behind a non-s3:// locator is never actually read, so export inspection trivially passes it -- a real gap, not assumed", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     const suffix = randomUUID().slice(0, 10);

@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ModelArtifactKind } from "@prisma/client";
 import { sha256 } from "@/lib/crypto";
-import { objectKey } from "@/lib/storage";
+import { objectKey, readObject } from "@/lib/storage";
 
 export type CollectedModelArtifact = {
   kind: ModelArtifactKind;
@@ -95,14 +95,15 @@ export function modelReleaseStoragePrefix(studyId: string, version: string) {
   return objectKey(["studies", studyId, "model-releases", version]);
 }
 
-export async function collectModelResultArtifacts(input: {
-  resultPath: string;
+type ResultIdentity = {
   studyId: string;
   jobId: string;
   nvflareJobId: string | null;
   pipelineVersionId: string;
   storagePrefix: string;
-}): Promise<CollectedModelResult> {
+};
+
+export async function collectModelResultArtifacts(input: ResultIdentity & { resultPath: string }): Promise<CollectedModelResult> {
   const artifacts: CollectedModelArtifact[] = [];
   for (const definition of resultArtifactDefinitions) {
     const absolutePath = path.join(input.resultPath, definition.relativePath);
@@ -125,7 +126,58 @@ export async function collectModelResultArtifacts(input: {
       sizeBytes: BigInt(body.byteLength)
     });
   }
+  return finishCollection(input, input.resultPath, artifacts);
+}
 
+export async function resultPathAvailable(resultPath: string | null | undefined): Promise<boolean> {
+  if (!resultPath) return false;
+  const model = resultArtifactDefinitions.find((definition) => definition.required)!;
+  return stat(path.join(resultPath, model.relativePath)).then(
+    (info) => info.isFile(),
+    () => false
+  );
+}
+
+// Rebuilds the result package from the artifacts the sync step stored in object storage. This is the
+// only path that works for published (Kubernetes) studies: the sync route downloads the NVFLARE result
+// into a temporary directory and removes it, so `resultPath` never survives on the web pod. Every body
+// is re-hashed against the checksum recorded at sync time so a tampered or truncated object is refused.
+export async function collectModelResultArtifactsFromStorage(
+  input: ResultIdentity & {
+    storedArtifacts: Array<{ kind: ModelArtifactKind; filename: string; contentType: string; storageKey: string; checksum: string }>;
+  }
+): Promise<CollectedModelResult> {
+  const artifacts: CollectedModelArtifact[] = [];
+  for (const definition of resultArtifactDefinitions) {
+    const stored = input.storedArtifacts.find((artifact) => artifact.kind === definition.kind);
+    if (!stored) {
+      if (definition.required) throw new Error(`Synced NVFLARE result has no stored artifact of kind ${definition.kind}.`);
+      continue;
+    }
+    let body: Buffer;
+    try {
+      body = await readObject(stored.storageKey);
+    } catch (error) {
+      throw new Error(`Stored artifact ${stored.storageKey} could not be read: ${error instanceof Error ? error.message : "storage error"}`);
+    }
+    const checksum = sha256(body);
+    if (checksum !== stored.checksum) {
+      throw new Error(`Stored artifact ${stored.filename} does not match the checksum recorded at sync time.`);
+    }
+    artifacts.push({
+      kind: definition.kind,
+      relativePath: definition.relativePath,
+      filename: stored.filename,
+      contentType: stored.contentType,
+      body,
+      checksum,
+      sizeBytes: BigInt(body.byteLength)
+    });
+  }
+  return finishCollection(input, `s3://${input.storagePrefix}`, artifacts);
+}
+
+function finishCollection(input: ResultIdentity, resultPath: string, artifacts: CollectedModelArtifact[]): CollectedModelResult {
   const model = artifacts.find((artifact) => artifact.kind === "AGGREGATED_MODEL");
   if (!model) throw new Error("Completed NVFLARE result does not contain an aggregated model.");
   const npyMetadata = parseNpyMetadata(model.body);
@@ -136,7 +188,7 @@ export async function collectModelResultArtifacts(input: {
     fedlifyJobId: input.jobId,
     nvflareJobId: input.nvflareJobId,
     pipelineVersionId: input.pipelineVersionId,
-    resultPath: input.resultPath,
+    resultPath,
     model: {
       path: model.relativePath,
       filename: model.filename,
@@ -165,7 +217,7 @@ export async function collectModelResultArtifacts(input: {
   });
 
   return {
-    resultPath: input.resultPath,
+    resultPath,
     modelPath: model.relativePath,
     modelShape: npyMetadata?.shape ?? null,
     modelDtype: npyMetadata?.dtype ?? null,

@@ -147,10 +147,10 @@ describe("deterministic-only probe routing (no advisory, local, free)", () => {
       byCategory: Object.fromEntries([...byCategory.entries()].sort()),
       perProbe
     };
-    writeFileSync(
-      "/private/tmp/claude-501/-Users-yumcoder-Desktop-UofT-Fedlify-gitops-fedlify-code/42cdb240-1556-4153-b94c-561adc681050/scratchpad/fedlify-probe-dry-run-report.json",
-      JSON.stringify(report, null, 2)
-    );
+    // Optional diagnostic dump; the test must not depend on any machine-specific path.
+    if (process.env.FEDLIFY_PROBE_DRY_RUN_REPORT) {
+      writeFileSync(process.env.FEDLIFY_PROBE_DRY_RUN_REPORT, JSON.stringify(report, null, 2));
+    }
 
     expect(total).toBe(144);
   });

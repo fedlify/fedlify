@@ -78,5 +78,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     request
   });
 
-  return json({ heartbeat }, { status: 201 });
+  // Published studies: tell the site runner which study image it should run (`fedlify-runner.sh update`).
+  const publishedDeployment = await prisma.nvflareDeployment.findFirst({
+    where: { studyId: site.studyId, active: true, runtimeMode: "k8s" },
+    select: { imageDigest: true, hostname: true }
+  });
+
+  return json(
+    { heartbeat, desiredImageDigest: publishedDeployment?.imageDigest ?? null, aggregator: publishedDeployment?.hostname ?? null },
+    { status: 201 }
+  );
 }

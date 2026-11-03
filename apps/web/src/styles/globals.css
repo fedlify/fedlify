@@ -4515,7 +4515,7 @@ h4.ant-typography {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .fedlify-requirements-header {
@@ -4525,65 +4525,59 @@ h4.ant-typography {
   gap: 16px;
 }
 
-.fedlify-requirements-active {
-  border: 1px solid #e8e1f3;
-  border-radius: 14px;
-  background: #fbfaff;
-  padding: 14px 16px;
+/* Two panes: grouped navigator (scrolls on its own) + fixed editor. No page scroll needed per answer. */
+.fedlify-requirements-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.fedlify-requirements-nav {
+  max-height: 560px;
+  overflow-y: auto;
+  padding-right: 4px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.fedlify-requirements-active-head {
+.fedlify-requirements-group-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--fedlify-primary);
-}
-
-.fedlify-requirements-active-actions {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 6px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fedlify-muted);
 }
 
-.fedlify-requirements-complete {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: #f2fbf4;
-  color: #1a7a3a;
-}
-
-.fedlify-requirements-list {
-  display: grid;
-  gap: 6px;
-  max-height: 360px;
-  overflow-y: auto;
-  padding-right: 4px;
+.fedlify-requirements-group-count {
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .fedlify-requirements-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) 16px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   text-align: left;
-  border: 1px solid #efecf7;
-  border-radius: 10px;
-  background: #fff;
-  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  padding: 6px 8px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
 
 .fedlify-requirements-row:hover,
 .fedlify-requirements-row:focus-visible {
-  border-color: rgba(133, 118, 181, 0.4);
+  background: #f7f5fc;
   outline: none;
 }
 
@@ -4592,13 +4586,22 @@ h4.ant-typography {
   background: #fbfaff;
 }
 
-.fedlify-requirements-row.is-answered .fedlify-requirements-row-check {
+.fedlify-requirements-row-check {
   color: #1a7a3a;
+  font-size: 14px;
+}
+
+.fedlify-requirements-row-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(133, 118, 181, 0.55);
+  justify-self: center;
 }
 
 .fedlify-requirements-row-id {
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--fedlify-primary);
 }
 
@@ -4608,6 +4611,60 @@ h4.ant-typography {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fedlify-requirements-editor {
+  position: sticky;
+  top: 12px;
+  border: 1px solid #e8e1f3;
+  border-radius: 14px;
+  background: #fbfaff;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 360px;
+}
+
+.fedlify-requirements-editor-crumb {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.fedlify-requirements-active-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--fedlify-primary);
+}
+
+.fedlify-requirements-active-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.fedlify-requirements-hint {
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .fedlify-requirements-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fedlify-requirements-nav {
+    max-height: 220px;
+  }
+
+  .fedlify-requirements-editor {
+    position: static;
+  }
 }
 
 @media (max-width: 760px) {

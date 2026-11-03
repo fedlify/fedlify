@@ -1,0 +1,81 @@
+# Local replica of the production topology:
+#   hospitals ("internet" network) --TLS:443--> SNI router (ingress-nginx passthrough stand-in)
+#   --> aggregator (cluster network only) <-- FLARE API adapter (cluster network)
+# Clients know nothing except hf-mortality.fedlify.test:443, exactly like a real site kit.
+name: fedlify-local-e2e
+
+x-study-image: &study-image ${FEDLIFY_STUDY_IMAGE:-fedlify-nvflare-base:2.6.2}
+
+services:
+  sni-router:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx-sni.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      internet:
+        aliases: [hf-mortality.fedlify.test]
+      cluster: {}
+
+  aggregator:
+    image: *study-image
+    command: ["server"]
+    environment:
+      FEDLIFY_KIT_DIR: /kit
+    volumes:
+      - ./provisioned/kits/hf-mortality.fedlify.test:/kit:ro
+      - aggregator-workspace:/workspace
+    networks:
+      cluster:
+        # In Kubernetes the adapter is a sidecar and reaches the admin port via hostAliases -> 127.0.0.1.
+        aliases: [hf-mortality.fedlify.test]
+
+  flare-adapter:
+    image: *study-image
+    profiles: ["run"]
+    command: ["python3", "-u", "/opt/fedlify/adapter/fedlify_flare_api_adapter.py"]
+    environment:
+      NVFLARE_FLARE_API_HOST: 0.0.0.0
+      NVFLARE_FLARE_API_PORT: "3010"
+      FEDLIFY_ADAPTER_TOKEN: ${FEDLIFY_ADAPTER_TOKEN:-local-adapter-token}
+      FEDLIFY_ADMIN_KIT_DIR: /admin-kit
+      FEDLIFY_JOB_DIR: /opt/fedlify/code/job
+      FEDLIFY_SERVER_WORKSPACE: /workspace/participant
+    volumes:
+      - ./provisioned/kits/admin@fedlify.local:/admin-kit:ro
+      - aggregator-workspace:/workspace
+    ports:
+      - "127.0.0.1:3010:3010"
+    # "ops" stands in for the web app's in-cluster route to the adapter Service.
+    networks: [cluster, ops]
+
+  site-a:
+    image: *study-image
+    command: ["client"]
+    environment:
+      FEDLIFY_KIT_DIR: /kit
+      FEDLIFY_DATA_PATH: /data
+    volumes:
+      - ./provisioned/kits/site_a:/kit:ro
+      - ${SITE_A_DATA_DIR:-./data/site_a}:/data:ro
+    networks: [internet]
+
+  site-b:
+    image: *study-image
+    profiles: ["run"]
+    command: ["client"]
+    environment:
+      FEDLIFY_KIT_DIR: /kit
+      FEDLIFY_DATA_PATH: /data
+    volumes:
+      - ./provisioned/kits/site_b:/kit:ro
+      - ${SITE_B_DATA_DIR:-./data/site_b}:/data:ro
+    networks: [internet]
+
+volumes:
+  aggregator-workspace: {}
+
+networks:
+  ops: {}
+  internet: {}
+  cluster:
+    internal: true

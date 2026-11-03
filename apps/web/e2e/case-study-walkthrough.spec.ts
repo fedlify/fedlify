@@ -271,7 +271,7 @@ test.describe.serial("six-hospital case study walkthrough", () => {
       await prisma.siteMember.create({ data: { studySiteId: studySite.id, userId: siteUser.id, role: "SITE_ADMIN", invitedById: ownerId } });
       studySiteIds.push(studySite.id);
 
-      const siteContext = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const siteContext = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       const csrf = await siteContext.get("/api/auth/csrf");
       const { csrfToken } = await csrf.json();
       await siteContext.post("/api/auth/callback/credentials", { form: { csrfToken, email: siteUser.email!, password, json: "true", redirect: "false" } });

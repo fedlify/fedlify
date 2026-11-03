@@ -13,39 +13,67 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: fedlify-web
-      annotations:
-        vault.hashicorp.com/agent-inject: "true"
-        vault.hashicorp.com/role: "fedlify-web"
-        vault.hashicorp.com/agent-inject-secret-env: "secret/data/fedlify/web"
-        vault.hashicorp.com/agent-inject-template-env: |
-          {{- with secret "secret/data/fedlify/web" -}}
-          {{- range $key, $value := .Data.data }}
-          export {{ $key }}="{{ $value }}"
-          {{- end }}
-          {{- end }}
     spec:
       serviceAccountName: fedlify-web
+      imagePullSecrets:
+        - name: harbor-registry
+      # Configuration comes from Kubernetes Secrets (IaC/day2/fedlify-runtime and day2/github-fedlify):
+      #   fedlify-web-runtime                DATABASE_URL, NEXTAUTH_*, S3_*
+      #   fedlify-agent-orchestrator-secrets FEDLIFY_ORCHESTRATOR_TOKEN, FEDLIFY_CONTROL_SIGNING_SECRET, OPENAI_API_KEY
+      #   gitea-credentials, argo-webhook-secret, fedlify-adapter-signing, harbor-studies-pull (single keys below)
+      initContainers:
+        - name: migrate
+          image: harbor.fedlify.com/fedlify/web:latest
+          command: ["/bin/sh", "-c", "pnpm --filter @fedlify/web exec prisma migrate deploy"]
+          envFrom:
+            - secretRef: { name: fedlify-web-runtime }
       containers:
         - name: web
-          image: harbor.fedlify.local/fedlify/web:latest
+          image: harbor.fedlify.com/fedlify/web:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000
+          envFrom:
+            - secretRef: { name: fedlify-web-runtime }
+            - secretRef: { name: fedlify-agent-orchestrator-secrets }
           env:
             - name: NODE_ENV
               value: production
-            - name: NEXTAUTH_URL
-              value: https://app.fedlify.com
             - name: FEDLIFY_PUBLIC_BASE_URL
               value: https://app.fedlify.com
             - name: FEDLIFY_ORCHESTRATOR_URL
               value: http://fedlify-agent-orchestrator.fedlify.svc.cluster.local:3020
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              if [ -f /vault/secrets/env ]; then . /vault/secrets/env; fi
-              pnpm --filter @fedlify/web start
+            - name: FEDLIFY_ARGO_NAMESPACE
+              value: fedlify
+            - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
+              value: fedlify-study-pipeline-ci
+            - name: GITEA_BASE_URL
+              valueFrom: { secretKeyRef: { name: gitea-credentials, key: baseUrl } }
+            - name: GITEA_TOKEN
+              valueFrom: { secretKeyRef: { name: gitea-credentials, key: token } }
+            - name: GITEA_ORG
+              value: fedlify-templates
+            - name: GITEA_PUBLIC_TEMPLATE_ORG
+              value: fedlify-templates
+            - name: GITEA_STUDY_ORG_PREFIX
+              value: fedlify-study
+            - name: ARGO_WEBHOOK_SECRET
+              valueFrom: { secretKeyRef: { name: argo-webhook-secret, key: secret } }
+            # Publish -> per-study aggregator at <slug>.<domain>:443 (deploy/k8s/publish-workflow-template.yaml)
+            - name: FEDLIFY_PUBLISH_WORKFLOW_TEMPLATE
+              value: fedlify-study-publish
+            - name: FEDLIFY_STUDY_DOMAIN
+              value: fedlify.com
+            - name: FEDLIFY_ADAPTER_SIGNING_SECRET
+              valueFrom: { secretKeyRef: { name: fedlify-adapter-signing, key: secret } }
+            - name: FEDLIFY_STUDY_REGISTRY
+              valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: registry } }
+            - name: FEDLIFY_STUDY_PULL_USERNAME
+              valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: username } }
+            - name: FEDLIFY_STUDY_PULL_PASSWORD
+              valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: password } }
+          command: ["pnpm", "--filter", "@fedlify/web", "start"]
           readinessProbe:
             httpGet:
               path: /api/v1/health

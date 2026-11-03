@@ -35,6 +35,9 @@ type SiteReadiness = {
 type StudyActivationInput = ProtocolMetadata & {
   ethics?: EthicsRecord[];
   studySites?: unknown[];
+  // When provided, every one of the 29 requirements must be answered before activation
+  // (requirements are part of protocol definition, so they are gathered before the study goes live).
+  requirementResponses?: Array<{ requirementId: string }>;
 };
 
 type PipelineExecutionInput = {
@@ -91,6 +94,11 @@ export function activationGate(study: StudyActivationInput): { allowed: boolean;
 
   const ethicsStatus = latestEthicsStatus(study.ethics);
   if (!ethicsCleared(ethicsStatus)) missing.push("ethicsApproval");
+
+  if (study.requirementResponses) {
+    const requirements = requirementsGate(study.requirementResponses);
+    if (!requirements.allowed) missing.push(`requirements (${REQUIREMENT_ORDER.length - requirements.missing.length}/${REQUIREMENT_ORDER.length} answered)`);
+  }
 
   if (missing.length > 0) {
     return { allowed: false, missing, status: "INCOMPLETE" };

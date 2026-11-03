@@ -177,7 +177,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
   });
 
   test("MULTI-11 / FAULT-04 style: job submission is blocked for the whole training set while any one selected site's dependencies aren't verified, and unblocks once they are", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     for (const code of ["A", "B", "C", "E"]) {
@@ -212,7 +212,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
   });
 
   test("FAULT-01 style: a real disconnect during dry-run blocks submission when honestly recorded, and the system has no independent way to contest a false 'reconnected once' attestation", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     // Ground truth: Site B disconnected during the synthetic dry-run. Recorded honestly,
@@ -241,7 +241,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
   });
 
   test("PREP-13 / FAULT-02 style: startup-kit issuance has no readiness gate at all, even though job submission does", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     // Aggregator is unreachable from Sites C and D -- both stay PENDING.
@@ -270,7 +270,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
   });
 
   test("PREP-11 / PREP-16 / INPUT-13 / FAULT-16 style: readiness self-attestation is applied immediately, with no control-plane human-approval gate and no counter-signer requirement", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     const workItemsBefore = await prisma.workItem.count({ where: { studyId } }).catch(() => 0);
@@ -304,7 +304,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
   });
 
   test("FAULT-05 style: declared site storage capacity is recorded but never enforced by either the readiness status or the job-submission gate", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     // "Site D has 18 GB free and the readiness requirement says 40 GB." SiteResourceProfile

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGiteaPipelineProposal } from "@/lib/gitea";
+import { commitGiteaFiles, createGiteaPipelineProposal } from "@/lib/gitea";
 
 describe("gitea client", () => {
   const originalEnv = { ...process.env };
@@ -52,5 +52,73 @@ describe("gitea client", () => {
       "https://gitea.example/api/v1/repos/fedlify/fedlify-study-pipeline/pulls",
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  describe("commitGiteaFiles", () => {
+    function stubRepo(onCommit: (body: { files: Array<{ operation: string; path: string; sha?: string }> }) => Response) {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/repos/study-org/pipe/branches/main")) return Response.json({ name: "main", commit: { id: "head-1" } });
+        if (url.includes("/repos/study-org/pipe/git/trees/head-1")) {
+          return Response.json({
+            tree: [
+              { path: "client.py", type: "blob", sha: "sha-client" },
+              { path: "old.py", type: "blob", sha: "sha-old" },
+              { path: "job", type: "tree", sha: "sha-dir" }
+            ]
+          });
+        }
+        if (url.endsWith("/repos/study-org/pipe/contents") && init?.method === "POST") return onCommit(JSON.parse(String(init.body)));
+        return Response.json({ message: `Unhandled ${init?.method ?? "GET"} ${url}` }, { status: 500 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    it("maps edits to create, update, and delete operations in one commit", async () => {
+      let committed: Array<{ operation: string; path: string; sha?: string }> = [];
+      stubRepo((body) => {
+        committed = body.files;
+        return Response.json({ commit: { sha: "head-2" } });
+      });
+
+      const result = await commitGiteaFiles({
+        owner: "study-org",
+        repo: "pipe",
+        branchName: "main",
+        baseCommit: "head-1",
+        message: "Save",
+        files: [
+          { path: "client.py", content: "print('v2')" },
+          { path: "model.py", content: "class Model: ..." },
+          { path: "old.py", content: null },
+          { path: "missing.py", content: null }
+        ]
+      });
+
+      expect(result).toEqual({ commitSha: "head-2", changed: 3 });
+      expect(committed.map(({ operation, path, sha }) => ({ operation, path, sha }))).toEqual([
+        { operation: "update", path: "client.py", sha: "sha-client" },
+        { operation: "create", path: "model.py", sha: undefined },
+        { operation: "delete", path: "old.py", sha: "sha-old" }
+      ]);
+    });
+
+    it("rejects a save based on a stale commit", async () => {
+      const fetchMock = stubRepo(() => Response.json({ commit: { sha: "never" } }));
+
+      await expect(
+        commitGiteaFiles({ owner: "study-org", repo: "pipe", branchName: "main", baseCommit: "abc1234", message: "Save", files: [{ path: "client.py", content: "x" }] })
+      ).rejects.toMatchObject({ status: 409 });
+      expect(fetchMock).not.toHaveBeenCalledWith(expect.stringMatching(/\/contents$/), expect.anything());
+    });
+
+    it("does not create an empty commit when nothing changed", async () => {
+      const fetchMock = stubRepo(() => Response.json({ commit: { sha: "never" } }));
+
+      const result = await commitGiteaFiles({ owner: "study-org", repo: "pipe", branchName: "main", message: "Save", files: [{ path: "gone.py", content: null }] });
+
+      expect(result).toEqual({ commitSha: "head-1", changed: 0 });
+      expect(fetchMock).not.toHaveBeenCalledWith(expect.stringMatching(/\/contents$/), expect.anything());
+    });
   });
 });

@@ -26,7 +26,7 @@ spec:
           - name: fedlify-kits
             path: /work/out
       container:
-        image: harbor.fedlify.local/fedlify/agent-worker:latest
+        image: harbor.fedlify.com/fedlify/agent-worker:latest
         imagePullPolicy: IfNotPresent
         command: ["/bin/sh", "-c"]
         args:

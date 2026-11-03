@@ -23,3 +23,6 @@ uploads/
 .fedlify-evaluation/
 probe-results/
 services/agent-orchestrator/dist/
+deploy/local-e2e/provisioned/
+deploy/local-e2e/data/
+deploy/local-e2e/work/

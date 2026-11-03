@@ -722,6 +722,8 @@ model SiteJoinPackage {
   sizeBytes     BigInt                @default(0)
   expiresAt     DateTime
   downloadCount Int                   @default(0)
+  deploymentId  String?
+  imageDigest   String?
   studySite     StudySite             @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
   generatedBy   User                  @relation("SiteJoinPackageGeneratedBy", fields: [generatedById], references: [id])
   createdAt     DateTime              @default(now())
@@ -953,6 +955,11 @@ model PipelineVersion {
   gitBranch          String?
   jobWorkspacePath   String?
   artifactStorageKey String?
+  gitTag             String?
+  imageRef           String?
+  imageDigest        String?
+  publishWorkflowId  String?
+  publishedAt        DateTime?
   validationStatus   CIValidationStatus       @default(QUEUED)
   approvalStatus     PipelineVersionStatus    @default(DRAFT)
   approvedById       String?
@@ -1173,6 +1180,14 @@ model NvflareDeployment {
   composeProject             String?
   workspacePath              String?
   ports                      Json?
+  hostname                   String?                 @unique
+  namespace                  String?
+  adapterUrl                 String?
+  imageDigest                String?
+  pipelineVersionId          String?
+  kitGeneration              Int                     @default(0)
+  provisionedSites           Json?
+  clientKitPrefix            String?
   lastError                  String?
   startedAt                  DateTime?
   stoppedAt                  DateTime?

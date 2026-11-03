@@ -118,8 +118,8 @@ test.describe.serial("authoritative blind probe intake", () => {
 
   test("submits all fixtures through one production intake endpoint", async ({ playwright }) => {
     const probes = await loadBlindProbes();
-    const owner = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
-    const limited = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const owner = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
+    const limited = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(owner, ownerEmail);
     await signIn(limited, limitedEmail);
     const observations: Array<Record<string, unknown>> = [];

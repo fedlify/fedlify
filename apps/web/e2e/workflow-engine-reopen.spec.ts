@@ -267,7 +267,7 @@ test.describe.serial("workflow engine / dependency invalidation REOPEN probes, w
       : `${probe.id} style: no deterministic rule matches the real fixture, so a live model call decides -- but it never touches the real ApprovalBinding either`;
 
     test(title, async ({ playwright }) => {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
 
       const bindingBefore = await prisma.approvalBinding.findUniqueOrThrow({ where: { id: approvalBindingId } });
@@ -325,7 +325,7 @@ test.describe.serial("workflow engine / dependency invalidation REOPEN probes, w
   }
 
   test("control contrast: confirmProjectFact's real cascade DOES invalidate this exact binding, proving the gap above is REOPEN-classification-specific, not a database or fixture problem", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     const bindingBefore = await prisma.approvalBinding.findUniqueOrThrow({ where: { id: approvalBindingId } });
@@ -345,7 +345,7 @@ test.describe.serial("workflow engine / dependency invalidation REOPEN probes, w
     const confirmerEmail = `${slugPrefix}-confirmer-${randomUUID().slice(0, 8)}@${emailDomain}`;
     const confirmer = await prisma.user.create({ data: { name: "Independent Fact Confirmer", email: confirmerEmail, passwordHash: await argon2.hash(password) } });
     await prisma.studyMember.create({ data: { studyId, userId: confirmer.id, role: "PRINCIPAL_INVESTIGATOR" } });
-    const confirmerApi = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const confirmerApi = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(confirmerApi, confirmerEmail);
 
     const proposeRes = await api.post(`/api/v1/studies/${studyId}/control-plane/facts`, {

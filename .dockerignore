@@ -13,3 +13,7 @@ tmp
 __pycache__
 .pytest_cache
 .venv
+**/.fedlify-runtime
+deploy/local-e2e/provisioned
+deploy/local-e2e/data
+deploy/local-e2e/work

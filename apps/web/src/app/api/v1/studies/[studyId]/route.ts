@@ -83,6 +83,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
       invitations: { orderBy: { createdAt: "desc" } },
       ethics: { orderBy: { createdAt: "desc" } },
       documents: { orderBy: { createdAt: "desc" } },
+      requirementResponses: { select: { requirementId: true, updatedAt: true }, orderBy: { requirementId: "asc" } },
       sites: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1 }, studySite: true } },
       studySites: {
         include: {
@@ -221,7 +222,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
     dataHandlingPlan: updateData.dataHandlingPlan,
     intendedUse: updateData.intendedUse,
     ethics: current.ethics,
-    studySites: current.studySites
+    studySites: current.studySites,
+    requirementResponses: await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true } })
   });
 
   if (parsed.data.action === "activate" && !gate.allowed) {

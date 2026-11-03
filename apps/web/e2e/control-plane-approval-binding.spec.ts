@@ -1,3 +1,4 @@
+import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
@@ -33,6 +34,31 @@ const slugPrefix = "cp-approval";
 
 function sha256Hex(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+// The model-release route reads synced artifacts from object storage when the local result directory is
+// not on the web server (always the case for a deployed server, so the local tmp fixture alone is not
+// enough). Store the fixture bytes at the same key the ModelArtifact row records.
+const fixtureBucket = process.env.S3_BUCKET ?? "fedlify-artifacts";
+function fixtureS3() {
+  return new S3Client({
+    endpoint: process.env.S3_ENDPOINT || undefined,
+    region: process.env.S3_REGION ?? "us-east-1",
+    credentials:
+      process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY
+        ? { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY }
+        : undefined,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true"
+  });
+}
+async function putFixtureObject(key: string, body: Buffer) {
+  const client = fixtureS3();
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: fixtureBucket }));
+  } catch {
+    await client.send(new CreateBucketCommand({ Bucket: fixtureBucket }));
+  }
+  await client.send(new PutObjectCommand({ Bucket: fixtureBucket, Key: key, Body: body, ContentType: "application/octet-stream" }));
 }
 
 // Mirrors control-plane.ts's canonicalJson/contentHash and control-enforcement.ts's
@@ -185,7 +211,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
   test("AUTH-01 / LIFE-05 style: work item reaches the human gate but no approval exists until an independent, authorized reviewer creates one", async ({
     playwright
   }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     const evidenceContent = "protocol-v1-content";
@@ -265,7 +291,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     const approverEmail = `${slugPrefix}-approver-${suffix}@${emailDomain}`;
     const approver = await prisma.user.create({ data: { name: "Independent Approver", email: approverEmail, passwordHash: await argon2.hash(password) } });
     await prisma.studyMember.create({ data: { studyId, userId: approver.id, role: "PRINCIPAL_INVESTIGATOR" } });
-    const approverApi = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const approverApi = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(approverApi, approverEmail);
 
     const selfApprovalAttempt = await controlPost(
@@ -294,7 +320,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
   test("AUTH-05 / AUTH-12 style: expired and version-mismatched approvals are rejected at export, not just at intake", async ({
     playwright
   }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     // Directly construct the post-verification state via Prisma (mirrors what the walked
@@ -401,7 +427,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     // request tries to reuse it for this eICU heart-failure study. exportApprovedArtifact scopes
     // its ApprovalBinding lookup by studyId, so a cross-study id is a real, structural miss, not
     // a text-pattern rule.
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const user = await prisma.user.findFirstOrThrow({ where: { email } });
 
@@ -492,7 +518,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
   });
 
   test("EVID-13 style: confirming a revised fact invalidates every currently-approved binding for real", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const user = await prisma.user.findFirstOrThrow({ where: { email } });
 
@@ -558,7 +584,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
       data: { name: "Independent Confirmer", email: `${slugPrefix}-confirmer-${randomUUID().slice(0, 8)}@${emailDomain}`, passwordHash: await argon2.hash(password) }
     });
     await prisma.studyMember.create({ data: { studyId, userId: secondUser.id, role: "PRINCIPAL_INVESTIGATOR" } });
-    const api2 = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api2 = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api2, secondUser.email!);
 
     // Propose and confirm the initial fact (v1).
@@ -626,7 +652,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     // shape this session's five real algorithm runs produced), then POST
     // /nvflare/jobs/{id}/model-release -- the real endpoint LIFE-02's "prepare for independent
     // release review" and LIFE-07's "awaits named approver" both describe.
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const user = await prisma.user.findFirstOrThrow({ where: { email } });
 
@@ -661,6 +687,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     const result = await prisma.nvflareJobResult.create({
       data: { studyId, jobId: job.id, storagePrefix: `studies/${studyId}/nvflare-jobs/${job.id}/results`, resultPath }
     });
+    await putFixtureObject(`studies/${studyId}/nvflare-jobs/${job.id}/results/server.npy`, modelBytes);
     await prisma.modelArtifact.create({
       data: {
         resultId: result.id,
@@ -699,7 +726,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
   });
 
   test("AUTH-04 style: an approval bound to spec-17 cannot be reused to export the revised spec-18 artifact, for real", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const user = await prisma.user.findFirstOrThrow({ where: { email } });
 
@@ -761,7 +788,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     const auth04ApproverEmail = `${slugPrefix}-auth04-approver-${randomUUID().slice(0, 8)}@${emailDomain}`;
     const auth04Approver = await prisma.user.create({ data: { name: "AUTH-04 Independent Approver", email: auth04ApproverEmail, passwordHash: await argon2.hash(password) } });
     await prisma.studyMember.create({ data: { studyId, userId: auth04Approver.id, role: "PRINCIPAL_INVESTIGATOR" } });
-    const auth04ApproverApi = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const auth04ApproverApi = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(auth04ApproverApi, auth04ApproverEmail);
 
     const approvalResponse = await controlPost(
@@ -812,7 +839,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     // in site-readiness-gate.spec.ts) is marking Site B ready via its own, entirely
     // unverified, self-attested claim that "the configs are identical" -- a different, real
     // gap from the one this probe's own oracle names.
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
     const siteA = await prisma.studySite.findFirstOrThrow({ where: { studyId, code: "hospital_A" } });
@@ -871,7 +898,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
       { label: "real multi-line fixture text", content: life06FixtureText },
       { label: "same fact, single-line phrasing", content: life06SingleLineText }
     ]) {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
       const variantSlug = variant.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 
@@ -932,7 +959,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
       const approverEmail = `${slugPrefix}-life06-approver-${randomUUID().slice(0, 8)}@${emailDomain}`;
       const approver = await prisma.user.create({ data: { name: "LIFE-06 Independent Approver", email: approverEmail, passwordHash: await argon2.hash(password) } });
       await prisma.studyMember.create({ data: { studyId, userId: approver.id, role: "PRINCIPAL_INVESTIGATOR" } });
-      const approverApi = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const approverApi = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(approverApi, approverEmail);
 
       const approvalAttempt = await controlPost(
@@ -959,7 +986,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     // codebase turns up no rollback/retire route anywhere under src/app/api, and ReleaseStatus
     // (schema.prisma) defines DRAFT | APPROVED | REVOKED with no ROLLED_BACK/RETIRED value --
     // REVOKED is the only value that could plausibly stand in for either action.
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const user = await prisma.user.findFirstOrThrow({ where: { email } });
 
@@ -985,6 +1012,7 @@ test.describe.serial("control-plane approval binding integrity, walked through r
     const result = await prisma.nvflareJobResult.create({
       data: { studyId, jobId: job.id, storagePrefix: `studies/${studyId}/nvflare-jobs/${job.id}/results`, resultPath }
     });
+    await putFixtureObject(`studies/${studyId}/nvflare-jobs/${job.id}/results/server.npy`, modelBytes);
     await prisma.modelArtifact.create({
       data: {
         resultId: result.id,

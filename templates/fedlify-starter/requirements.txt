@@ -1,0 +1,2 @@
+# Extra Python packages for this study. numpy, pandas, scikit-learn and nvflare are already in the base image.
+# Pin exact versions (package==x.y.z); unpinned requirements are rejected at publish time.

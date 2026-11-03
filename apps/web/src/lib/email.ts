@@ -5,10 +5,11 @@ export async function sendInvitationEmail(input: {
   studyTitle: string;
   inviterName: string;
   inviteUrl: string;
-}): Promise<void> {
+}): Promise<boolean> {
+  // Returns whether an email was actually sent, so the UI can show the invite link when it was not.
   if (!process.env.SMTP_HOST) {
-    console.info("Invitation email skipped because SMTP_HOST is not configured.", input);
-    return;
+    console.info("Invitation email skipped because SMTP_HOST is not configured.", { to: input.to, studyTitle: input.studyTitle });
+    return false;
   }
 
   const transport = nodemailer.createTransport({
@@ -28,4 +29,5 @@ export async function sendInvitationEmail(input: {
     text: `${input.inviterName} invited you to join the Fedlify study "${input.studyTitle}".\n\nAccept invitation: ${input.inviteUrl}`,
     html: `<p>${input.inviterName} invited you to join the Fedlify study <strong>${input.studyTitle}</strong>.</p><p><a href="${input.inviteUrl}">Accept invitation</a></p>`
   });
+  return true;
 }

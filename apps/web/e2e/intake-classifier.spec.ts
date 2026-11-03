@@ -144,7 +144,7 @@ test.describe.serial("intake classifier probes, walked through the real intake A
 
   for (const probe of PROBES) {
     test(`${probe.id} style: real fixture deterministically classifies as "${probe.disposition}" / ${probe.authoritativeLayer}`, async ({ playwright }) => {
-      const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+      const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
       await signIn(api, email);
       const fixtureContent = readFixture(probe.fixture);
       const response = await intakePost(api, studyId, {
@@ -165,7 +165,7 @@ test.describe.serial("intake classifier probes, walked through the real intake A
   }
 
   test("INPUT-03 style depth: real evidence intake for a plaintext credential creates a persisted QuarantineRecord, never a citable EvidenceRecord", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const fixtureContent = readFixture("INPUT-03_API_key_in_plain_text.txt");
 
@@ -192,7 +192,7 @@ test.describe.serial("intake classifier probes, walked through the real intake A
   });
 
   test("INPUT-11 style depth: real evidence intake for an uninspectable encrypted archive is REJECTED, also persisted as a QuarantineRecord, and structurally distinct from QUARANTINED", async ({ playwright }) => {
-    const api = await playwright.request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
     const fixtureContent = readFixture("INPUT-11_Uninspectable_encrypted_archive.txt");
 

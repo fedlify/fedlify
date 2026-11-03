@@ -1,0 +1,312 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: fedlify-study-pipeline-ci
+  labels:
+    app.kubernetes.io/name: fedlify-study-pipeline-ci
+spec:
+  entrypoint: pipeline
+  onExit: notify-exit
+  serviceAccountName: fedlify-pipeline-ci
+  ttlStrategy:
+    secondsAfterCompletion: 86400
+  podGC:
+    strategy: OnWorkflowCompletion
+  arguments:
+    parameters:
+      - name: pipeline-version-id
+      - name: ci-run-id
+      - name: gitea-owner
+      - name: gitea-repo
+      - name: git-commit
+      - name: study-id
+      - name: gitops-path
+      - name: callback-url
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 4Gi
+  templates:
+    - name: pipeline
+      steps:
+        - - name: clone-validate
+            template: clone-validate
+        - - name: build-publish
+            template: build-publish
+        - - name: update-gitops
+            template: update-gitops
+
+    - name: notify-exit
+      steps:
+        - - name: callback
+            template: callback
+            arguments:
+              parameters:
+                - name: phase
+                  value: "{{workflow.status}}"
+                - name: summary
+                  value: "Fedlify publish CI finished with status {{workflow.status}}."
+
+    - name: clone-validate
+      container:
+        image: quay.io/buildah/stable:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            mkdir -p /work/source
+            repo_url="${GITEA_BASE_URL%/}/{{workflow.parameters.gitea-owner}}/{{workflow.parameters.gitea-repo}}.git"
+            auth_repo="$(printf '%s' "$repo_url" | sed "s#https://#https://${GITEA_USERNAME}:${GITEA_TOKEN}@#")"
+            git clone --filter=blob:none "$auth_repo" /work/source
+            cd /work/source
+            git checkout --detach "{{workflow.parameters.git-commit}}"
+            test -f fedlify-pipeline.json
+            test -f README.md
+            if [ ! -d nvflare-job ] && [ ! -d nvflare ]; then
+              echo "Missing NVFLARE runtime files. Expected nvflare-job/ or nvflare/." >&2
+              exit 1
+            fi
+            if find . -type f \( -iname '*.csv' -o -iname '*.tsv' -o -iname '*.parquet' -o -iname '*.sqlite' -o -iname '*.db' \) | grep -q .; then
+              echo "Raw data-like files are not allowed in published study pipeline repositories." >&2
+              exit 1
+            fi
+            git rev-parse HEAD > /work/source/.fedlify-approved-commit
+        env:
+          - name: GITEA_BASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: gitea-credentials
+                key: baseUrl
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: gitea-credentials
+                key: username
+          - name: GITEA_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: gitea-credentials
+                key: token
+        volumeMounts:
+          - name: workspace
+            mountPath: /work
+
+    - name: build-publish
+      container:
+        image: quay.io/buildah/stable:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            cd /work/source
+            image_tag="{{workflow.parameters.git-commit}}"
+            image_repo="${HARBOR_REGISTRY%/}/${HARBOR_PROJECT}/study-{{workflow.parameters.study-id}}-pipeline"
+            if [ -f Dockerfile ]; then
+              buildah login --tls-verify=true --username "$REGISTRY_USERNAME" --password "$REGISTRY_PASSWORD" "$HARBOR_REGISTRY"
+              buildah bud --layers -f Dockerfile -t "${image_repo}:${image_tag}" .
+              buildah push --tls-verify=true "${image_repo}:${image_tag}"
+              printf '%s:%s\n' "$image_repo" "$image_tag" > /work/published-image
+            else
+              printf 'No Dockerfile found; publishing GitOps provenance only.\n'
+              printf 'none\n' > /work/published-image
+            fi
+        env:
+          - name: HARBOR_REGISTRY
+            valueFrom:
+              secretKeyRef:
+                name: harbor-registry-credentials
+                key: registry
+          - name: HARBOR_PROJECT
+            valueFrom:
+              secretKeyRef:
+                name: harbor-registry-credentials
+                key: project
+          - name: REGISTRY_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: harbor-registry-credentials
+                key: username
+          - name: REGISTRY_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: harbor-registry-credentials
+                key: password
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - name: workspace
+            mountPath: /work
+
+    - name: update-gitops
+      container:
+        image: quay.io/buildah/stable:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            remote="$(printf '%s' "$GITOPS_REPO_URL" | sed "s#https://#https://${GITOPS_USERNAME}:${GITOPS_TOKEN}@#")"
+            tmp="$(mktemp -d)"
+            git clone "$remote" "$tmp/repo"
+            cd "$tmp/repo"
+            git fetch origin "$GITOPS_BRANCH" || true
+            if git show-ref --quiet "refs/remotes/origin/${GITOPS_BRANCH}"; then
+              git checkout -B "$GITOPS_BRANCH" "origin/${GITOPS_BRANCH}"
+            else
+              git checkout -B "$GITOPS_BRANCH"
+            fi
+            mkdir -p "{{workflow.parameters.gitops-path}}"
+            image="$(cat /work/published-image)"
+            cat > "{{workflow.parameters.gitops-path}}/fedlify-pipeline-release.yaml" <<EOF
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: fedlify-study-{{workflow.parameters.study-id}}-pipeline
+              namespace: fedlify
+              labels:
+                app.kubernetes.io/name: fedlify-study-pipeline
+                fedlify.com/study-id: "{{workflow.parameters.study-id}}"
+            data:
+              pipelineVersionId: "{{workflow.parameters.pipeline-version-id}}"
+              ciRunId: "{{workflow.parameters.ci-run-id}}"
+              giteaOwner: "{{workflow.parameters.gitea-owner}}"
+              giteaRepo: "{{workflow.parameters.gitea-repo}}"
+              gitCommit: "{{workflow.parameters.git-commit}}"
+              image: "$image"
+            EOF
+            if [ ! -f "{{workflow.parameters.gitops-path}}/kustomization.yaml" ]; then
+              cat > "{{workflow.parameters.gitops-path}}/kustomization.yaml" <<EOF
+            apiVersion: kustomize.config.k8s.io/v1beta1
+            kind: Kustomization
+            resources:
+              - fedlify-pipeline-release.yaml
+            EOF
+            fi
+            git config user.name "$GIT_AUTHOR_NAME"
+            git config user.email "$GIT_AUTHOR_EMAIL"
+            git add "{{workflow.parameters.gitops-path}}"
+            git commit -m "Publish Fedlify study {{workflow.parameters.study-id}} pipeline {{workflow.parameters.git-commit}}" || exit 0
+            git push origin "$GITOPS_BRANCH"
+        env:
+          - name: GITOPS_REPO_URL
+            valueFrom:
+              secretKeyRef:
+                name: gitops-write
+                key: repoUrl
+          - name: GITOPS_BRANCH
+            valueFrom:
+              secretKeyRef:
+                name: gitops-write
+                key: branch
+          - name: GITOPS_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: gitops-write
+                key: username
+          - name: GITOPS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: gitops-write
+                key: token
+          - name: GIT_AUTHOR_NAME
+            valueFrom:
+              secretKeyRef:
+                name: gitops-write
+                key: authorName
+          - name: GIT_AUTHOR_EMAIL
+            valueFrom:
+              secretKeyRef:
+                name: gitops-write
+                key: authorEmail
+        volumeMounts:
+          - name: workspace
+            mountPath: /work
+
+    - name: callback
+      inputs:
+        parameters:
+          - name: phase
+          - name: summary
+      container:
+        image: python:3.12-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-c"]
+        args:
+          - |
+            import hashlib, hmac, json, os, urllib.request
+            payload = {
+              "pipelineVersionId": "{{workflow.parameters.pipeline-version-id}}",
+              "ciRunId": "{{workflow.parameters.ci-run-id}}",
+              "workflowId": "{{workflow.name}}",
+              "phase": "{{inputs.parameters.phase}}",
+              "validationSummary": "{{inputs.parameters.summary}}",
+            }
+            body = json.dumps(payload, separators=(",", ":")).encode()
+            headers = {"Content-Type": "application/json"}
+            secret = os.environ.get("ARGO_WEBHOOK_SECRET", "")
+            if secret:
+              headers["X-Fedlify-Signature"] = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+            req = urllib.request.Request("{{workflow.parameters.callback-url}}", data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as response:
+              print(response.read().decode())
+        env:
+          - name: ARGO_WEBHOOK_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: argo-webhook-secret
+                key: secret
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fedlify-pipeline-ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fedlify-web-workflow-submit
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs: ["create", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fedlify-web-workflow-submit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fedlify-web-workflow-submit
+subjects:
+  - kind: ServiceAccount
+    name: fedlify-web
+    namespace: fedlify
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fedlify-pipeline-ci-task-results
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fedlify-pipeline-ci-task-results
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fedlify-pipeline-ci-task-results
+subjects:
+  - kind: ServiceAccount
+    name: fedlify-pipeline-ci
+    namespace: fedlify

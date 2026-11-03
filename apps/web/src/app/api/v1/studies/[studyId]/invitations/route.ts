@@ -8,6 +8,7 @@ import { sendInvitationEmail } from "@/lib/email";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { publicBaseUrl } from "@/lib/runtime-config";
 
 const studyRoleSchema = z.enum([
   "PRINCIPAL_INVESTIGATOR",
@@ -86,14 +87,21 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     }
   });
 
-  const inviteUrl = new URL(`/signin?invite=${token}`, request.nextUrl.origin).toString();
+  // Behind the ingress the request origin is the pod's own address, so build the link from the public URL.
+  const inviteUrl = new URL(`/signin?invite=${token}`, publicBaseUrl(request.nextUrl.origin)).toString();
 
-  await sendInvitationEmail({
-    to: parsed.data.email,
-    studyTitle: study.title,
-    inviterName: study.createdBy.name ?? "A Fedlify study member",
-    inviteUrl
-  });
+  let emailSent = false;
+  try {
+    emailSent = await sendInvitationEmail({
+      to: parsed.data.email,
+      studyTitle: study.title,
+      inviterName: study.createdBy.name ?? "A Fedlify study member",
+      inviteUrl
+    });
+  } catch (error) {
+    // The invitation exists and the link is returned below; a mail outage must not lose it.
+    console.error("Invitation email failed.", { to: parsed.data.email, error: error instanceof Error ? error.message : String(error) });
+  }
 
   await audit({
     actorUserId: authResult.userId,
@@ -102,9 +110,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     action: "invitation.create",
     targetType: "Invitation",
     targetId: invitation.id,
-    metadata: { email: parsed.data.email, roles: parsed.data.roles },
+    metadata: { email: parsed.data.email, roles: parsed.data.roles, emailSent },
     request
   });
 
-  return json({ invitation, inviteUrl }, { status: 201 });
+  return json({ invitation, inviteUrl, emailSent }, { status: 201 });
 }
