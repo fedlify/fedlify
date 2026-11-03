@@ -10,6 +10,7 @@ import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { checkPublishRun, type PublishLiveStatus } from "@/lib/workflow-watchdog";
 import { adapterSystemInfo, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
 
 type Params = { params: Promise<{ studyId: string }> };
@@ -24,6 +25,29 @@ export async function GET(_request: NextRequest, { params }: Params) {
   } catch (error) {
     if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
     throw error;
+  }
+
+  // Lazy watchdog: fail a publish whose pod cannot start. Runs before the reads below so the response reflects it.
+  const live = new Map<string, PublishLiveStatus>();
+  const inFlight = await prisma.cIValidationRun.findMany({
+    where: { provider: "argo-study-publish", status: { in: ["QUEUED", "RUNNING"] }, workflowId: { not: null }, pipelineVersion: { project: { studyId } } },
+    select: { id: true, pipelineVersionId: true, workflowId: true }
+  });
+  if (inFlight.length > 0) {
+    const target = await prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" }, select: { id: true } });
+    if (target) {
+      // Parallel and bounded: a slow Kubernetes API must not hold up the status response.
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+      await Promise.all(
+        inFlight.map(async (run) => {
+          const status = await Promise.race([
+            checkPublishRun({ ciRunId: run.id, pipelineVersionId: run.pipelineVersionId!, deploymentId: target.id, workflowId: run.workflowId! }).catch(() => null),
+            timeout
+          ]);
+          if (status) live.set(run.id, status);
+        })
+      );
+    }
   }
 
   const [deployment, studySites, projects] = await Promise.all([
@@ -115,7 +139,14 @@ export async function GET(_request: NextRequest, { params }: Params) {
         validationStatus: version.validationStatus,
         publishedAt: version.publishedAt,
         publish: version.ciRuns[0]
-          ? { status: version.ciRuns[0].status, summary: version.ciRuns[0].summary, workflowId: version.ciRuns[0].workflowId }
+          ? {
+              status: version.ciRuns[0].status,
+              summary: version.ciRuns[0].summary,
+              workflowId: version.ciRuns[0].workflowId,
+              step: live.get(version.ciRuns[0].id)?.step ?? null,
+              stepState: live.get(version.ciRuns[0].id)?.stepState ?? null,
+              waiting: live.get(version.ciRuns[0].id)?.waiting ?? null
+            }
           : null
       }))
     })),

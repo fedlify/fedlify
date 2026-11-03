@@ -1,0 +1,93 @@
+# Builds the Fedlify web image in-cluster (native amd64, no Mac emulation, layer cache in Harbor).
+# Submit with scripts/build-web-in-cluster.sh (or `argo submit --from workflowtemplate/fedlify-platform-image-build -p git-ref=...`).
+#
+# Source: the fedlify GitHub repo is PUBLIC today (anonymous `git ls-remote` works), so no credential is needed.
+# If it becomes private, create Secret `fedlify-source-git` (keys: username, token) in namespace fedlify; it is
+# read as optional and passed to kaniko as GIT_USERNAME/GIT_PASSWORD. Only COMMITTED+PUSHED refs can be built.
+#
+# Secrets expected in namespace fedlify:
+#   harbor-registry-credentials  registry, username, password  (must have PUSH on Harbor project `fedlify`,
+#                                including the `web-buildcache` repo; today it is proven only for `fedlify-studies`)
+#   fedlify-source-git           username, token               (optional; private source only)
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: fedlify-platform-image-build
+  labels:
+    app.kubernetes.io/name: fedlify-platform-image-build
+spec:
+  entrypoint: build-web
+  serviceAccountName: fedlify-pipeline-ci
+  imagePullSecrets:
+    - name: harbor-registry
+  ttlStrategy:
+    secondsAfterCompletion: 86400
+  podGC:
+    strategy: OnWorkflowSuccess
+  activeDeadlineSeconds: 2400
+  arguments:
+    parameters:
+      - name: git-url
+        value: github.com/fedlify/fedlify.git      # no scheme; kaniko clones over https
+      - name: git-ref
+        value: refs/heads/main                      # branch or tag ref
+      - name: git-commit
+        value: ""                                   # optional sha to pin within git-ref
+      - name: image-tag                             # e.g. r20261103-7 (required)
+      - name: image-repo
+        value: harbor.fedlify.com/fedlify/web
+      - name: cache-repo
+        value: harbor.fedlify.com/fedlify/web-buildcache
+      - name: dockerfile
+        value: apps/web/Dockerfile
+      - name: kaniko-image
+        value: gcr.io/kaniko-project/executor:v1.23.2-debug   # mirror into Harbor to avoid slow public pulls
+
+  templates:
+    - name: build-web
+      activeDeadlineSeconds: 2100
+      outputs:
+        parameters:
+          - name: image-digest
+            valueFrom: { path: /tmp/image-digest, default: "" }
+      container:
+        image: "{{workflow.parameters.kaniko-image}}"
+        command: ["/busybox/sh", "-c"]
+        args:
+          - |
+            set -eu
+            auth="$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 | tr -d '\n')"
+            printf '{"auths":{"%s":{"auth":"%s"}}}' "$HARBOR_REGISTRY" "$auth" > /kaniko/.docker/config.json
+            ctx="git://{{workflow.parameters.git-url}}#{{workflow.parameters.git-ref}}"
+            if [ -n "{{workflow.parameters.git-commit}}" ]; then ctx="${ctx}#{{workflow.parameters.git-commit}}"; fi
+            /kaniko/executor \
+              --context="$ctx" \
+              --dockerfile="{{workflow.parameters.dockerfile}}" \
+              --destination="{{workflow.parameters.image-repo}}:{{workflow.parameters.image-tag}}" \
+              --cache=true \
+              --cache-repo="{{workflow.parameters.cache-repo}}" \
+              --cache-copy-layers=true \
+              --snapshot-mode=redo \
+              --compressed-caching=false \
+              --use-new-run \
+              --digest-file=/tmp/digest-only
+            cp /tmp/digest-only /tmp/image-digest
+            echo "Published {{workflow.parameters.image-repo}}:{{workflow.parameters.image-tag}}@$(cat /tmp/digest-only)"
+        env:
+          - name: HARBOR_REGISTRY
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: registry } }
+          - name: REGISTRY_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: username } }
+          - name: REGISTRY_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: password } }
+          - name: GIT_USERNAME
+            valueFrom: { secretKeyRef: { name: fedlify-source-git, key: username, optional: true } }
+          - name: GIT_PASSWORD
+            valueFrom: { secretKeyRef: { name: fedlify-source-git, key: token, optional: true } }
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "4"
+            memory: 6Gi

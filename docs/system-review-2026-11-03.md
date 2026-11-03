@@ -283,6 +283,35 @@ Open UX note: every account's auto-created study is titled "Default Study", so a
 another user's default study sees two identical titles in the selector. Consider naming it after the owner
 or showing the organisation name in the selector.
 
+## 4d. Phase 3a verification log (Code -> Publish on the cluster)
+
+Baseline via API as the PI (`phase3-code.sh`): New project cloned `fedlify-templates/fedlify-starter` into
+`fedlify-study-default-study-h27kxd7i/hf-mortality-fedavg` (DRAFT), Save committed `localEpochs 5 -> 6`,
+a stale save with the old base commit returned 409 `save_conflict`, head reflected the edit. Design for the
+agentic workspace and the "Start a pipeline" flow: `docs/phase3-agentic-workspace.md` + mockup.
+
+First Publish exposed two cluster defects (both fixed, deployed as web `r20261103-5` + templates):
+
+7. **Workflow pods could not pull the base image.** The `fedlify` Harbor project is private and neither the
+   `fedlify-pipeline-ci` service account nor the WorkflowTemplates carried `imagePullSecrets`, so
+   `clone-validate` sat in ImagePullBackOff (and so did the exit-handler callback). Added
+   `imagePullSecrets: [harbor-registry]` to both workflow service accounts and the publish template spec.
+8. **Workflow callbacks never reached the app.** Callbacks went to `https://app.fedlify.com` through
+   Cloudflare, which returns 403 to the `Python-urllib` user agent the callback step uses, so the app would
+   have stayed at RUNNING forever. Fixed twice over: `FEDLIFY_CALLBACK_BASE_URL` points callbacks at the
+   in-cluster Service (`http://fedlify-web.fedlify.svc.cluster.local`), and the callback steps send
+   `User-Agent: fedlify-argo-callback/1`. The stuck run was released by stopping the workflow and sending
+   the signed failure callback by hand.
+9. **`bitnami/kubectl:1.31.4` no longer exists on Docker Hub** (Bitnami withdrew its tags), so
+   `prepare-namespace` and `wait-ready` could not start. Replaced with `alpine/k8s:1.31.13` (kubectl + bash).
+   Second attempt got through clone-validate and the kaniko build: `fedlify-studies/default-study` is in Harbor.
+10. **The exit-handler callback crashed on its own input.** `{{workflow.failures}}` (JSON) was interpolated
+    into a Python triple-quoted literal, raising SyntaxError, so no failed publish could report back. The
+    summary now travels in the `FEDLIFY_SUMMARY` env var. Also: the publish route writes `kitGeneration` and
+    `provisionedSites` before the workflow runs, so a failed first publish would make the next one skip
+    kit provisioning; the webhook now resets that bookkeeping when nothing was ever published (web
+    `r20261103-6`), and the test deployment row was reset by hand once.
+
 ## 5. Proposed order of work
 
 1. Secrets: untrack tfvars, rotate, move OpenAI key out of git. (hours)
@@ -296,3 +325,12 @@ or showing the organisation name in the selector.
    project chat backed by the Codex worker. Fix the readiness gate (11).
 6. Retire legacy paths (14), fix hygiene (15-18), update docs and the tutorial for the published runtime.
 7. Re-base the paper on citable artifacts (section 4) and add the real NVFLARE run from step 4.
+
+## 4e. Phase 3a result and publish speed (2026-11-03)
+
+First reachable publish: `default-study-7kxd7i.fedlify.com` serves a certificate issued by the study's NVFLARE CA through
+SSL passthrough. Further fixes: NVFLARE org names (hyphens), aggregator NetworkPolicy on 8002 (hostNetwork ingress),
+unique hostname policy `<slug>-<id6>`, owner-named default studies, publish watchdog, slim web image (1.43 GB -> 444 MB),
+Harbor `fedlify-mirror` plus image prepuller. Script wall time 17m22s -> 11m04s, including rollout waits and test cleanup.
+Pending: argoexec `IfNotPresent` (each step still costs about 30s), `harbor_project.fedlify_mirror` import into day1 state
+(project was created by API), and exercising the watchdog against a real stuck pull.

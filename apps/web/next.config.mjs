@@ -5,6 +5,8 @@ const appDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
+  outputFileTracingRoot: path.resolve(appDir, "../.."),
   experimental: {
     serverActions: {
       bodySizeLimit: "4mb"

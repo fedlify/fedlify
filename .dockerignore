@@ -17,3 +17,10 @@ __pycache__
 deploy/local-e2e/provisioned
 deploy/local-e2e/data
 deploy/local-e2e/work
+**/.next
+**/*.tsbuildinfo
+**/.env
+apps/web/e2e
+apps/web/output
+apps/web/playwright-report
+apps/web/test-results

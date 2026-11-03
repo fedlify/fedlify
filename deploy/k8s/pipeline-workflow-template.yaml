@@ -248,7 +248,7 @@ spec:
               "validationSummary": "{{inputs.parameters.summary}}",
             }
             body = json.dumps(payload, separators=(",", ":")).encode()
-            headers = {"Content-Type": "application/json"}
+            headers = {"Content-Type": "application/json", "User-Agent": "fedlify-argo-callback/1"}
             secret = os.environ.get("ARGO_WEBHOOK_SECRET", "")
             if secret:
               headers["X-Fedlify-Signature"] = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -266,6 +266,9 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: fedlify-pipeline-ci
+# The fedlify Harbor project is private: every workflow pod (base image, callback) needs the pull secret.
+imagePullSecrets:
+  - name: harbor-registry
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -274,7 +277,10 @@ metadata:
 rules:
   - apiGroups: ["argoproj.io"]
     resources: ["workflows"]
-    verbs: ["create", "get", "list", "watch"]
+    verbs: ["create", "get", "list", "watch", "patch"]  # patch: stuck-publish watchdog sets spec.shutdown=Stop
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]  # read-only: detect ImagePullBackOff and show the current step
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

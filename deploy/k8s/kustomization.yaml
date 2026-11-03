@@ -13,15 +13,20 @@ resources:
   - agent-workflow-template.yaml
   - pipeline-workflow-template.yaml
   - publish-workflow-template.yaml
+  - image-prepuller.yaml
+  - platform-build-workflow-template.yaml
   - agent-orchestrator-config.yaml
   - agent-orchestrator-deployment.yaml
   - agent-orchestrator-service.yaml
 
 images:
   - name: harbor.fedlify.com/fedlify/web
-    newTag: r20261103-4
+    newTag: r20261103-7
   - name: harbor.fedlify.com/fedlify/agent-worker
     newTag: latest
   - name: fedlify/agent-orchestrator
     newName: harbor.fedlify.com/fedlify/agent-orchestrator
     newTag: r20261022-1
+
+patches:
+  - path: web-slim-patch.yaml

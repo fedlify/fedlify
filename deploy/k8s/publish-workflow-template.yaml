@@ -19,6 +19,8 @@ spec:
   entrypoint: publish
   onExit: report-exit
   serviceAccountName: fedlify-pipeline-ci
+  imagePullSecrets:
+    - name: harbor-registry
   ttlStrategy:
     secondsAfterCompletion: 86400
   podGC:
@@ -41,7 +43,7 @@ spec:
       - name: kit-generation        # bumps the aggregator rollout when kits change
       - name: callback-url
       - name: base-image
-        value: harbor.fedlify.com/fedlify/nvflare-base:branch-main
+        value: harbor.fedlify.com/fedlify/nvflare-base:r20261103-7
       - name: study-image-repo
         value: harbor.fedlify.com/fedlify-studies
       - name: ingress-target
@@ -146,7 +148,7 @@ spec:
           - name: image-digest
             valueFrom: { path: /work/image-digest }
       container:
-        image: gcr.io/kaniko-project/executor:v1.23.2-debug
+        image: harbor.fedlify.com/fedlify-mirror/kaniko-executor:v1.23.2-debug
         command: ["/busybox/sh", "-c"]
         args:
           - |
@@ -195,7 +197,8 @@ spec:
     # 4. Study namespace with the kits Secret, the adapter token, and the read-only pull secret.
     - name: prepare-namespace
       container:
-        image: bitnami/kubectl:1.31.4
+        # bitnami/kubectl tags were withdrawn from Docker Hub; alpine/k8s ships kubectl + bash. Mirrored into Harbor by scripts/mirror-helper-images.sh.
+        image: harbor.fedlify.com/fedlify-mirror/alpine-k8s:1.31.13
         command: ["/bin/bash", "-c"]
         args:
           - |
@@ -228,7 +231,7 @@ spec:
     # 5. Client kits go to object storage; the web app packages each one into that site's join kit.
     - name: upload-client-kits
       container:
-        image: amazon/aws-cli:2.17.0
+        image: harbor.fedlify.com/fedlify-mirror/aws-cli:2.17.0
         command: ["/bin/bash", "-c"]
         args:
           - |
@@ -304,7 +307,8 @@ spec:
         retryPolicy: Always
         backoff: { duration: "15s", factor: "1", maxDuration: "15m" }
       container:
-        image: bitnami/kubectl:1.31.4
+        # bitnami/kubectl tags were withdrawn from Docker Hub; alpine/k8s ships kubectl + bash. Mirrored into Harbor by scripts/mirror-helper-images.sh.
+        image: harbor.fedlify.com/fedlify-mirror/alpine-k8s:1.31.13
         command: ["/bin/bash", "-c"]
         args:
           - |
@@ -318,6 +322,9 @@ spec:
             kubectl -n "$ns" rollout status deployment/aggregator --timeout=60s
 
     - name: callback
+      # The exit handler must not hang on an unpullable image: give up after 5 minutes (the web watchdog has
+      # already recorded the failure if the workflow was stopped for a stuck pod).
+      activeDeadlineSeconds: 300
       inputs:
         parameters:
           - name: phase
@@ -340,17 +347,21 @@ spec:
               "stage": "{{inputs.parameters.stage}}",
               "imageDigest": "{{inputs.parameters.image-digest}}",
               "hostname": "{{workflow.parameters.hostname}}",
-              "validationSummary": """{{inputs.parameters.summary}}"""[:2000],
+              # Read from the environment: the summary can contain quotes and newlines (workflow.failures is JSON).
+              "validationSummary": os.environ.get("FEDLIFY_SUMMARY", "")[:2000],
             }
             body = json.dumps(payload, separators=(",", ":")).encode()
             signature = hmac.new(os.environ["ARGO_WEBHOOK_SECRET"].encode(), body, hashlib.sha256).hexdigest()
             request = urllib.request.Request("{{workflow.parameters.callback-url}}", data=body, method="POST",
-              headers={"Content-Type": "application/json", "X-Fedlify-Signature": "sha256=" + signature})
+              headers={"Content-Type": "application/json", "X-Fedlify-Signature": "sha256=" + signature,
+                       "User-Agent": "fedlify-argo-callback/1"})  # the default urllib agent is blocked at the public edge
             with urllib.request.urlopen(request, timeout=30) as response:
               print(response.status, response.read().decode()[:500])
         env:
           - name: ARGO_WEBHOOK_SECRET
             valueFrom: { secretKeyRef: { name: argo-webhook-secret, key: secret } }
+          - name: FEDLIFY_SUMMARY
+            value: "{{inputs.parameters.summary}}"
 ---
 # The publish workflow manages study-* namespaces (namespace, secrets) and waits on their aggregators.
 apiVersion: rbac.authorization.k8s.io/v1

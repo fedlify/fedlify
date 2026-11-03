@@ -1,0 +1,65 @@
+# NOT in kustomization.yaml yet: add it only after the mirror is populated, or every node pod fails to init.
+# Keeps the publish/build helper images warm on every node so a publish step never waits on a first pull.
+# Init containers pull each image (and exit immediately); the main container is a tiny sleeper using an image that
+# is already pulled. Images are mirrored into Harbor by scripts/mirror-helper-images.sh (run it BEFORE applying this,
+# and keep tags in sync with the workflow templates). Pulls use the harbor-registry pull secret.
+# nvflare-base tag must match base-image in publish-workflow-template.yaml.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: image-prepuller
+  namespace: fedlify
+  labels:
+    app.kubernetes.io/name: image-prepuller
+    app.kubernetes.io/part-of: fedlify-platform
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: image-prepuller
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: image-prepuller
+    spec:
+      imagePullSecrets:
+        - name: harbor-registry
+      tolerations:
+        - operator: Exists
+      terminationGracePeriodSeconds: 0
+      initContainers:
+        - name: nvflare-base
+          image: harbor.fedlify.com/fedlify/nvflare-base:r20261103-7
+          command: ["/bin/sh", "-c", "exit 0"]
+          imagePullPolicy: IfNotPresent
+          resources: &tiny
+            requests: { cpu: 1m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+        - name: kaniko-executor
+          image: harbor.fedlify.com/fedlify-mirror/kaniko-executor:v1.23.2-debug
+          command: ["/busybox/sh", "-c", "exit 0"]
+          imagePullPolicy: IfNotPresent
+          resources: *tiny
+        - name: aws-cli
+          image: harbor.fedlify.com/fedlify-mirror/aws-cli:2.17.0
+          command: ["/bin/sh", "-c", "exit 0"]
+          imagePullPolicy: IfNotPresent
+          resources: *tiny
+        # argoexec is deliberately not warmed here: the Argo controller injects quay.io/argoproj/argoexec with
+        # pullPolicy Always, so a different ref cannot help. Fix that in the Argo module (executor image + IfNotPresent).
+      containers:
+        # alpine-k8s is the last image pulled; reuse it as the sleeper so nothing extra is downloaded.
+        - name: alpine-k8s
+          image: harbor.fedlify.com/fedlify-mirror/alpine-k8s:1.31.13
+          command: ["/bin/sh", "-c", "trap 'exit 0' TERM; while true; do sleep 3600 & wait $!; done"]
+          imagePullPolicy: IfNotPresent
+          resources: *tiny
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

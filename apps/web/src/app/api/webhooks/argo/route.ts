@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import { verifyHmacSignature } from "@/lib/crypto";
@@ -49,10 +50,15 @@ async function handleStudyPublish(payload: z.infer<typeof studyPublishSchema>, r
   const deployment = await prisma.nvflareDeployment.findUnique({ where: { id: payload.deploymentId }, include: { study: true } });
   if (!deployment) return problem(404, "Deployment not found.", "not_found");
 
+  // The stuck-pod watchdog may already have failed this run with a specific reason; keep it over the generic stop message.
+  const existingRun = await prisma.cIValidationRun.findUnique({ where: { id: payload.ciRunId }, select: { status: true, summary: true } });
+  const keepWatchdogReason = !published && existingRun?.status === "FAILED" && Boolean(existingRun.summary);
+  const failureSummary = keepWatchdogReason ? existingRun!.summary! : payload.validationSummary;
+
   await prisma.$transaction(async (tx) => {
     await tx.cIValidationRun.update({
       where: { id: payload.ciRunId },
-      data: { workflowId: payload.workflowId, status: published ? "PASSED" : "FAILED", summary: payload.validationSummary, completedAt: new Date() }
+      data: { workflowId: payload.workflowId, status: published ? "PASSED" : "FAILED", summary: published ? payload.validationSummary : failureSummary, completedAt: new Date() }
     });
     await tx.pipelineVersion.update({
       where: { id: payload.pipelineVersionId },
@@ -74,8 +80,16 @@ async function handleStudyPublish(payload: z.infer<typeof studyPublishSchema>, r
         }
       });
     } else {
-      // The aggregator keeps serving the previous version (if any); only the failure is recorded.
-      await tx.nvflareDeployment.update({ where: { id: deployment.id }, data: { lastError: payload.validationSummary ?? "Publish failed." } });
+      // The aggregator keeps serving the previous version (if any); only the failure is recorded. If nothing
+      // was ever published, the provisioning bookkeeping the publish route wrote ahead of the workflow must be
+      // undone, otherwise the next publish skips kit provisioning for kits that were never produced.
+      await tx.nvflareDeployment.update({
+        where: { id: deployment.id },
+        data: {
+          lastError: failureSummary ?? "Publish failed.",
+          ...(deployment.imageDigest ? {} : { kitGeneration: 0, provisionedSites: Prisma.JsonNull, clientKitPrefix: null })
+        }
+      });
     }
   });
 

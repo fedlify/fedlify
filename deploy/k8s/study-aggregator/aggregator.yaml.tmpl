@@ -162,7 +162,10 @@ spec:
                 name: aggregator
                 port: { name: fl }
 ---
-# Only the Fedlify web app (namespace fedlify) and ingress-nginx may reach the aggregator pod.
+# Port 8002 is public by design (TLS passthrough) and protected by NVFLARE mutual TLS. It has no source
+# restriction because ingress-nginx runs with hostNetwork: its traffic arrives from node/tunnel addresses,
+# which a namespaceSelector never matches, so a selector drops every connection from other nodes.
+# Only the Fedlify web app (namespace fedlify) may reach the adapter on 3010.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -178,10 +181,7 @@ spec:
       app.kubernetes.io/name: fedlify-aggregator
   policyTypes: ["Ingress"]
   ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
-      ports:
+    - ports:
         - { port: 8002 }
     - from:
         - namespaceSelector:

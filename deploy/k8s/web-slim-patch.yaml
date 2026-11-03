@@ -1,0 +1,19 @@
+# Apply ONLY together with the standalone web image: add this file under `patches:` in kustomization.yaml in the SAME
+# commit that bumps images[].newTag to the new standalone build (not r20261103-6, which is the old pnpm image and has no
+# /opt/migrate or apps/web/server.js).
+# HOSTNAME is set explicitly because the kubelet-injected pod name would otherwise be Next's bind address.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fedlify-web
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: migrate
+          command: ["node", "/opt/migrate/node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "/app/apps/web/prisma/schema.prisma"]
+      containers:
+        - name: web
+          env:
+            - { name: HOSTNAME, value: "0.0.0.0" }
+          command: ["node", "apps/web/server.js"]

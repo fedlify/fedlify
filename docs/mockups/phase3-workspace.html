@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fedlify Code & run workspace</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* layout: pipeline rail on top, three panes (files | editor | assistant); Fedlify purple as accent */
+    --bg: #f6f4fb; --panel: #ffffff; --ink: #1f1a33; --muted: #6d6786; --line: #e6e1f2;
+    --accent: #5b4ab5; --accent-soft: #efeafc; --ok: #1a7a3a; --ok-soft: #e8f7ec; --warn: #a15d00; --warn-soft: #fff4e0;
+    --add: #e8f7ec; --del: #fde9e9; --display: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; --bg: #16131f; --panel: #1f1b2b; --ink: #ece8f6; --muted: #a39dba; --line: #332c47; --accent: #a797f0; --accent-soft: #2b2545; --ok: #6fd48c; --ok-soft: #1c3324; --warn: #f0b35a; --warn-soft: #3a2d14; --add: #1c3324; --del: #3d1f1f; } }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #16131f; --panel: #1f1b2b; --ink: #ece8f6; --muted: #a39dba; --line: #332c47; --accent: #a797f0; --accent-soft: #2b2545; --ok: #6fd48c; --ok-soft: #1c3324; --warn: #f0b35a; --warn-soft: #3a2d14; --add: #1c3324; --del: #3d1f1f; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--display); }
+  .frame { max-width: 1440px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  header.top h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header.top .crumb { color: var(--muted); font-size: 13px; }
+  .note { color: var(--muted); font-size: 13px; }
+  .rail { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stage .name { font-weight: 600; }
+  .stage .sub { color: var(--muted); font-size: 12px; }
+  .stage.current { border-color: var(--accent); background: var(--accent-soft); }
+  .chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--line); color: var(--ink); white-space: nowrap; }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); } .chip.warn { background: var(--warn-soft); color: var(--warn); } .chip.accent { background: var(--accent-soft); color: var(--accent); }
+  .btn { font: inherit; font-size: 13px; font-weight: 600; border-radius: 9px; padding: 6px 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .panes { display: grid; grid-template-columns: 260px minmax(0, 1fr) 380px; gap: 12px; min-height: 620px; }
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; min-width: 0; }
+  .pane h2 { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0; padding: 12px 14px 8px; display: flex; justify-content: space-between; align-items: center; }
+  .tree { padding: 0 8px 8px; display: grid; gap: 2px; font-family: var(--mono); font-size: 12.5px; }
+  .tree div { display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 7px; }
+  .tree .dir { color: var(--muted); }
+  .tree .in { padding-left: 22px; }
+  .tree .active { background: var(--accent-soft); color: var(--accent); }
+  .tree .m { color: var(--warn); font-weight: 600; } .tree .dot { color: var(--accent); }
+  .checks { border-top: 1px solid var(--line); padding: 8px 8px 12px; display: grid; gap: 4px; margin-top: auto; }
+  .checks div { display: flex; gap: 8px; align-items: center; padding: 4px 8px; font-size: 13px; }
+  .checks .ok { color: var(--ok); } .checks .pending { color: var(--muted); }
+  .editor .tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
+  .editor .tab { padding: 6px 12px; border-radius: 8px 8px 0 0; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .editor .tab.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .diffhead { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  pre.code { margin: 0; padding: 12px 0; font: 12.5px/1.6 var(--mono); overflow-x: auto; flex: 1; }
+  pre.code .ln { display: inline-block; width: 44px; text-align: right; padding-right: 12px; color: var(--muted); user-select: none; }
+  pre.code .add { background: var(--add); display: block; } pre.code .del { background: var(--del); display: block; text-decoration: line-through; opacity: .8; } pre.code .ctx { display: block; }
+  .savebar { border-top: 1px solid var(--line); padding: 10px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .savebar input { flex: 1; min-width: 180px; font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .chat { display: flex; flex-direction: column; }
+  .ctx { margin: 0 12px; padding: 8px 10px; border-radius: 10px; background: var(--bg); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; }
+  .msgs { padding: 12px; display: grid; gap: 10px; overflow-y: auto; flex: 1; }
+  .msg { padding: 10px 12px; border-radius: 12px; font-size: 13px; }
+  .msg.user { background: var(--accent-soft); margin-left: 24px; }
+  .msg.bot { background: var(--bg); margin-right: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--panel); display: grid; gap: 6px; margin-top: 8px; }
+  .card .title { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .card .file { font-family: var(--mono); font-size: 12px; display: flex; justify-content: space-between; color: var(--muted); }
+  .card .plus { color: var(--ok); } .card .minus { color: #c0392b; }
+  .card .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .composer { border-top: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 8px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; }
+  .quick span { font-size: 12px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .composer .box { display: flex; gap: 8px; }
+  .composer input { flex: 1; font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .meter { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  footer.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+  footer.legend .l { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+  footer.legend b { display: block; margin-bottom: 4px; }
+  .start { display: grid; gap: 12px; margin-top: 12px; padding-top: 16px; border-top: 1px dashed var(--line); }
+  .paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .path { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .path p { margin: 0; color: var(--muted); font-size: 13px; }
+  .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; }
+  .tpl { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 3px; }
+  .tpl.on { border-color: var(--accent); background: var(--accent-soft); }
+  .th { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; }
+  .tm { color: var(--muted); font-size: 12px; }
+  .tf { font-size: 12px; }
+  .path .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+  .wizard { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  @media (max-width: 1000px) { .panes { grid-template-columns: 1fr; } .rail { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .rail { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header class="top">
+    <div>
+      <div class="crumb">Default Study · Pipeline</div>
+      <h1>Code &amp; run: HF mortality FedAvg</h1>
+    </div>
+    <div class="note">Mockup of the Phase 3 workspace. Content is the real starter repository and study context; interactions are illustrative.</div>
+  </header>
+
+  <section class="rail" aria-label="Pipeline stages">
+    <div class="stage current"><div><div class="name">1 · Code</div><div class="sub">main @ bb534f09 · 2 unsaved</div></div><span class="chip accent">editing</span></div>
+    <div class="stage"><div><div class="name">2 · Publish</div><div class="sub">v1 live · v2 not built</div></div><span class="chip ok">v1 live</span></div>
+    <div class="stage"><div><div class="name">3 · Sites</div><div class="sub">site-ha connected · site-hb waiting</div></div><span class="chip warn">1 / 2</span></div>
+    <div class="stage"><div><div class="name">4 · Run</div><div class="sub">no run yet</div></div><span class="chip">idle</span></div>
+  </section>
+
+  <section class="panes">
+    <aside class="pane" aria-label="Files and checks">
+      <h2>Files <span class="chip">11</span></h2>
+      <div class="tree">
+        <div class="dir"><span>▾ job/</span></div>
+        <div class="in"><span>meta.conf</span></div>
+        <div class="in"><span>app/config/config_fed_server.conf</span></div>
+        <div class="in"><span>app/config/config_fed_client.conf</span></div>
+        <div><span>client.py</span><span class="dot">●</span></div>
+        <div class="active"><span>model.py</span><span class="m">M</span></div>
+        <div><span>fedlify-pipeline.json</span><span class="m">M</span></div>
+        <div><span>requirements.txt</span></div>
+        <div><span>tests/test_model.py</span><span class="dot">●</span></div>
+        <div><span>AGENTS.md</span></div>
+        <div><span>README.md</span></div>
+      </div>
+      <div class="checks">
+        <h2 style="padding:4px 0 6px">Checks <button class="btn" style="padding:2px 8px;font-size:12px">Run</button></h2>
+        <div class="ok">✓ repository layout</div>
+        <div class="ok">✓ no data files, no secrets</div>
+        <div class="ok">✓ requirements pinned</div>
+        <div class="ok">✓ unit tests (3 passed)</div>
+        <div class="pending">○ contract columns vs site profiles</div>
+      </div>
+    </aside>
+
+    <main class="pane editor" aria-label="Editor">
+      <div class="tabs"><span class="tab on">model.py</span><span class="tab">fedlify-pipeline.json</span><span class="tab">client.py</span></div>
+      <div class="diffhead"><span>Reviewing proposal #3 · model.py · +4 −1</span><span>base bb534f09 · diff view</span></div>
+<pre class="code"><span class="ctx"><span class="ln">14</span>def prepare_features(frame: pd.DataFrame, contract: dict):</span>
+<span class="ctx"><span class="ln">15</span>    missing = [column for column in [contract["label"], *contract["features"]] if column not in frame.columns]</span>
+<span class="ctx"><span class="ln">16</span>    if missing:</span>
+<span class="ctx"><span class="ln">17</span>        raise ValueError(f"Site data is missing contract columns: {missing}")</span>
+<span class="add"><span class="ln">18</span>+   # Derived feature (requested): BMI from admission weight and height; site-local only.</span>
+<span class="add"><span class="ln">19</span>+   if {"admissionweight", "admissionheight"} &lt;= set(frame.columns):</span>
+<span class="add"><span class="ln">20</span>+       height_m = pd.to_numeric(frame["admissionheight"], errors="coerce") / 100.0</span>
+<span class="add"><span class="ln">21</span>+       frame = frame.assign(bmi=pd.to_numeric(frame["admissionweight"], errors="coerce") / height_m.pow(2))</span>
+<span class="del"><span class="ln">22</span>-   features = frame[contract["features"]].apply(pd.to_numeric, errors="coerce")</span>
+<span class="add"><span class="ln">22</span>+   features = frame[contract["features"]].apply(pd.to_numeric, errors="coerce")  # contract now lists "bmi"</span>
+<span class="ctx"><span class="ln">23</span>    features = features.fillna(features.median()).fillna(0.0)</span>
+<span class="ctx"><span class="ln">24</span>    std = features.std().replace(0, 1.0).fillna(1.0)</span></pre>
+      <div class="savebar">
+        <button class="btn">Reject file</button>
+        <button class="btn primary">Accept file</button>
+        <input id="commit-message" aria-label="Commit message" value="Add BMI as a derived feature (agent proposal #3)">
+        <button class="btn primary">Save = commit to main</button>
+      </div>
+    </main>
+
+    <aside class="pane chat" aria-label="Assistant">
+      <h2>Assistant <span class="chip ok">context 29/29</span></h2>
+      <div class="ctx"><span>protocol</span><span>29 requirements</span><span>2 sites · data profiles</span><span>data contract (27 features)</span><span>AGENTS.md</span></div>
+      <div class="msgs">
+        <div class="msg user">Add BMI as a feature. Both hospitals record admission weight and height.</div>
+        <div class="msg bot">
+          Both site data profiles list structured EHR with admission vitals, and R08 (common data specification) names <code>admissionweight</code> and <code>admissionheight</code>, so BMI can be derived at each site without new extraction. I kept the computation site-local and added <code>bmi</code> to the contract so publish-time checks and the sites' column validation stay in step.
+          <div class="card">
+            <div class="title">Proposal #3 · Add BMI as a derived feature <span class="chip accent">proposed</span></div>
+            <div class="file"><span>model.py</span><span><span class="plus">+4</span> <span class="minus">−1</span></span></div>
+            <div class="file"><span>fedlify-pipeline.json</span><span><span class="plus">+1</span></span></div>
+            <div class="file"><span>tests/test_model.py</span><span><span class="plus">+9</span></span></div>
+            <div class="actions"><button class="btn">Review diff</button><button class="btn primary">Accept all → commit</button><button class="btn">Reject</button></div>
+          </div>
+        </div>
+        <div class="msg bot">Checks after applying the proposal in a disposable container: layout ✓, no data files ✓, pinned requirements ✓, unit tests 3 passed ✓. Publishing is still your call from the rail above; v2 will be built from whatever is committed.</div>
+        <div class="msg user">Why is site-hb still "waiting"?</div>
+        <div class="msg bot">The aggregator at <code>default-study.fedlify.com:443</code> reports only <code>site-ha</code> connected. site-hb released its kit 40 minutes ago but has sent no heartbeat, so most likely the runner was not started or outbound 443 is blocked there. Ask Hospital B to run <code>./fedlify-runner.sh logs</code>; if it shows <em>cannot resolve</em>, it is DNS, if <em>connection timed out</em>, it is the firewall.</div>
+      </div>
+      <div class="composer">
+        <div class="quick"><span>/plan from requirements</span><span>/explain client.py</span><span>/test</span><span>/fix</span><span>/publish-readiness</span></div>
+        <div class="box"><input id="ask" aria-label="Ask the assistant" placeholder="Ask about the code, the study, or a failure…"><button class="btn primary">Send</button></div>
+        <div class="meter"><span>Session: 6 turns · 18k tokens of 200k</span><span>Agent never publishes, runs, or releases.</span></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="start" aria-label="Start a pipeline">
+    <header class="top"><div><div class="crumb">Default Study · Pipeline</div><h1>Start a pipeline</h1></div><div class="note">Shown when a study has no pipeline, and from "New pipeline". All four paths end in the workspace above.</div></header>
+    <div class="paths">
+      <div class="path">
+        <div class="ph"><b>Choose a template</b><span class="chip accent">recommended</span></div>
+        <p>Approved templates, ranked by fit with this study's protocol, outcome and the sites' data profiles.</p>
+        <div class="tpl on"><div class="th"><span>Heart failure mortality · FedAvg logistic regression</span><span class="chip ok">fits</span></div><div class="tm">binary classification · tabular EHR · 27 features · v1.2 · validated 23 Oct · used by 1 study</div><div class="tf">Fits: tabular EHR + binary outcome. Note: <code>ptt</code>, <code>pt</code> not in Hospital B's data profile.</div></div>
+        <div class="tpl"><div class="th"><span>ICU outcome · FedProx MLP</span><span class="chip warn">partial</span></div><div class="tm">binary classification · tabular EHR · 32 features · v0.9 · validated 2 Oct</div><div class="tf">Needs 5 lab features your sites do not list; GPU recommended.</div></div>
+        <div class="tpl"><div class="th"><span>Length of stay · histogram XGBoost</span><span class="chip">different task</span></div><div class="tm">regression · tabular EHR · v0.4 · not yet validated</div></div>
+        <div class="actions"><button class="btn primary">Use this template</button><button class="btn">Browse catalog (9)</button></div>
+      </div>
+      <div class="path">
+        <div class="ph"><b>Describe it to the assistant</b></div>
+        <p>Starts from your protocol and 29 answers, asks what it still needs, then proposes the first version of the repository.</p>
+        <div class="msg bot" style="margin:0">From R01 and your primary outcome I read a binary in-hospital mortality model on structured EHR across 2 sites. Two things I still need: <b>which feature set</b> (contract from Hospital A's profile, 27 columns, or the intersection of both sites, 24 columns), and whether <b>differential privacy</b> is required (R16 says "risk-tiered"; no tier chosen).</div>
+        <div class="quick" style="margin-top:8px"><span>Intersection of both sites</span><span>No DP for the pilot</span><span>Show me the 3 columns that differ</span></div>
+        <div class="actions"><button class="btn primary">Start with the assistant</button></div>
+      </div>
+      <div class="path">
+        <div class="ph"><b>Bring your own code</b></div>
+        <p>Import a repository or upload a zip. The assistant checks it against the Fedlify contract and proposes the edits needed to run federated.</p>
+        <div class="tpl"><div class="th"><span>git.fedlify.com/fedlify-study-default-study-…/lstm-baseline</span></div><div class="tm">alignment report · 11 files · 2 blocking, 3 advisory</div><div class="tf">Blocking: training loop is not the Client API receive → train → send loop; reads <code>data/patients.csv</code> from a fixed path. Advisory: unpinned <code>torch</code>; no tests; no <code>fedlify-pipeline.json</code>.</div></div>
+        <div class="actions"><button class="btn">Import from Git URL</button><button class="btn">Upload zip</button><button class="btn primary">Create with proposed edits</button></div>
+      </div>
+      <div class="path">
+        <div class="ph"><b>Copy a pipeline in this study</b></div>
+        <p>For a v2 or an ablation. Keeps lineage so results stay comparable.</p>
+        <div class="tpl"><div class="th"><span>HF mortality FedAvg · v1</span><span class="chip ok">v1 live</span></div><div class="tm">forked from fedlify-starter · 1 run · AUROC 0.93 / 0.89</div></div>
+        <div class="actions"><button class="btn primary">Copy as new pipeline</button></div>
+      </div>
+    </div>
+    <div class="wizard"><span class="chip accent">1 Source</span><span>→</span><span class="chip">2 Data contract &amp; run defaults</span><span>→</span><span class="chip">3 Name &amp; create</span><span class="note">Same three steps for every path. Step 2 suggests features from the sites' data profiles and shows per-site availability.</span></div>
+  </section>
+
+  <footer class="legend">
+    <div class="l"><b>Human gates stay on the rail</b>Publish, Release kit, Start run and Save model are buttons on the stages, never chat actions. The assistant can say "ready" and why.</div>
+    <div class="l"><b>Every agent change is a commit</b>Accepted proposals go through the same Save route as a manual edit, authored "Fedlify agent (requested by Test PI)", and appear in the Publish version table with an agent tag and in Audit.</div>
+    <div class="l"><b>Checks are the publish rules</b>The Checks pane runs the exact validator and tests the publish workflow runs, so a green pane means publish will not fail on the repo.</div>
+    <div class="l"><b>Context is visible</b>The chips under the Assistant header show what the agent was given (protocol, 29 answers, sites, contract). The context pack is hashed on the session for review.</div>
+  </footer>
+</div>
+</body>
+</html>

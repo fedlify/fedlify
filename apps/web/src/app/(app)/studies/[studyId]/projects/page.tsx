@@ -14,7 +14,7 @@ type Version = {
   imageDigest: string | null;
   validationStatus: string;
   publishedAt: string | null;
-  publish: { status: string; summary: string | null; workflowId: string | null } | null;
+  publish: { status: string; summary: string | null; workflowId: string | null; step?: string | null; stepState?: string | null; waiting?: string | null } | null;
 };
 type Project = { id: string; name: string; giteaRepoUrl: string | null; defaultBranch: string; versions: Version[] };
 type Site = {
@@ -377,9 +377,23 @@ export default function StudyProjectsPage() {
                 {
                   title: "Publish",
                   render: (_, row) => (
-                    <Tooltip title={row.publish?.summary}>
-                      <Tag color={statusColor[row.publish?.status ?? row.validationStatus] ?? "default"}>{row.publish?.status ?? row.validationStatus}</Tag>
-                    </Tooltip>
+                    <div>
+                      <Tooltip title={row.publish?.summary}>
+                        <Tag color={statusColor[row.publish?.status ?? row.validationStatus] ?? "default"}>{row.publish?.status ?? row.validationStatus}</Tag>
+                      </Tooltip>
+                      {row.publish?.step && ["QUEUED", "RUNNING"].includes(row.publish.status) ? (
+                        <Typography.Text type={row.publish.waiting ? "warning" : "secondary"}>
+                          step: {row.publish.step}
+                          {row.publish.stepState === "pending" ? " (starting)" : ""}
+                          {row.publish.waiting ? ` - ${row.publish.waiting}` : ""}
+                        </Typography.Text>
+                      ) : null}
+                      {row.publish?.status === "FAILED" && row.publish.summary ? (
+                        <div>
+                          <Typography.Text type="danger">{row.publish.summary}</Typography.Text>
+                        </div>
+                      ) : null}
+                    </div>
                   )
                 },
                 { title: "Image", dataIndex: "imageDigest", render: (value: string | null) => <code>{digestLabel(value)}</code> },

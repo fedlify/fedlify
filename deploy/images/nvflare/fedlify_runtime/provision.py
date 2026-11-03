@@ -30,6 +30,11 @@ PUBLIC_PORT = 443
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
 
 
+def org_name(value: str) -> str:
+    """NVFLARE orgs allow only [A-Za-z0-9_]; client names may also contain '-' (Fedlify uses site-<code>)."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", value)
+
+
 def project_yaml(project: str, hostname: str, admin: str, sites: list) -> str:
     lines = [
         "api_version: 3",
@@ -52,7 +57,7 @@ def project_yaml(project: str, hostname: str, admin: str, sites: list) -> str:
         lines += [
             f"  - name: {site['name']}",
             "    type: client",
-            f"    org: {site.get('org') or site['name']}",
+            f"    org: {org_name(site.get('org') or site['name'])}",
             "    connect_to:",
             f"      name: {hostname}",
             f"      host: {hostname}",
@@ -113,7 +118,10 @@ def main() -> int:
     (out / "project.yml").write_text(project_yaml(project, args.hostname, args.admin, sites))
 
     workspace = out / "workspace"
-    subprocess.run(["nvflare", "provision", "-p", str(out / "project.yml"), "-w", str(workspace)], check=True, stdout=subprocess.DEVNULL)
+    # NVFLARE reports validation errors on stdout, so keep it for the failure message.
+    result = subprocess.run(["nvflare", "provision", "-p", str(out / "project.yml"), "-w", str(workspace)], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(f"nvflare provision failed:\n{result.stdout}\n{result.stderr}")
     prod = workspace / project / "prod_00"
 
     kits = out / "kits"

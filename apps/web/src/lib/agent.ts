@@ -47,11 +47,18 @@ function argoNamespace(): string {
   return process.env.FEDLIFY_ARGO_NAMESPACE?.trim() || "fedlify";
 }
 
+// Workflow callbacks should reach the web app inside the cluster (Service URL), not through the public
+// edge: Cloudflare blocks the urllib user agent the callback step uses, and the hop is pointless anyway.
+function callbackUrl(): string {
+  const base = process.env.FEDLIFY_CALLBACK_BASE_URL?.trim() || publicBaseUrl();
+  return `${base.replace(/\/$/, "")}/api/webhooks/argo`;
+}
+
 function pipelineWorkflowTemplate(): string {
   return process.env.FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE?.trim() || "fedlify-study-pipeline-ci";
 }
 
-async function kubernetesRequest(path: string, init: RequestInit) {
+export async function kubernetesRequest(path: string, init: RequestInit) {
   const host = process.env.KUBERNETES_SERVICE_HOST;
   const port = process.env.KUBERNETES_SERVICE_PORT || "443";
   if (!host) throw new Error("Kubernetes service host is not configured.");
@@ -89,6 +96,7 @@ async function kubernetesRequest(path: string, init: RequestInit) {
         });
       }
     );
+    req.setTimeout(10_000, () => req.destroy(new Error("Kubernetes API request timed out.")));
     req.on("error", reject);
     if (body) req.write(body);
     req.end();
@@ -112,7 +120,7 @@ export async function submitPipelineWorkflow(input: {
 }): Promise<{ workflowId: string; submitted: boolean }> {
   const namespace = argoNamespace();
   const workflowId = workflowName(input);
-  const callbackUrl = input.callbackUrl ?? `${publicBaseUrl()}/api/webhooks/argo`;
+  const resolvedCallbackUrl = input.callbackUrl ?? callbackUrl();
 
   if (!process.env.KUBERNETES_SERVICE_HOST) {
     return { workflowId, submitted: false };
@@ -136,7 +144,7 @@ export async function submitPipelineWorkflow(input: {
       "git-commit": input.gitCommit,
       "study-id": input.studyId,
       "gitops-path": input.gitopsPath,
-      "callback-url": callbackUrl
+      "callback-url": resolvedCallbackUrl
     }
   });
 
@@ -214,8 +222,32 @@ export async function submitStudyPublishWorkflow(input: {
       "sites-json": JSON.stringify(input.sites),
       provision: String(input.provision),
       "kit-generation": String(input.kitGeneration),
-      "callback-url": `${publicBaseUrl()}/api/webhooks/argo`
+      "callback-url": callbackUrl()
     }
   });
   return { workflowId };
+}
+
+export type WorkflowSnapshot = { phase: string | null; pods: import("@/lib/workflow-health").PodLike[] };
+
+/** Workflow phase plus its pods (read-only). Needs get on workflows and list on pods. */
+export async function getWorkflowSnapshot(workflowName: string): Promise<WorkflowSnapshot> {
+  const ns = encodeURIComponent(argoNamespace());
+  const workflow = (await kubernetesRequest(`/apis/argoproj.io/v1alpha1/namespaces/${ns}/workflows/${encodeURIComponent(workflowName)}`, { method: "GET" })) as {
+    status?: { phase?: string };
+  } | null;
+  const selector = encodeURIComponent(`workflows.argoproj.io/workflow=${workflowName}`);
+  const pods = (await kubernetesRequest(`/api/v1/namespaces/${ns}/pods?labelSelector=${selector}`, { method: "GET" })) as {
+    items?: import("@/lib/workflow-health").PodLike[];
+  } | null;
+  return { phase: workflow?.status?.phase ?? null, pods: pods?.items ?? [] };
+}
+
+/** spec.shutdown=Stop: running pods are stopped and the onExit handler still runs. Needs patch on workflows. */
+export async function stopWorkflow(workflowName: string): Promise<void> {
+  await kubernetesRequest(`/apis/argoproj.io/v1alpha1/namespaces/${encodeURIComponent(argoNamespace())}/workflows/${encodeURIComponent(workflowName)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/merge-patch+json" },
+    body: JSON.stringify({ spec: { shutdown: "Stop" } })
+  });
 }

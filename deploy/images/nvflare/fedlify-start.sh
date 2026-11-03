@@ -34,9 +34,11 @@ case "${role}" in
   client)
     prepare_workspace fed_client.json
     name="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["client"]["fqsn"])' "${workspace}/startup/fed_client.json")"
+    # NVFLARE orgs allow only [A-Za-z0-9_]; must match the org provision.py put in the certificate.
+    default_org="$(printf '%s' "${name}" | sed 's/[^A-Za-z0-9_]/_/g')"
     exec python3 -u -m nvflare.private.fed.app.client.client_train \
       -m "${workspace}" -s fed_client.json \
-      --set secure_train=true "uid=${name}" "org=${FEDLIFY_ORG:-${name}}" config_folder=config
+      --set secure_train=true "uid=${name}" "org=${FEDLIFY_ORG:-${default_org}}" config_folder=config
     ;;
   "")
     echo "usage: fedlify-start server|client|<command>" >&2

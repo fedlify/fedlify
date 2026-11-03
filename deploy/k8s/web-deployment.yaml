@@ -46,6 +46,9 @@ spec:
               value: http://fedlify-agent-orchestrator.fedlify.svc.cluster.local:3020
             - name: FEDLIFY_ARGO_NAMESPACE
               value: fedlify
+            # Workflow callbacks stay inside the cluster (the public edge blocks the callback step's user agent).
+            - name: FEDLIFY_CALLBACK_BASE_URL
+              value: http://fedlify-web.fedlify.svc.cluster.local
             - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
               value: fedlify-study-pipeline-ci
             - name: GITEA_BASE_URL

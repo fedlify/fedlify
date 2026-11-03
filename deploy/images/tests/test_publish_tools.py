@@ -53,6 +53,13 @@ class ValidateRepoTest(unittest.TestCase):
 
 
 class ProvisionTest(unittest.TestCase):
+    def test_hyphenated_site_names_get_a_valid_org(self):
+        # The web app names sites site-<code>; NVFLARE orgs reject hyphens.
+        text = project_yaml("p", "s.fedlify.com", "admin@fedlify.local", [{"name": "site-ha"}])
+        self.assertIn("name: site-ha", text)
+        self.assertIn("org: site_ha", text)
+        self.assertNotIn("org: site-ha", text)
+
     def test_clients_dial_443_and_verify_the_study_hostname(self):
         text = project_yaml("hf_mortality", "hf-mortality.fedlify.com", "admin@fedlify.local", [{"name": "site_a"}, {"name": "site_b"}])
         self.assertIn("  - name: hf-mortality.fedlify.com\n    type: server", text)

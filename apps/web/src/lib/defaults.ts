@@ -71,8 +71,9 @@ export async function ensureUserDefaults(prisma: PrismaClient, userId: string): 
     const study = await tx.study.create({
       data: {
         orgId: organization.id,
-        title: "Default Study",
-        slug: slugify("Default Study"),
+        // Named after the owner: every account gets one, and collaborators see several in the study selector.
+        title: `${displayName}'s study`,
+        slug: slugify(`${displayName} study`),
         description: "Default governed study workspace.",
         goal: "Define a governed health-AI federated learning pilot.",
         researchQuestion: "Can participating sites coordinate a reproducible FL workflow without moving raw clinical data?",

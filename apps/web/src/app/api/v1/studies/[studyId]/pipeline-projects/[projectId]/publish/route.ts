@@ -120,10 +120,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   const sites = study.studySites.map((studySite) => ({ name: nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName }) }));
   let target = deployment;
   if (!target) {
-    let runtimeSlug = studyRuntimeSlug(study.slug);
-    if (await prisma.nvflareDeployment.findUnique({ where: { hostname: studyHostname(runtimeSlug) } })) {
-      runtimeSlug = studyRuntimeSlug(study.slug, studyId.slice(-6).toLowerCase());
-    }
+    // Hostname policy: <study-slug>-<study id suffix>. Study titles are not unique across accounts and every
+    // account starts with a default study, so the bare slug would go to whoever publishes first, and a study
+    // titled "harbor" or "git" could claim a platform hostname. The suffix rules out both. The name is fixed
+    // at first publish, so renaming a study later never breaks the site kits already issued.
+    const runtimeSlug = studyRuntimeSlug(study.slug, studyId.slice(-6).toLowerCase());
     target = await prisma.nvflareDeployment.create({
       data: {
         studyId,
