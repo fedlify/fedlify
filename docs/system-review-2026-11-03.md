@@ -334,3 +334,11 @@ unique hostname policy `<slug>-<id6>`, owner-named default studies, publish watc
 Harbor `fedlify-mirror` plus image prepuller. Script wall time 17m22s -> 11m04s, including rollout waits and test cleanup.
 Pending: argoexec `IfNotPresent` (each step still costs about 30s), `harbor_project.fedlify_mirror` import into day1 state
 (project was created by API), and exercising the watchdog against a real stuck pull.
+
+## 4f. Phase 4 first run (2026-11-03, sites on one laptop)
+
+Two kits released through the API and started with `fedlify-runner.sh` on the same Mac (amd64 emulation, shared network),
+eICU partitions from `deploy/local-e2e/data`. Both registered over mTLS through `default-study-7kxd7i.fedlify.com:443`.
+Three rounds, FINISHED:COMPLETED; weighted AUROC 0.50 -> 0.925 -> 0.929 (features are last-value-in-stay, so an upper bound).
+Result synced and draft release `model-v1.0.0` created. Readiness was attested by the test PI, not by site staff.
+Not citable as multi-institution evidence: repeat on separate machines with real site accounts.

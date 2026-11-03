@@ -81,7 +81,9 @@ export function parseNpyMetadata(buffer: Buffer): { shape: number[]; dtype: stri
   const shapeBody = /'shape':\s*\(([^)]*)\)/.exec(header)?.[1] ?? "";
   const shape = shapeBody
     .split(",")
-    .map((part) => Number(part.trim()))
+    .map((part) => part.trim())
+    .filter(Boolean) // "(28,)" has an empty last part, which Number() would turn into 0
+    .map(Number)
     .filter((value) => Number.isFinite(value));
   if (!dtype || shape.length === 0) return null;
   return { shape, dtype };

@@ -43,6 +43,14 @@ describe("model result helpers", () => {
     expect(nextModelReleaseVersion(["v1", "model-v1.0.0", "model-v2.0.0"])).toBe("model-v3.0.0");
   });
 
+  it("parses a one-dimensional numpy shape without a phantom dimension", () => {
+    const header = "{'descr': '<f8', 'fortran_order': False, 'shape': (28,), }\n";
+    const length = Buffer.alloc(2);
+    length.writeUInt16LE(header.length, 0);
+    const buffer = Buffer.concat([Buffer.from("\x93NUMPY", "latin1"), Buffer.from([1, 0]), length, Buffer.from(header)]);
+    expect(parseNpyMetadata(buffer)?.shape).toEqual([28]);
+  });
+
   it("parses numpy model metadata", () => {
     expect(parseNpyMetadata(npyHeaderBuffer())).toEqual({ dtype: "<f4", shape: [3, 3] });
   });
