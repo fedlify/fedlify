@@ -1,8 +1,8 @@
 /**
  * E2E: Pipeline build flow
  *
- * Tests the simplified researcher journey:
- *   Study Pipeline section (State A) → projects (legacy pipeline-agent URL redirects) → back to study (State B) → approve → State C
+ * Tests the researcher journey entry points:
+ *   legacy ?section=pipeline|run and pipeline-agent URLs → Code & run (/projects)
  *
  * Relies on:
  *   - A running dev server at PLAYWRIGHT_BASE_URL (default: http://localhost:3000)
@@ -28,30 +28,20 @@ async function signIn(page: import("@playwright/test").Page) {
 }
 
 test.describe("Pipeline build flow", () => {
-  test("shows State A empty panel in pipeline section", async ({ page }) => {
+  test("legacy pipeline section redirects to Code & run and the workspace loads", async ({ page }) => {
     await signIn(page);
 
-    // Navigate to the study pipeline section via the URL the test can derive
-    const studyUrl = page.url();
-    const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
+    const studyId = page.url().match(/studies\/([^?/]+)/)?.[1];
     expect(studyId).toBeTruthy();
 
-    await page.goto(`/studies/${studyId}?section=pipeline`);
-    await page.waitForLoadState("networkidle");
-
-    // State A panel should be visible: has no pipeline yet
-    // The page shows "Build your study pipeline" or "Pipeline approved" depending on DB state.
-    // At minimum the pipeline section must load without an error.
-    const pipelinePanel = page.locator(".fedlify-pipeline-state-panel");
-    await expect(pipelinePanel).toBeVisible({ timeout: 10_000 });
-
-    // "Start a pipeline" button should be present in State A
-    // OR "Go to Run section" in State C — either is valid depending on prior runs
-    const hasStartBtn = await page.locator('button:has-text("Start a pipeline")').isVisible().catch(() => false);
-    const hasRunBtn = await page.locator('button:has-text("Go to Run section")').isVisible().catch(() => false);
-    const hasApproveBtn = await page.locator('button:has-text("Approve this pipeline")').isVisible().catch(() => false);
-
-    expect(hasStartBtn || hasRunBtn || hasApproveBtn).toBe(true);
+    // The old in-page pipeline panel (State A/B/C) is retired: ?section=pipeline and ?section=run go to Code & run.
+    for (const section of ["pipeline", "run"]) {
+      await page.goto(`/studies/${studyId}?section=${section}`);
+      await page.waitForURL(new RegExp(`/studies/${studyId}/projects`), { timeout: 10_000 });
+      await page.waitForLoadState("networkidle");
+      await expect(page.locator(".fedlify-ws-page")).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator(".fedlify-pipeline-state-panel")).toHaveCount(0);
+    }
   });
 
   test("legacy pipeline-agent URLs redirect to study projects", async ({ page }) => {

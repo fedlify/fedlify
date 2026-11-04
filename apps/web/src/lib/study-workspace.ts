@@ -3,7 +3,7 @@ export const STUDY_WORKSPACE_SECTIONS = [
     key: "overview",
     label: "Summary",
     title: "Study summary",
-    subtitle: "Review lifecycle status, participant sites, pipeline versions, federated runs, and model releases."
+    subtitle: "Review lifecycle status, participant sites, pipeline versions, runs, and model releases."
   },
   {
     key: "protocol",
@@ -13,33 +13,33 @@ export const STUDY_WORKSPACE_SECTIONS = [
   },
   {
     key: "sites",
-    label: "Sites & Data",
-    title: "Sites and data",
+    label: "Sites",
+    title: "Sites",
     subtitle: "Register institutions, review site-local data profiles, and track readiness for federated participation."
   },
   {
     key: "team",
-    label: "Team & Access",
+    label: "Team",
     title: "Team and access",
     subtitle: "Manage study members, role-scoped invitations, and site-aware access."
   },
   {
     key: "pipeline",
-    label: "Pipeline",
-    title: "Pipeline",
-    subtitle: "Select approved template sources, create study pipeline versions, validate commits, and approve immutable runnable versions."
+    label: "Code & run",
+    title: "Code & run",
+    subtitle: "Write and save pipeline code, publish a version, release site kits, and start a federated run."
   },
   {
     key: "run",
-    label: "Run",
-    title: "Federated runs",
-    subtitle: "Provision the aggregator, monitor connected sites, submit approved pipeline versions, and inspect runtime events."
+    label: "Code & run",
+    title: "Code & run",
+    subtitle: "Write and save pipeline code, publish a version, release site kits, and start a federated run."
   },
   {
     key: "results",
-    label: "Results & Releases",
-    title: "Results and releases",
-    subtitle: "Review trained model releases separately from code and startup-kit releases."
+    label: "Results",
+    title: "Results",
+    subtitle: "Review the model releases produced by this study's runs."
   },
   {
     key: "audit",
@@ -63,4 +63,49 @@ export function getStudyWorkspaceSection(sectionKey: StudyWorkspaceSection) {
 
 export function studySectionHref(studyId: string, section: StudyWorkspaceSection = "overview") {
   return section === "overview" ? `/studies/${studyId}` : `/studies/${studyId}?section=${section}`;
+}
+
+/**
+ * Where a summary card or next-action button should send the user. The legacy `pipeline` and `run` sections are
+ * superseded by the Code & run workspace, so they resolve there; every other section keeps its section URL.
+ */
+export function studyActionHref(studyId: string, section: StudyWorkspaceSection = "overview") {
+  return section === "pipeline" || section === "run" ? `/studies/${studyId}/projects` : studySectionHref(studyId, section);
+}
+
+/** Legacy sections that no longer have a page of their own, mapped to their replacement route. Mirrored in next.config.mjs. */
+export const LEGACY_SECTION_REDIRECTS: Record<string, (studyId: string) => string> = {
+  pipeline: (studyId) => `/studies/${studyId}/projects`,
+  run: (studyId) => `/studies/${studyId}/projects`,
+  audit: (studyId) => `/studies/${studyId}/audit`
+};
+
+export type StudyNavKey = "overview" | "protocol" | "sites" | "team" | "code" | "results" | "audit";
+
+/** The sidebar: Summary, Protocol, Sites, Team, Code & run, Results, Audit. One item per destination. */
+export const STUDY_NAV_ITEMS: ReadonlyArray<{ key: StudyNavKey; label: string }> = [
+  { key: "overview", label: "Summary" },
+  { key: "protocol", label: "Protocol" },
+  { key: "sites", label: "Sites" },
+  { key: "team", label: "Team" },
+  { key: "code", label: "Code & run" },
+  { key: "results", label: "Results" },
+  { key: "audit", label: "Audit" }
+];
+
+export function studyNavHref(studyId: string, key: StudyNavKey) {
+  if (key === "code") return `/studies/${studyId}/projects`;
+  if (key === "audit") return `/studies/${studyId}/audit`;
+  return studySectionHref(studyId, key);
+}
+
+/** Route-based sidebar selection. Query sections only decide the highlight on the study page itself. */
+export function activeStudyNavKey(pathname: string, section: StudyWorkspaceSection): StudyNavKey | null {
+  if (!pathname.startsWith("/studies/") || pathname === "/studies/manage") return null;
+  const sub = /^\/studies\/[^/]+\/([^/]+)/.exec(pathname)?.[1];
+  if (sub === "projects" || sub === "pipeline-agent") return "code";
+  if (sub === "audit") return "audit";
+  if (sub === "runs") return "results";
+  if (section === "pipeline" || section === "run") return "code";
+  return section;
 }

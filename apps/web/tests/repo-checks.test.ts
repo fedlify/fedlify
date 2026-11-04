@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkRepoFiles, isSensitiveFilePath, redactSecrets, REQUIRED_FILES, type RepoFile } from "@/lib/repo-checks";
 
@@ -114,5 +116,29 @@ describe("hardening", () => {
   it("splits requirements like Python splitlines", () => {
     const files = [...validRepo().filter((f) => f.path !== "requirements.txt"), { path: "requirements.txt", content: "a==1\rgit+https://x" }];
     expect(checkRepoFiles(files).checks.find((c) => c.id === "requirements")?.errors[0]).toContain("requirements.txt:2");
+  });
+});
+
+describe("feature contract check", () => {
+  const withFeatures = (features: string[]) =>
+    withFile("fedlify-pipeline.json", JSON.stringify({ packageType: "fedlify-study-pipeline", entrypoint: "client.py", dataContract: { label: "died", features } }));
+
+  it("rejects identifier and offset-like features", () => {
+    const errors = errorsOf(withFeatures(["age", "patientunitstayid", "PatientHealthSystemStayID", "uniquepid", "labresultoffset"]), "contract");
+    expect(errors).toHaveLength(4);
+    expect(errors.join("\n")).toContain("feature patientunitstayid is an identifier");
+  });
+
+  it("accepts ordinary features", () => {
+    expect(errorsOf(withFeatures(["age", "creatinine", "heartrate"]), "contract")).toEqual([]);
+  });
+
+  it("the starter contract has 25 features, none leaky, and passes", () => {
+    const text = readFileSync(resolve(__dirname, "../../../templates/fedlify-starter/fedlify-pipeline.json"), "utf8");
+    const features: string[] = JSON.parse(text).dataContract.features;
+    expect(features).toHaveLength(25);
+    expect(features).not.toContain("sao2_periodic");
+    expect(features).not.toContain("temperature_periodic");
+    expect(errorsOf(withFile("fedlify-pipeline.json", text), "contract")).toEqual([]);
   });
 });

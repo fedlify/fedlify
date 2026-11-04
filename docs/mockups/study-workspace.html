@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fedlify design mockup (example content)</title>
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#fff; --surface2:#eef0f4; --text:#1b1f27; --muted:#5b6472; --line:#d9dde4;
+  --accent:#2a5bd7; --accent-fg:#fff; --ok:#1a7f4b; --warn:#a15c00; --bad:#b3261e;
+  --s-weighted:#1b1f27; --s-a:#2a5bd7; --s-b:#c2570c;
+  --radius:8px; --font:system-ui,-apple-system,"Segoe UI",sans-serif; --mono:ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12151a; --surface:#1b2028; --surface2:#242a34; --text:#e8ebf0; --muted:#9aa4b2; --line:#333b48;
+  --accent:#7aa2ff; --accent-fg:#0b1020; --ok:#4cc38a; --warn:#e0a040; --bad:#ff7b72;
+  --s-weighted:#e8ebf0; --s-a:#7aa2ff; --s-b:#f0914f;}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 var(--font);background:var(--bg);color:var(--text)}
+.banner{background:var(--warn);color:#fff;padding:6px 16px;font-weight:600;text-align:center}
+.shell{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 34px)}
+nav.side{background:var(--surface);border-right:1px solid var(--line);padding:14px 10px}
+nav.side h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:6px 8px 8px}
+nav.side button{display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);padding:8px 10px;border-radius:6px;font:inherit;cursor:pointer}
+nav.side button:hover{background:var(--surface2)}
+nav.side button[aria-current=page]{background:var(--accent);color:var(--accent-fg);font-weight:600}
+nav.side .old{color:var(--muted);font-size:12px;margin:2px 10px 10px}
+main{padding:20px 26px;max-width:1100px}
+h1{font-size:20px;margin:0 0 4px} h3{font-size:15px;margin:18px 0 8px}
+.sub{color:var(--muted);margin:0 0 16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:800px){.shell{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line);background:var(--surface2)}
+.tag.ok{color:var(--ok);border-color:var(--ok)} .tag.warn{color:var(--warn);border-color:var(--warn)} .tag.bad{color:var(--bad);border-color:var(--bad)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:12px 0}
+.tabs button{border:0;background:none;color:var(--muted);padding:8px 12px;font:inherit;cursor:pointer;border-bottom:2px solid transparent}
+.tabs button[aria-selected=true]{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--text);padding:7px 14px;border-radius:6px;font:inherit;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+code,.mono{font-family:var(--mono);font-size:12px;background:var(--surface2);padding:1px 5px;border-radius:4px}
+pre{font-family:var(--mono);font-size:12px;background:var(--surface2);padding:10px;border-radius:6px;overflow:auto;margin:6px 0}
+.rail{display:flex;gap:8px;margin:8px 0 14px}
+.rail span{flex:1;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);text-align:center}
+.rail span.on{border-color:var(--accent);font-weight:600}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:4px}
+.sw{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:4px}
+.note{border-left:3px solid var(--warn);padding:6px 10px;background:var(--surface2);border-radius:0 6px 6px 0;font-size:13px}
+.check{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+.helper{max-width:560px;margin:0 auto;border:2px solid var(--line);border-radius:12px;padding:0;background:var(--surface)}
+.helper header{padding:10px 16px;background:var(--surface2);border-radius:10px 10px 0 0;display:flex;justify-content:space-between}
+.helper .body{padding:16px}
+.steps{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.steps button{flex:1;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:6px;border-radius:6px;font:inherit;cursor:pointer;min-width:90px}
+.steps button[aria-selected=true]{border-color:var(--accent);font-weight:600}
+input[type=password],input[type=text]{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font:inherit}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="banner">DESIGN MOCKUP. All names, hashes, dates and users below are EXAMPLE content. Chart numbers are from the real two-site test run (rounds 0, 1, 2).</div>
+<div class="shell">
+<nav class="side" aria-label="Study navigation">
+  <h2>Study (example)</h2>
+  <button data-view="summary">Summary</button>
+  <button data-view="protocol">Protocol</button>
+  <button data-view="sites">Sites</button>
+  <button data-view="team">Team</button>
+  <button data-view="code">Code &amp; run</button>
+  <button data-view="results" aria-current="page">Results</button>
+  <button data-view="audit">Audit</button>
+  <div class="old">Removed: separate "Pipeline" and "Run" items, "Results &amp; Releases", header "Template Catalog" button. See map in the Navigation view.</div>
+  <h2>Operator</h2>
+  <button data-view="runner">Site runner helper</button>
+</nav>
+<main>
+
+<!-- NAVIGATION -->
+<section id="v-nav" class="hidden">
+  <h1>Navigation: old to new</h1>
+  <p class="sub">Select a sidebar item to see its screen. Items without a mock open this map.</p>
+  <div class="card"><table>
+    <tr><th>Old</th><th>New</th></tr>
+    <tr><td>Pipeline + Run + legacy pipeline/run sections</td><td>Code &amp; run (<code>/studies/{id}/projects</code>)</td></tr>
+    <tr><td>Results &amp; Releases (two tabs)</td><td>Results list + Run detail (<code>/runs/{jobId}</code>)</td></tr>
+    <tr><td>Audit card grid (50 newest)</td><td>Audit table (<code>/audit</code>), paged, filtered, exportable</td></tr>
+    <tr><td>Sites &amp; Data (two duplicate tabs)</td><td>Sites (one table) + site page "Get runner"</td></tr>
+    <tr><td>Template Catalog header button</td><td>"Start from template" in Code stage; /templates is admin curation</td></tr>
+  </table></div>
+</section>
+
+<!-- CODE & RUN -->
+<section id="v-code" class="hidden">
+  <h1>Code &amp; run</h1>
+  <p class="sub">One home for the whole lifecycle. Example study: eICU two-site pilot.</p>
+  <div class="rail"><span>1 Code</span><span>2 Publish</span><span>3 Sites</span><span class="on">4 Run</span></div>
+  <div class="card">
+    <b>Run example-run-0007</b> <span class="tag ok">Completed</span>
+    <p class="sub" style="margin:6px 0 10px">3 rounds, 2 sites. Human gates: Publish, Start run, Save model and Release model each need a click and are audited.</p>
+    <button class="btn" data-view="results">Open run detail</button>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section id="v-results">
+  <h1>Results</h1>
+  <p class="sub">One row per run. Every row and tab has its own URL, so it can be cited.</p>
+  <div id="resList">
+    <div class="card"><table>
+      <tr><th>Run</th><th>Status</th><th>Pipeline version</th><th>Commit</th><th class="n">Weighted AUROC (final)</th><th>Model release</th></tr>
+      <tr><td><a href="#" id="openRun">example-run-0007</a></td><td><span class="tag ok">Completed</span></td><td>v3 (example)</td><td class="mono">a1b2c3d (example)</td><td class="n">0.929</td><td><span class="tag warn">Saved, not released</span></td></tr>
+    </table></div>
+  </div>
+  <div id="resDetail" class="hidden">
+    <p><a href="#" id="backRuns">&larr; All runs</a> / <b>example-run-0007</b> <code>/studies/example/runs/example-run-0007</code></p>
+    <div class="tabs" role="tablist" id="runTabs">
+      <button role="tab" data-t="summary">Summary</button>
+      <button role="tab" data-t="perf" aria-selected="true">Performance</button>
+      <button role="tab" data-t="code">Code</button>
+      <button role="tab" data-t="model">Model</button>
+      <button role="tab" data-t="audit">Audit</button>
+    </div>
+
+    <div id="t-summary" class="hidden card">
+      <table>
+        <tr><th>Status</th><td>Completed, 3 rounds</td></tr>
+        <tr><th>Sites</th><td>site-ha, site-hb (example names)</td></tr>
+        <tr><th>Pipeline version / commit</th><td>v3 / <span class="mono">a1b2c3d (example)</span></td></tr>
+        <tr><th>Image digest</th><td class="mono">sha256:0000...example</td></tr>
+        <tr><th>Site-reported digests</th><td>site-ha: matches. site-hb: matches. <span class="tag ok">verified</span></td></tr>
+      </table>
+    </div>
+
+    <div id="t-perf" class="card">
+      <b>Validation AUROC per round</b>
+      <p class="sub" style="margin:2px 0 6px">Global model scored on each site's local validation split. Not a held-out test.</p>
+      <svg viewBox="0 0 540 270" width="100%" role="img" aria-labelledby="ct cd">
+        <title id="ct">Validation AUROC per federated round</title>
+        <desc id="cd">Weighted: 0.50, 0.925, 0.929. site-ha: 0.50, 0.955, 0.958. site-hb: 0.50, 0.884, 0.889.</desc>
+        <!-- y scale: y = 210 - (v-0.4)*316.667 ; x: round0=60, round1=270, round2=480 -->
+        <g stroke="var(--line)" stroke-width="1">
+          <line x1="60" x2="480" y1="210" y2="210"/>
+          <line x1="60" x2="480" y1="146.67" y2="146.67"/>
+          <line x1="60" x2="480" y1="83.33" y2="83.33"/>
+          <line x1="60" x2="480" y1="20" y2="20"/>
+        </g>
+        <g fill="var(--muted)" font-size="11" text-anchor="end">
+          <text x="54" y="214">0.4</text><text x="54" y="150.67">0.6</text><text x="54" y="87.33">0.8</text><text x="54" y="24">1.0</text>
+        </g>
+        <g fill="var(--muted)" font-size="11" text-anchor="middle">
+          <text x="60" y="230">Round 0</text><text x="270" y="230">Round 1</text><text x="480" y="230">Round 2</text>
+        </g>
+        <text x="270" y="256" fill="var(--muted)" font-size="11" text-anchor="middle">Federated round (AUROC axis starts at 0.4)</text>
+        <!-- site-hb -->
+        <polyline fill="none" stroke="var(--s-b)" stroke-width="2" stroke-dasharray="6 3" points="60,178.33 270,56.73 480,55.17"/>
+        <!-- site-ha -->
+        <polyline fill="none" stroke="var(--s-a)" stroke-width="2" stroke-dasharray="2 3" points="60,178.33 270,34.25 480,33.33"/>
+        <!-- weighted -->
+        <polyline fill="none" stroke="var(--s-weighted)" stroke-width="3" points="60,178.33 270,43.75 480,42.5"/>
+        <g fill="var(--s-weighted)"><circle cx="60" cy="178.33" r="4"/><circle cx="270" cy="43.75" r="4"/><circle cx="480" cy="42.5" r="4"/></g>
+        <g fill="var(--s-a)"><circle cx="270" cy="34.25" r="3"/><circle cx="480" cy="33.33" r="3"/></g>
+        <g fill="var(--s-b)"><circle cx="270" cy="56.73" r="3"/><circle cx="480" cy="55.17" r="3"/></g>
+        <g font-size="11" font-weight="600">
+          <text x="488" y="30" fill="var(--s-a)">site-ha 0.958</text>
+          <text x="488" y="46" fill="var(--s-weighted)">weighted 0.929</text>
+          <text x="488" y="62" fill="var(--s-b)">site-hb 0.889</text>
+        </g>
+      </svg>
+      <div class="legend">
+        <span><i class="sw" style="border-color:var(--s-weighted)"></i>Weighted</span>
+        <span><i class="sw" style="border-color:var(--s-a);border-top-style:dotted"></i>site-ha</span>
+        <span><i class="sw" style="border-color:var(--s-b);border-top-style:dashed"></i>site-hb</span>
+      </div>
+      <h3>Table (same data)</h3>
+      <table>
+        <tr><th>Round</th><th class="n">Weighted</th><th class="n">site-ha</th><th class="n">site-hb</th></tr>
+        <tr><td>0</td><td class="n">0.50</td><td class="n">0.50</td><td class="n">0.50</td></tr>
+        <tr><td>1</td><td class="n">0.925</td><td class="n">0.955</td><td class="n">0.884</td></tr>
+        <tr><td>2</td><td class="n">0.929</td><td class="n">0.958</td><td class="n">0.889</td></tr>
+      </table>
+      <p class="note" style="margin-top:10px">Round 0 is the untrained global model (0.50 = chance). Stored from <code>fedlify_metrics.jsonl</code>, so this chart survives an aggregator stop. The starter's feature window is under review; do not cite these values as a performance estimate.</p>
+    </div>
+
+    <div id="t-code" class="hidden card">
+      <b>Code at commit</b> <span class="mono">a1b2c3d (example)</span> &nbsp; <button class="btn">Diff vs v2</button> <button class="btn">Open in Gitea</button>
+      <pre>fedlify-pipeline.json
+model.py
+train.py
+requirements.txt</pre>
+      <p class="sub">Read-only. Shown beside the image digest and the digest each site reported, so you can confirm what actually ran.</p>
+    </div>
+
+    <div id="t-model" class="hidden card">
+      <b>Model</b> <span class="tag warn">Saved, not released</span>
+      <p class="sub">Model card (example): features and order, preprocessing, threshold, round metrics, commit, digest, window statement, approvers.</p>
+      <button class="btn primary">Release model</button> <button class="btn">Download</button>
+      <p class="note" style="margin-top:10px">Release is a human gate and is never automatic. The approver is recorded in the audit log.</p>
+    </div>
+
+    <div id="t-audit" class="hidden card">
+      <b>Audit for this run</b> (prefiltered)
+      <table id="auditRun"></table>
+    </div>
+  </div>
+</section>
+
+<!-- AUDIT -->
+<section id="v-audit" class="hidden">
+  <h1>Audit</h1>
+  <p class="sub">Paged server-side. Actor names, not raw IDs. Export includes a head hash if the chain option is chosen.</p>
+  <div class="card">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <label>Run <select id="fRun"><option value="">All</option><option>example-run-0007</option></select></label>
+      <label>Action <select id="fAct"><option value="">All</option></select></label>
+      <button class="btn">Export CSV</button><button class="btn">Export JSON</button>
+    </div>
+    <table id="auditAll"></table>
+    <p class="sub" style="margin-top:8px">Page 1 of 1 (example rows).</p>
+  </div>
+</section>
+
+<!-- SITES -->
+<section id="v-sites" class="hidden">
+  <h1>Sites</h1>
+  <p class="sub">One table replaces two duplicate tabs.</p>
+  <div class="card"><table>
+    <tr><th>Site</th><th>Readiness</th><th>Kit</th><th>Heartbeat</th><th></th></tr>
+    <tr><td>site-ha (example)</td><td><span class="tag ok">Passed</span></td><td>Released, up to date</td><td>Connected, 20 s ago</td><td><button class="btn" data-view="runner">Get runner</button></td></tr>
+    <tr><td>site-hb (example)</td><td><span class="tag warn">Pending signer</span></td><td>Outdated digest</td><td><span class="tag bad">Offline</span> 4 min ago</td><td><button class="btn" data-view="runner">Get runner</button></td></tr>
+  </table></div>
+</section>
+
+<!-- RUNNER -->
+<section id="v-runner" class="hidden">
+  <h1>Site runner helper</h1>
+  <p class="sub">Optional local web app at <code>http://127.0.0.1:PORT/#token</code>. Headless sites use the same commands in a terminal. Shown below: the operator's view.</p>
+  <div class="card">
+    <b>Get runner panel (on the site page, for the kit creator)</b>
+    <ol>
+      <li>Create kit (re-enter your account password). Passphrase shown once: <code>example-maple-river-stone-lamp-cloud</code> (example only).</li>
+      <li>Send the passphrase by a different channel than the file.</li>
+      <li>Headless: <code>./fedlify-runner.sh unlock &amp;&amp; ./fedlify-runner.sh start</code></li>
+    </ol>
+    <p class="note">The passphrase protects the handover and copies at rest. It does not protect against the site's own operator, root on the host, or a compromise of Fedlify.</p>
+  </div>
+  <div class="helper">
+    <header><b>Fedlify site helper</b><span class="tag">example</span></header>
+    <div class="body">
+      <div class="steps" role="tablist" id="hSteps">
+        <button data-h="unlock" aria-selected="true">1 Unlock</button>
+        <button data-h="checks">2 Checks</button>
+        <button data-h="data">3 Your data</button>
+        <button data-h="status">4 Status</button>
+        <button data-h="help">5 Help</button>
+      </div>
+      <div id="h-unlock">
+        <p>Enter the kit password you received. It stays on this computer.</p>
+        <input type="password" placeholder="Kit password" aria-label="Kit password">
+        <p style="margin-top:10px"><button class="btn primary" data-go="checks">Unlock</button></p>
+      </div>
+      <div id="h-checks" class="hidden">
+        <div class="check"><span>Docker installed</span><span class="tag ok">Pass</span></div>
+        <div class="check"><span>Compose v2</span><span class="tag ok">Pass</span></div>
+        <div class="check"><span>Free disk (10 GB needed)</span><span class="tag ok">Pass</span></div>
+        <div class="check"><span>Reach aggregator on port 443</span><span class="tag ok">Pass</span></div>
+        <div class="check"><span>GPU</span><span class="tag">None found (not needed)</span></div>
+        <div class="check"><span>Docker not installed? </span><a href="#">Get ready page: step-by-step for your system</a></div>
+        <p><button class="btn primary" data-go="data">Next</button></p>
+      </div>
+      <div id="h-data" class="hidden">
+        <p>Choose the folder with your CSV files. Only file names, counts and column types are checked. No rows are shown or sent.</p>
+        <input type="text" value="/data/partition (example)" aria-label="Data folder">
+        <table style="margin-top:10px">
+          <tr><th>Check</th><th>Result</th></tr>
+          <tr><td>CSV files found</td><td>1</td></tr>
+          <tr><td>Required columns present</td><td><span class="tag ok">25 of 25</span></td></tr>
+          <tr><td>Forbidden identifier columns</td><td><span class="tag ok">None</span></td></tr>
+        </table>
+        <p><button class="btn primary" data-go="status">Connect to study</button></p>
+      </div>
+      <div id="h-status" class="hidden">
+        <p><span class="tag ok">Connected</span> Waiting for the study owner to start the run. Last heartbeat 12 s ago.</p>
+        <p class="note">This button only keeps your site connected. Training starts only when the study owner starts a run after approval.</p>
+        <div class="card" style="margin-top:10px"><b>Update available (example)</b><br>Pipeline version v3, digest <span class="mono">sha256:0000...example</span>.<br><button class="btn primary">Confirm update</button> <button class="btn">Not now</button></div>
+        <button class="btn">Stop</button>
+      </div>
+      <div id="h-help" class="hidden">
+        <p>Build a redacted help bundle. Review it, then send it yourself. Nothing is sent automatically.</p>
+        <button class="btn primary">Build help bundle</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>
+<script>
+const events=[
+ ["2026-11-03 09:12","Alice Example (researcher)","pipeline_project.publish","pipeline v3","—"],
+ ["2026-11-03 09:40","Sam Example (site admin)","site.join_package.create","site-ha kit","—"],
+ ["2026-11-03 09:58","Sam Example (site admin)","site.join_package.download","site-ha kit","—"],
+ ["2026-11-03 10:20","Alice Example (researcher)","nvflare.job.submit","example-run-0007","example-run-0007"],
+ ["2026-11-03 10:41","System","nvflare.job.completed","example-run-0007","example-run-0007"],
+ ["2026-11-03 10:50","Alice Example (researcher)","nvflare.job_result.sync","example-run-0007","example-run-0007"]];
+function rows(list){return '<tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Run</th></tr>'+list.map(e=>'<tr><td class="mono">'+e.join('</td><td>').replace(/<td>—<\/td>/,'<td>—</td>')+'</td></tr>').join('')}
+document.getElementById('auditAll').innerHTML=rows(events);
+document.getElementById('auditRun').innerHTML=rows(events.filter(e=>e[4]!=='—'));
+const acts=[...new Set(events.map(e=>e[2]))];
+document.getElementById('fAct').innerHTML+=acts.map(a=>'<option>'+a+'</option>').join('');
+function filt(){const r=fRun.value,a=fAct.value;auditAll.innerHTML=rows(events.filter(e=>(!r||e[4]===r)&&(!a||e[2]===a)))}
+fRun.onchange=filt;fAct.onchange=filt;
+const views={summary:'nav',protocol:'nav',team:'nav',code:'code',results:'results',audit:'audit',sites:'sites',runner:'runner'};
+function show(v){
+  document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
+  document.getElementById('v-'+views[v]).classList.remove('hidden');
+  document.querySelectorAll('nav.side button').forEach(b=>b.toggleAttribute('aria-current',b.dataset.view===v)||0);
+  document.querySelectorAll('nav.side button').forEach(b=>{if(b.dataset.view===v)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});
+}
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.view)));
+openRun.onclick=e=>{e.preventDefault();resList.classList.add('hidden');resDetail.classList.remove('hidden')};
+backRuns.onclick=e=>{e.preventDefault();resDetail.classList.add('hidden');resList.classList.remove('hidden')};
+document.querySelectorAll('#runTabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#runTabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  ['summary','perf','code','model','audit'].forEach(t=>document.getElementById('t-'+t).classList.toggle('hidden',t!==b.dataset.t));
+});
+function hs(h){['unlock','checks','data','status','help'].forEach(x=>document.getElementById('h-'+x).classList.toggle('hidden',x!==h));
+  document.querySelectorAll('#hSteps button').forEach(b=>b.setAttribute('aria-selected',b.dataset.h===h))}
+document.querySelectorAll('#hSteps button').forEach(b=>b.onclick=()=>hs(b.dataset.h));
+document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>hs(b.dataset.go));
+</script>
+</body>
+</html>

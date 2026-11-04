@@ -12,7 +12,7 @@
     "features": [
       "age", "admissionheight", "admissionweight", "creatinine", "chloride", "glucose", "hct", "hgb",
       "platelets_x_1000", "ptt", "pt", "sodium", "bun", "wbc_x_1000", "mchc", "rbc", "rdw", "heartrate",
-      "o2_saturation", "respiratory_rate", "sao2_periodic", "temperature_periodic", "diabetes", "sepsis",
+      "o2_saturation", "respiratory_rate", "diabetes", "sepsis",
       "hypertension", "chronic_kidney_disease", "copd"
     ],
     "minimumRows": 50

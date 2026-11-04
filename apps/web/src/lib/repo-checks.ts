@@ -52,6 +52,12 @@ const SECRET_PATTERNS = [
 const TEXT_SUFFIXES = new Set([".py", ".json", ".conf", ".yaml", ".yml", ".txt", ".md", ".sh", ".env", ".ini", ".cfg"]);
 /** Python str.splitlines() boundaries: \n, \r, \r\n, \v, \f, \x1c-\x1e, \x85, \u2028, \u2029. */
 const PY_LINE_BREAKS = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/;
+/** Identifiers and time-offset columns must never be model features. Keep in step with validate_repo.py. */
+const IDENTIFIER_FEATURES = new Set(["patientunitstayid", "patienthealthsystemstayid", "uniquepid"]);
+const OFFSET_LIKE = /offset/i;
+export function isForbiddenFeatureName(name: string): boolean {
+  return IDENTIFIER_FEATURES.has(name.trim().toLowerCase()) || OFFSET_LIKE.test(name);
+}
 export const LAUNCHER_PATH = "/opt/fedlify/code/";
 export const MAX_REPO_BYTES = 20 * 1024 * 1024;
 
@@ -147,6 +153,14 @@ export function checkRepoFiles(allFiles: RepoFile[]): RepoCheckReport {
         const dataContract = isRecord(config.dataContract) ? config.dataContract : {};
         if (isEmptyish(dataContract.label) || isEmptyish(dataContract.features)) {
           contract.push("fedlify-pipeline.json: dataContract needs a label and a features list");
+        }
+        if (Array.isArray(dataContract.features)) {
+          for (const feature of dataContract.features) {
+            const name = String(feature);
+            if (isForbiddenFeatureName(name)) {
+              contract.push(`fedlify-pipeline.json: feature ${name} is an identifier or time-offset column and cannot be a model feature`);
+            }
+          }
         }
       }
     } catch (error) {

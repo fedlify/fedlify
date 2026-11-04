@@ -134,7 +134,7 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
         validatedVersions.length > 0
           ? "A validated immutable commit is waiting for human approval."
           : "Choose an approved template source and create a validated study pipeline version.",
-      buttonLabel: validatedVersions.length > 0 ? "Approve pipeline" : "Open pipeline",
+      buttonLabel: "Open Code & run",
       section: "pipeline",
       state: "needs_attention"
     };
@@ -154,7 +154,7 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
     return {
       title: deployment ? "Start aggregator" : "Provision aggregator",
       detail: "Start the local Docker aggregator before sites can join and receive jobs.",
-      buttonLabel: "Open run",
+      buttonLabel: "Open Code & run",
       section: "run",
       state: "needs_attention"
     };
@@ -172,9 +172,9 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if (submittedRuns.length === 0) {
     return {
-      title: "Submit federated run",
+      title: "Start run",
       detail: "All runtime gates are ready for an approved pipeline run.",
-      buttonLabel: "Submit run",
+      buttonLabel: "Open Code & run",
       section: "run",
       state: "ready"
     };
@@ -183,7 +183,7 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
   if ((study.modelReleases ?? []).length === 0) {
     return {
       title: "Review training output",
-      detail: "A federated run exists. Sync results and promote a governed model release when complete.",
+      detail: "A federated run exists. Save the model and release it when the run completes.",
       buttonLabel: "Open results",
       section: "results",
       state: "ready"
@@ -239,13 +239,13 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
       label: "Run",
       detail:
         submittedRuns.length > 0
-          ? `${submittedRuns.length} federated run(s) submitted`
+          ? `${submittedRuns.length} run(s) started`
           : allSubmitGatesReady(study)
-            ? "Ready to submit an approved federated run."
+            ? "Ready to start a run of the approved pipeline version."
             : deploymentReady
-              ? "Submit after study protocol, pipeline, and sites are ready."
-              : "Start the aggregator before submitting a federated run.",
-      buttonLabel: submittedRuns.length > 0 ? "View run" : "Open run",
+              ? "Start a run after the protocol, pipeline version and sites are ready."
+              : "Start the aggregator before starting a run.",
+      buttonLabel: "Open Code & run",
       section: "run",
       state: submittedRuns.length > 0 ? "done" : allSubmitGatesReady(study) ? "ready" : "needs_attention"
     },
@@ -256,8 +256,8 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
         (study.modelReleases ?? []).length > 0
           ? `${study.modelReleases?.length ?? 0} trained model release(s)`
           : submittedRuns.length > 0
-            ? "Sync completed run results and promote a model release."
-            : "Results appear after a federated run completes.",
+            ? "Save the model from the completed run, then release it."
+            : "Results appear after a run completes.",
       buttonLabel: (study.modelReleases ?? []).length > 0 ? "View releases" : "Open results",
       section: "results",
       state: (study.modelReleases ?? []).length > 0 ? "done" : submittedRuns.length > 0 ? "ready" : "needs_attention"

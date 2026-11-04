@@ -21,6 +21,7 @@ const tones: Record<string, StatusTone> = {
 
   DEGRADED: "warning",
   EXPIRED: "warning",
+  OUTDATED: "warning",
   NEEDS_ATTENTION: "warning",
   PENDING: "warning",
   QUEUED: "warning",
@@ -39,6 +40,7 @@ const tones: Record<string, StatusTone> = {
   KIT_RELEASED: "info",
   NEXT: "info",
   PROVISIONED: "info",
+  RELEASED: "info",
   RUNNING: "info",
   SUBMITTED: "info",
 
@@ -50,6 +52,7 @@ const tones: Record<string, StatusTone> = {
   INTAKE: "neutral",
   INVITED: "neutral",
   NOT_CREATED: "neutral",
+  NOT_RELEASED: "neutral",
   NOT_STARTED: "neutral",
   PENDING_CHANGES: "neutral"
 };

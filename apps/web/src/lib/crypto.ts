@@ -26,3 +26,10 @@ export function hashIp(ip: string | null): string | null {
   const salt = process.env.NEXTAUTH_SECRET ?? "fedlify-dev";
   return hmacSha256(salt, ip);
 }
+
+/** Constant-time comparison of two strings (compared as UTF-8 bytes; unequal lengths are simply unequal). */
+export function safeEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}

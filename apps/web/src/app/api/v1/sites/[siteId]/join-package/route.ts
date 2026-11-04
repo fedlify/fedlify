@@ -7,7 +7,7 @@ import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
 import { publicBaseUrl } from "@/lib/runtime-config";
-import { buildPublishedSiteKitFiles } from "@/lib/site-kit";
+import { buildPublishedSiteKitFiles, publishedKitManifest } from "@/lib/site-kit";
 import { buildStartupKitFiles, buildStartupPackageManifest, startupPackageChecksum } from "@/lib/site-onboarding";
 import { createPresignedDownloadUrl, objectKey, readObject, storageConfigured, uploadObject } from "@/lib/storage";
 import { clientKitStorageKey, nvflareClientName } from "@/lib/study-runtime";
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       return problem(503, "Study image pull credentials (FEDLIFY_STUDY_PULL_USERNAME/PASSWORD) are not configured.", "registry_not_configured");
     }
   }
-  const manifest = buildStartupPackageManifest({
+  const baseManifest = buildStartupPackageManifest({
     apiBaseUrl: publicBaseUrl(request.nextUrl.origin),
     studyId: studySite.studyId,
     studyTitle: studySite.study.title,
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     deployment: activeDeployment,
     expiresAt
   });
+  const manifest = publishedRuntime ? publishedKitManifest(baseManifest) : baseManifest;
   let startupFiles: ArchiveFileMap;
   let realNvflareFiles: ArchiveFileMap;
   let clientStartupPath: string | undefined;
@@ -103,15 +104,29 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
   let sizeBytes = BigInt(0);
   const isStorageConfigured = storageConfigured();
   let storageUploaded = false;
-  let storageError: string | undefined;
 
+  // Upload first and commit only afterwards: if storage fails, the previous kit and site token stay valid.
   if (isStorageConfigured) {
     try {
       await uploadObject(storageKey, manifestBody, "application/zip");
       sizeBytes = BigInt(manifestBody.byteLength);
       storageUploaded = true;
     } catch (error) {
-      storageError = error instanceof Error ? error.message : "Object storage upload failed.";
+      await audit({
+        actorUserId: authResult.userId,
+        orgId: studySite.organizationId,
+        studyId: studySite.studyId,
+        action: "site.join_package.create_failed",
+        targetType: "StudySite",
+        targetId: studySite.id,
+        metadata: { reason: "storage_upload_failed", detail: error instanceof Error ? error.message.slice(0, 200) : "unknown" },
+        request
+      });
+      return problem(
+        502,
+        "The startup kit could not be saved to object storage. Nothing was changed: the previous kit and site token remain valid. Try again.",
+        "storage_unavailable"
+      );
     }
   }
 
@@ -166,7 +181,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       checksum,
       storageConfigured: isStorageConfigured,
       storageUploaded,
-      storageError,
       deploymentId: activeDeployment?.id,
       serverAddress: activeDeployment?.serverAddress,
       runtimeMode: activeDeployment?.runtimeMode,
@@ -185,14 +199,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       downloadUrl,
       storage: {
         configured: isStorageConfigured,
-        uploaded: storageUploaded,
-        error: storageError
+        uploaded: storageUploaded
       },
       message: storageUploaded
         ? "Startup package created. Copy the enrollment token now; it will not be shown again."
-        : isStorageConfigured
-          ? "Startup package metadata created locally. Object storage upload failed, so downloads are disabled until storage is available."
-          : "Startup package metadata created locally. Configure object storage to enable package downloads."
+        : "Startup package metadata created locally. Configure object storage to enable package downloads."
     },
     { status: 201 }
   );

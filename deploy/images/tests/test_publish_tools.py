@@ -3,6 +3,7 @@
 Run: python3 -m unittest discover -s deploy/images/tests   (no NVFLARE install needed)
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,21 @@ class ValidateRepoTest(unittest.TestCase):
         self.assertIn("possible credential in settings.py", errors)
         self.assertIn("requirements.txt:1", errors)
         self.assertIn("/opt/fedlify/code/", errors)
+
+    def test_starter_has_25_features_without_the_leaky_ones(self):
+        features = json.loads((self.repo / "fedlify-pipeline.json").read_text())["dataContract"]["features"]
+        self.assertEqual(len(features), 25)
+        self.assertNotIn("sao2_periodic", features)
+        self.assertNotIn("temperature_periodic", features)
+
+    def test_rejects_identifier_and_offset_features(self):
+        path = self.repo / "fedlify-pipeline.json"
+        config = json.loads(path.read_text())
+        config["dataContract"]["features"] += ["patientunitstayid", "UniquePid", "labresultoffset"]
+        path.write_text(json.dumps(config))
+        errors = "\n".join(validate(self.repo))
+        for name in ("patientunitstayid", "UniquePid", "labresultoffset"):
+            self.assertIn(f"feature {name} is an identifier", errors)
 
     def test_rejects_syntax_errors_and_missing_job(self):
         (self.repo / "client.py").write_text("def broken(:\n")

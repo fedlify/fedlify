@@ -109,7 +109,7 @@ export default function TemplateDetailPage() {
       if (forkedTemplateId) {
         router.push(`/studies/${studyId}/projects`);
       } else {
-        router.push(`/studies/${studyId}?section=pipeline`);
+        router.push(`/studies/${studyId}/projects`);
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : "Could not fork template.");
@@ -192,8 +192,8 @@ export default function TemplateDetailPage() {
   if (loadError && !template) return <AppPage><InlineLoadError message={loadError} onRetry={() => void load()} /></AppPage>;
   if (!template) return <AppPage><EmptyState icon={<CodeOutlined />} title="Template not found" description="Return to the catalog and select an available template." /></AppPage>;
 
-  const backLabel = studyId ? "Back to study pipeline" : "Template catalog";
-  const backPath = studyId ? `/studies/${studyId}?section=pipeline&tab=templates` : "/templates";
+  const backLabel = studyId ? "Back to Code & run" : "Template catalog";
+  const backPath = studyId ? `/studies/${studyId}/projects` : "/templates";
 
   return (
     <AppPage>

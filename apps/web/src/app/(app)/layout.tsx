@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  AppstoreOutlined,
   AuditOutlined,
   CloudDownloadOutlined,
   ClusterOutlined,
   DashboardOutlined,
   MailOutlined,
   MenuFoldOutlined,
-  MonitorOutlined,
   RobotOutlined,
   SafetyCertificateOutlined
 } from "@ant-design/icons";
@@ -21,10 +19,11 @@ import { FedlifyLogo } from "@/components/FedlifyLogo";
 import { StudyQuickMenu } from "@/components/StudyQuickMenu";
 import { UserMenu } from "@/components/UserMenu";
 import {
+  activeStudyNavKey,
   normalizeStudyWorkspaceSection,
-  STUDY_WORKSPACE_SECTIONS,
-  type StudyWorkspaceSection,
-  studySectionHref
+  STUDY_NAV_ITEMS,
+  type StudyNavKey,
+  studyNavHref
 } from "@/lib/study-workspace";
 import { chooseSelectedStudy, SELECTED_STUDY_EVENT, SELECTED_STUDY_STORAGE_KEY, type StudySummary } from "@/lib/studies";
 
@@ -41,7 +40,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const currentStudySection = normalizeStudyWorkspaceSection(searchParams.get("section"));
 
   const loadSelectedStudy = useCallback(async () => {
-    const pathMatch = /^\/studies\/([^/]+)$/.exec(pathname);
+    const pathMatch = /^\/studies\/([^/]+)(?:\/|$)/.exec(pathname);
     if (pathMatch && pathMatch[1] !== "manage") {
       setSelectedStudyId(pathMatch[1]);
       window.localStorage.setItem(SELECTED_STUDY_STORAGE_KEY, pathMatch[1]);
@@ -96,14 +95,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     }
   }, [pathname, router, session, status]);
 
-  const studySectionIcons: Record<StudyWorkspaceSection, ReactNode> = useMemo(
+  const studyNavIcons: Record<StudyNavKey, ReactNode> = useMemo(
     () => ({
       overview: <DashboardOutlined />,
       protocol: <SafetyCertificateOutlined />,
       sites: <ClusterOutlined />,
       team: <MailOutlined />,
-      pipeline: <RobotOutlined />,
-      run: <MonitorOutlined />,
+      code: <RobotOutlined />,
       results: <CloudDownloadOutlined />,
       audit: <AuditOutlined />
     }),
@@ -111,21 +109,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   );
 
   const menuItems = useMemo(
-    () => [
-      ...STUDY_WORKSPACE_SECTIONS.map((section) => ({
-        key: `study:${section.key}`,
-        icon: studySectionIcons[section.key],
-        label: section.key === "pipeline" ? <span title="Code, publish and run the study pipeline">{section.label}</span> : section.label,
+    () =>
+      STUDY_NAV_ITEMS.map((item) => ({
+        key: `study:${item.key}`,
+        icon: studyNavIcons[item.key],
+        label: item.key === "code" ? <span title="Code, publish and run the study pipeline">{item.label}</span> : item.label,
         disabled: !selectedStudyId,
         onClick: () => {
-          if (!selectedStudyId) return;
-          // The Pipeline section is the Code & run workspace.
-          if (section.key === "pipeline") router.push(`/studies/${selectedStudyId}/projects`);
-          else router.push(studySectionHref(selectedStudyId, section.key));
+          if (selectedStudyId) router.push(studyNavHref(selectedStudyId, item.key));
         }
-      }))
-    ],
-    [router, selectedStudyId, studySectionIcons]
+      })),
+    [router, selectedStudyId, studyNavIcons]
   );
 
   function toggleSidebar() {
@@ -185,13 +179,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           className="fedlify-app-menu"
           mode="inline"
           inlineCollapsed={sidebarCollapsed}
-          selectedKeys={
-            /^\/studies\/[^/]+\/(projects|pipeline-agent)/.test(pathname)
-              ? ["study:pipeline"]
-              : pathname.startsWith("/studies/") && pathname !== "/studies/manage"
-              ? [`study:${currentStudySection}`]
-              : []
-          }
+          selectedKeys={(() => {
+            const key = activeStudyNavKey(pathname, currentStudySection);
+            return key ? [`study:${key}`] : [];
+          })()}
           items={menuItems}
         />
       </Sider>
@@ -199,13 +190,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <Header className="fedlify-app-header">
           <StudyQuickMenu />
           <div className="fedlify-header-actions">
-            <Button
-              className="fedlify-header-tool-button"
-              icon={<AppstoreOutlined />}
-              onClick={() => router.push("/templates")}
-            >
-              Template Catalog
-            </Button>
             <UserMenu />
           </div>
         </Header>

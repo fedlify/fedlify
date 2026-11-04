@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
+import { isSitePresent } from "@/lib/site-presence";
 import { audit } from "@/lib/audit";
 import { describeUnreadySites, executionGateMessage, latestEthicsStatus, pipelineExecutionGate } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       studyId,
       ...(parsed.data.studySiteIds?.length ? { id: { in: parsed.data.studySiteIds } } : {})
     },
-    include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 }, site: true }
+    include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 }, site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } } } } }
   });
 
   const gate = pipelineExecutionGate({
@@ -145,8 +146,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       throw error;
     }
     const offline = studySites
-      .map((site) => nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }))
-      .filter((name) => !connected.has(name));
+      .filter((site) => !isSitePresent(connected.has(nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName })), site.site?.heartbeats[0]?.createdAt))
+      .map((site) => nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }));
     if (offline.length > 0) {
       return problem(409, `These sites are not connected to the aggregator yet: ${offline.join(", ")}.`, "sites_not_connected");
     }

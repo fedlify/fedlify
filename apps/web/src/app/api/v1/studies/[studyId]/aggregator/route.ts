@@ -7,6 +7,7 @@
 
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
+import { isSitePresent } from "@/lib/site-presence";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
@@ -54,7 +55,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" } }),
     prisma.studySite.findMany({
       where: { studyId, participationStatus: { not: "DISABLED" } },
-      include: { site: true, joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1 } },
+      include: { site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } } } }, joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1 } },
       orderBy: { code: "asc" }
     }),
     prisma.pipelineProject.findMany({
@@ -105,7 +106,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
       provisioned: provisioned.has(name),
       kitReleased: Boolean(kit),
       kitImageDigest: kit?.imageDigest ?? null,
-      connected: connected ? connected.includes(name) : null
+      connected: connected ? isSitePresent(connected.includes(name), studySite.site?.heartbeats[0]?.createdAt) : null
     };
   });
 

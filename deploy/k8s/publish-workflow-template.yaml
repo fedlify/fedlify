@@ -43,7 +43,7 @@ spec:
       - name: kit-generation        # bumps the aggregator rollout when kits change
       - name: callback-url
       - name: base-image
-        value: harbor.fedlify.com/fedlify/nvflare-base:r20261103-7
+        value: harbor.fedlify.com/fedlify/nvflare-base:r20261105-5
       - name: study-image-repo
         value: harbor.fedlify.com/fedlify-studies
       - name: ingress-target

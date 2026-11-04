@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPublishedSiteKitFiles } from "@/lib/site-kit";
+import { buildPublishedSiteKitFiles, publishedKitManifest } from "@/lib/site-kit";
 import { buildStartupPackageManifest } from "@/lib/site-onboarding";
 
 const digest = "harbor.fedlify.com/fedlify-studies/hf-mortality@sha256:" + "a".repeat(64);
@@ -39,7 +39,7 @@ describe("published site kit", () => {
 
   it("never ships a token, and quotes registry credentials for the shell", () => {
     const env = String(kit()[".env"]);
-    expect(env).toMatch(/^FEDLIFY_SITE_TOKEN=$/m);
+    expect(env).not.toMatch(/^FEDLIFY_SITE_TOKEN=/m);
     expect(env).toContain(`FEDLIFY_REGISTRY_USERNAME='robot$fedlify-studies+studies-pull'`);
     expect(env).toContain(`FEDLIFY_REGISTRY_PASSWORD='p'"'"'ss'`);
   });
@@ -48,6 +48,32 @@ describe("published site kit", () => {
     const files = kit();
     expect(String(files[".env"])).toContain("NVFLARE_SERVER=hf-mortality.fedlify.com:443");
     expect(String(files["fedlify-runner.sh"])).toContain("desiredImageDigest");
+    for (const command of ["preflight", "status", "logout", "support-bundle"]) expect(String(files["fedlify-runner.sh"])).toContain(command);
+    expect(String(files["fedlify-runner.sh"])).not.toMatch(/\bunlock\b/);
     expect(JSON.parse(String(files["manifest.json"])).runtime).toEqual({ mode: "k8s", hostname: "hf-mortality.fedlify.com", imageDigest: digest });
+  });
+
+  it("lists only files the kit really ships and never the missing PowerShell runner", () => {
+    const files = kit();
+    const manifest = JSON.parse(String(files["manifest.json"]));
+    expect(Object.keys(files)).not.toContain("fedlify-runner.ps1");
+    expect(JSON.stringify(manifest)).not.toMatch(/\.ps1/);
+    for (const path of Object.values(manifest.files as Record<string, string>)) {
+      // nvflare/ comes from the real client kit that the route adds to the zip.
+      if (!path.startsWith("nvflare/")) expect(Object.keys(files)).toContain(path);
+    }
+    expect(manifest.installCommands.join(" ")).not.toContain("--safe");
+    expect(publishedKitManifest(publishedKitManifest(manifest)).files).toEqual(manifest.files);
+  });
+
+  it("rotates container logs, checks client health, and has no fake CONNECTED sidecar", () => {
+    const compose = String(kit()["docker-compose.yml"]);
+    expect(compose).toContain("max-size: \"10m\"");
+    expect(compose).toContain("healthcheck:");
+    expect(compose).toContain("[c]lient_train");
+    expect(compose).not.toContain("[f]edlify");
+    expect(compose).not.toContain("fedlify-site-agent");
+    expect(compose).not.toMatch(/CONNECTED/);
+    expect(compose.match(/logging: \*default-logging/g)).toHaveLength(1);
   });
 });

@@ -43,6 +43,7 @@ import { normalizeRichTextValue, RichTextContent, RichTextEditor, richTextHasTex
 import { RequirementsChatWindow } from "@/components/RequirementsChatWindow";
 import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { StatusTag } from "@/components/StatusTag";
+import { StudySitesTable } from "@/components/StudySitesTable";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
 
 const REQUIREMENTS_TOTAL = REQUIREMENT_ORDER.length;
@@ -59,6 +60,7 @@ import {
 import {
   getStudyWorkspaceSection,
   normalizeStudyWorkspaceSection,
+  studyActionHref,
   type StudyWorkspaceSection
 } from "@/lib/study-workspace";
 import { parseStudyDetailParam, serializeStudyDetailParam, type StudyDetailKind, type StudyDetailState } from "@/lib/study-detail";
@@ -226,7 +228,7 @@ const CREATE_FORM_META = {
     backLabel: "Sites and data"
   },
   job: {
-    title: WORKFLOW_TERMS.submitFederatedRun,
+    title: WORKFLOW_TERMS.startRun,
     subtitle: "Run an approved pipeline version against ready participant sites through the Fedlify FLARE API wrapper.",
     backLabel: "Federated run"
   }
@@ -507,7 +509,7 @@ function operationsWorkflowSteps(study: StudyDetail): WorkflowStep[] {
     },
     {
       label: "Federated run submitted",
-      detail: hasSubmittedJob ? "Federated run recorded by Fedlify" : "Submit federated run after gates pass",
+      detail: hasSubmittedJob ? "Run recorded by Fedlify" : "Start run after gates pass",
       state: workflowState(hasSubmittedJob, connected.length === 0 || ready.length === 0)
     }
   ];
@@ -583,7 +585,6 @@ export default function StudyDetailPage() {
   const [activeCreate, setActiveCreate] = useState<"studyDesign" | "invite" | "ethics" | "document" | "site" | "job" | null>(null);
   const [protocolTab, setProtocolTab] = useState("review");
   const [teamTab, setTeamTab] = useState("members");
-  const [sitesTab, setSitesTab] = useState("sites");
   const [runTab, setRunTab] = useState("readiness");
   const [resultsTab, setResultsTab] = useState("models");
   const [ethicsEditingRecord, setEthicsEditingRecord] = useState<EntityRecord | null>(null);
@@ -622,6 +623,10 @@ export default function StudyDetailPage() {
   }
 
   function sectionUrl(section: StudyWorkspaceSection, detail?: StudyDetailState | null) {
+    // Retired sections have no page of their own: go straight to the replacement instead of bouncing through a redirect
+    // that would drop the detail anyway.
+    if (section === "pipeline" || section === "run") return `/studies/${studyId}/projects`;
+    if (section === "audit") return `/studies/${studyId}/audit`;
     const params = new URLSearchParams();
     if (section !== "overview" || detail) params.set("section", section);
     if (detail) params.set("detail", serializeStudyDetailParam(detail));
@@ -692,7 +697,6 @@ export default function StudyDetailPage() {
     setMemberRoleEditingId(null);
     if (activeSection !== "protocol") setProtocolTab("review");
     if (activeSection !== "team") setTeamTab("members");
-    if (activeSection !== "sites") setSitesTab("sites");
     if (activeSection !== "run") setRunTab("readiness");
     if (activeSection !== "results") setResultsTab("models");
   }, [activeSection]);
@@ -745,23 +749,11 @@ export default function StudyDetailPage() {
     }
   }
 
-  async function openJobLogs(job: EntityRecord) {
-    setJobLogLoadingId(job.id);
-    try {
-      const response = await fetch(`/api/v1/nvflare/jobs/${job.id}/logs`, { cache: "no-store" });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error?.message ?? "Run logs could not be loaded.");
-      }
-      setJobLogDetail(body ?? null);
-      openDetail("experimentRun", String(job.id), "run");
-      void load(activeSection);
-    } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "Run logs could not be loaded.");
-    } finally {
-      setJobLogLoadingId(null);
-    }
+  /** Run logs now live with the run on Code & run; the legacy log panel is no longer reachable. */
+  function openJobLogs(_job: EntityRecord) {
+    router.push(`/studies/${studyId}/projects`);
   }
+
 
   useEffect(() => {
     if (activeDetail?.kind !== "experimentRun") {
@@ -1363,7 +1355,7 @@ export default function StudyDetailPage() {
             <Space className="fedlify-form-actions">
               <Button onClick={closeCreate}>Cancel</Button>
               <Button type="primary" htmlType="submit" icon={<MonitorOutlined />} className="fedlify-dark-action" loading={formSubmitting}>
-                {WORKFLOW_TERMS.submitFederatedRun}
+                {WORKFLOW_TERMS.startRun}
               </Button>
             </Space>
           </Form>
@@ -1882,7 +1874,7 @@ export default function StudyDetailPage() {
                   Sync result
                 </Button>
                 <Button icon={<CloudDownloadOutlined />} disabled={!modelResult || Boolean(modelRelease)} loading={formSubmitting} onClick={() => void promoteModelRelease(String(record.id), state.nvflareJobId)}>
-                  Promote to model release
+                  Release model
                 </Button>
                 <Button icon={<CloudDownloadOutlined />} disabled={!modelRelease?.id || !modelArtifact?.id} onClick={() => modelRelease?.id && modelArtifact?.id ? void downloadModelReleaseArtifact(String(modelRelease.id), String(modelArtifact.id)) : undefined}>
                   Download model
@@ -1997,7 +1989,7 @@ export default function StudyDetailPage() {
         },
         {
           key: "sites",
-          label: "Sites & Data",
+          label: "Sites",
           description: readinessByKey.get("sites")?.detail ?? `${ready.length}/${totalSites} ready, ${connected.length} connected`,
           state: readinessByKey.get("sites")?.state ?? "needs_attention",
           section: "sites" as StudyWorkspaceSection,
@@ -2028,7 +2020,7 @@ export default function StudyDetailPage() {
         {
           key: "run",
           label: "Run",
-          description: readinessByKey.get("run")?.detail ?? `${currentStudy.nvflareJobs?.length ?? 0} federated run(s)`,
+          description: readinessByKey.get("run")?.detail ?? `${currentStudy.nvflareJobs?.length ?? 0} run(s)`,
           state: readinessByKey.get("run")?.state ?? "needs_attention",
           section: "run" as StudyWorkspaceSection,
           icon: <MonitorOutlined />,
@@ -2039,7 +2031,7 @@ export default function StudyDetailPage() {
         },
         {
           key: "results",
-          label: "Results & Releases",
+          label: "Results",
           description: readinessByKey.get("results")?.detail ?? "Trained model plus code/kit releases.",
           state: readinessByKey.get("results")?.state ?? "needs_attention",
           section: "results" as StudyWorkspaceSection,
@@ -2080,7 +2072,7 @@ export default function StudyDetailPage() {
                   }
                   meta={isNext ? [`Next: ${nextAction.title}`, ...card.meta] : card.meta}
                   tone={summaryStateTone(card.state as "ready" | "needs_attention" | "done") as "ready" | "needs_attention"}
-                  onClick={() => router.push(sectionUrl(card.section))}
+                  onClick={() => router.push(studyActionHref(studyId, card.section))}
                   ariaLabel={`Open ${card.label}`}
                 />
               );
@@ -2520,105 +2512,7 @@ export default function StudyDetailPage() {
               description={`Store this token in the participant site's agent secret store: ${siteToken}`}
             />
           ) : null}
-          <Tabs
-            className="fedlify-card-tabs fedlify-workspace-tabs"
-            activeKey={sitesTab}
-            onChange={setSitesTab}
-            items={[
-              {
-                key: "sites",
-                label: "Participant sites",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <WorkspaceCardGrid>
-                      <WorkspaceActionCard
-                        icon={<PlusOutlined />}
-                        title={(currentStudy.studySites?.length ?? 0) === 0 ? "Register first site" : "Register site"}
-                        description={
-                          (currentStudy.studySites?.length ?? 0) === 0
-                            ? "No participant sites yet. Register at least one institution before generating site-specific kits."
-                            : "Add another institution participating in the federated study."
-                        }
-                        onClick={() => openCreate("site")}
-                      />
-                      {currentStudy.studySites.map((site) => (
-                        <WorkspaceRecordCard
-                          key={text(site.id, site.name)}
-                          icon={<ClusterOutlined />}
-                          title={text(site.name, "Site")}
-                          description={text(site.institutionName, "Institution not recorded")}
-                          status={<StatusTag value={status(site.participationStatus, "OFFLINE")} />}
-                          meta={[
-                            `PI: ${text(site.principalInvestigator, "Not set")}`,
-                            `Data: ${text(site.dataProfile?.modality, "Not set")}`,
-                            `Readiness: ${displayEnum(site.readinessChecks?.[0]?.status, "Pending")}`
-                          ]}
-                          actionsMenu={
-                            <EntityActionMenu
-                              items={[
-                                { key: "view", label: "View site", icon: <EyeOutlined />, onClick: () => openDetail("site", String(site.id), "sites") },
-                                { key: "dashboard", label: "Open onboarding dashboard", icon: <ClusterOutlined />, onClick: () => router.push(`/sites/${site.id}`) }
-                              ]}
-                            />
-                          }
-                          onClick={() => openDetail("site", String(site.id), "sites")}
-                        />
-                      ))}
-                    </WorkspaceCardGrid>
-                  </div>
-                )
-              },
-              {
-                key: "readiness",
-                label: "Readiness & data",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    {(currentStudy.studySites?.length ?? 0) === 0 ? (
-                      <WorkspaceCardGrid>
-                        <WorkspaceActionCard
-                          icon={<PlusOutlined />}
-                          title="Register first site"
-                          description="No site readiness state yet. Register participant sites before tracking readiness and data profile completeness."
-                          onClick={() => openCreate("site")}
-                        />
-                      </WorkspaceCardGrid>
-                    ) : (
-                      <WorkspaceCardGrid>
-                        {currentStudy.studySites.map((site) => (
-                          <WorkspaceRecordCard
-                            key={text(site.id, site.name)}
-                            icon={<ClusterOutlined />}
-                            title={text(site.name, "Site")}
-                            description={text(site.dataProfile?.datasetDescription, "Dataset summary not recorded")}
-                            status={<StatusTag value={status(site.readinessChecks?.[0]?.status, "PENDING")} />}
-                            meta={[
-                              `Connection: ${displayEnum(site.nvflareStatuses?.[0]?.status, "Offline")}`,
-                              `Modalities: ${text(site.dataProfile?.modality, "Not set")}`,
-                              `Cohort: ${text(site.dataProfile?.cohortSizeRange, "Not set")}`,
-                              `Resources: ${[
-                                site.resourceProfile?.cpuCores ? `${site.resourceProfile.cpuCores} CPU` : null,
-                                site.resourceProfile?.gpuCount ? `${site.resourceProfile.gpuCount} GPU` : null,
-                                site.resourceProfile?.ramGb ? `${site.resourceProfile.ramGb} GB RAM` : null
-                              ].filter(Boolean).join(" · ") || "Not recorded"}`
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View site profile", icon: <EyeOutlined />, onClick: () => openDetail("site", String(site.id), "sites") },
-                                  { key: "dashboard", label: "Open onboarding dashboard", icon: <ClusterOutlined />, onClick: () => router.push(`/sites/${site.id}`) }
-                                ]}
-                              />
-                            }
-                            onClick={() => openDetail("site", String(site.id), "sites")}
-                          />
-                        ))}
-                      </WorkspaceCardGrid>
-                    )}
-                  </div>
-                )
-              }
-            ]}
-          />
+          <StudySitesTable studyId={studyId} onRegister={() => openCreate("site")} />
         </div>
       );
     }
@@ -2750,7 +2644,7 @@ export default function StudyDetailPage() {
                       type="primary"
                       className="fedlify-dark-action"
                       icon={<PlayCircleOutlined />}
-                      onClick={() => router.push(sectionUrl("run"))}
+                      onClick={() => router.push(studyActionHref(studyId, "run"))}
                     >
                       Go to Run section
                     </Button>
@@ -2915,12 +2809,12 @@ export default function StudyDetailPage() {
                       <StatCard
                         label="Approved versions"
                         value={currentApprovedPipelineVersions(currentStudy).length}
-                        onClick={() => router.push(sectionUrl("pipeline"))}
+                        onClick={() => router.push(studyActionHref(studyId, "pipeline"))}
                       />
                       <StatCard
                         label="Federated runs"
                         value={currentStudy.nvflareJobs?.length ?? 0}
-                        onClick={() => router.push(sectionUrl("run"))}
+                        onClick={() => router.push(studyActionHref(studyId, "run"))}
                       />
                       <StatCard
                         label="Aggregator"
@@ -2931,7 +2825,7 @@ export default function StudyDetailPage() {
                     <WorkspaceCardGrid>
                       <WorkspaceActionCard
                         icon={<MonitorOutlined />}
-                        title={(currentStudy.nvflareJobs?.length ?? 0) === 0 ? "Submit first federated run" : WORKFLOW_TERMS.submitFederatedRun}
+                        title={(currentStudy.nvflareJobs?.length ?? 0) === 0 ? "Start first run" : WORKFLOW_TERMS.startRun}
                         description={
                           (currentStudy.nvflareJobs?.length ?? 0) === 0
                             ? "No federated runs yet. Submit an approved pipeline version after sites pass readiness checks."
@@ -2995,7 +2889,7 @@ export default function StudyDetailPage() {
             items={[
               {
                 key: "models",
-                label: "Trained model releases",
+                label: "Model releases",
                 children: (
                   <div className="fedlify-tab-panel">
                     {modelReleases.length === 0 ? (
@@ -3003,7 +2897,7 @@ export default function StudyDetailPage() {
                         <WorkspaceEmptyCard
                           icon={<CloudDownloadOutlined />}
                           title="No trained model releases"
-                          description="Promote a completed federated run result from Run."
+                          description="Save the model from a completed run on Code & run, then release it."
                         />
                       </WorkspaceCardGrid>
                     ) : (
@@ -3049,9 +2943,13 @@ export default function StudyDetailPage() {
                   </div>
                 )
               },
+              // Legacy code/kit releases: shown only when a study still has some. New studies use the site kit on Sites.
+              ...(currentStudy.releases.length === 0
+                ? []
+                : [
               {
                 key: "code",
-                label: "Code and kit artifacts",
+                label: "Legacy code and kit releases",
                 children: (
                   <div className="fedlify-tab-panel">
                     {currentStudy.releases.length === 0 ? (
@@ -3093,6 +2991,7 @@ export default function StudyDetailPage() {
                   </div>
                 )
               }
+                ])
             ]}
           />
         </div>

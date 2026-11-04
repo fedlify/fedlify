@@ -25,6 +25,10 @@ SECRET_PATTERNS = [
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
     re.compile(r"(password|passwd|secret|api[_-]?key|token)\s*[:=]\s*['\"][^'\"]{8,}['\"]", re.I),
 ]
+# Row identifiers and time-offset columns must never be model features: identifiers let a model memorise
+# patients, and offsets (minutes from admission) leak the outcome timeline. Keep in step with repo-checks.ts.
+IDENTIFIER_FEATURES = {"patientunitstayid", "patienthealthsystemstayid", "uniquepid"}
+OFFSET_LIKE = re.compile(r"offset", re.I)
 LAUNCHER_PATH = "/opt/fedlify/code/"
 MAX_REPO_BYTES = 20 * 1024 * 1024
 
@@ -63,6 +67,10 @@ def validate(root: Path) -> list:
             contract = config.get("dataContract", {})
             if not contract.get("label") or not contract.get("features"):
                 errors.append("fedlify-pipeline.json: dataContract needs a label and a features list")
+            for feature in contract.get("features") or []:
+                name = str(feature).strip()
+                if name.lower() in IDENTIFIER_FEATURES or OFFSET_LIKE.search(name):
+                    errors.append(f"fedlify-pipeline.json: feature {name} is an identifier or time-offset column and cannot be a model feature")
         except json.JSONDecodeError as error:
             errors.append(f"fedlify-pipeline.json is not valid JSON: {error}")
 

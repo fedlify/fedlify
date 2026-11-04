@@ -1,26 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { resolveStudyNextAction, summaryReadinessItems } from "@/lib/study-summary";
 import { parseStudyDetailParam, serializeStudyDetailParam } from "@/lib/study-detail";
-import { getStudyWorkspaceSection, normalizeStudyWorkspaceSection, STUDY_WORKSPACE_SECTIONS } from "@/lib/study-workspace";
+import { getStudyWorkspaceSection, normalizeStudyWorkspaceSection, studyActionHref, studyNavHref, activeStudyNavKey, STUDY_NAV_ITEMS } from "@/lib/study-workspace";
 
 describe("study workspace navigation", () => {
-  it("uses the health-AI lifecycle section order", () => {
-    expect(STUDY_WORKSPACE_SECTIONS.map((section) => section.label)).toEqual([
-      "Summary",
-      "Protocol",
-      "Sites & Data",
-      "Team & Access",
-      "Pipeline",
-      "Run",
-      "Results & Releases",
-      "Audit"
-    ]);
+  it("shows one sidebar item per destination, with a single Code & run item", () => {
+    expect(STUDY_NAV_ITEMS.map((item) => item.label)).toEqual(["Summary", "Protocol", "Sites", "Team", "Code & run", "Results", "Audit"]);
+    expect(studyNavHref("s1", "code")).toBe("/studies/s1/projects");
+    expect(studyNavHref("s1", "audit")).toBe("/studies/s1/audit");
+    expect(studyNavHref("s1", "sites")).toBe("/studies/s1?section=sites");
+  });
+
+  it("selects the sidebar item from the route, not a regex on the legacy section", () => {
+    expect(activeStudyNavKey("/studies/s1/projects", "overview")).toBe("code");
+    expect(activeStudyNavKey("/studies/s1/pipeline-agent", "overview")).toBe("code");
+    expect(activeStudyNavKey("/studies/s1/audit", "overview")).toBe("audit");
+    expect(activeStudyNavKey("/studies/s1/runs/j1", "overview")).toBe("results");
+    expect(activeStudyNavKey("/studies/s1", "sites")).toBe("sites");
+    expect(activeStudyNavKey("/studies/s1", "run")).toBe("code");
+    expect(activeStudyNavKey("/studies/manage", "overview")).toBeNull();
+    expect(activeStudyNavKey("/dashboard", "overview")).toBeNull();
   });
 
   it("normalizes unknown sections to summary", () => {
     expect(normalizeStudyWorkspaceSection("run")).toBe("run");
     expect(normalizeStudyWorkspaceSection("operations")).toBe("overview");
-    expect(getStudyWorkspaceSection("results").title).toBe("Results and releases");
+    expect(getStudyWorkspaceSection("results").title).toBe("Results");
   });
 
   it("parses and serializes typed detail URL state", () => {
@@ -64,7 +69,7 @@ describe("study workspace navigation", () => {
         studySites: [{ readinessChecks: [{ status: "PASSED" }], nvflareStatuses: [{ status: "CONNECTED" }] }],
         nvflareDeployments: [{ active: true, status: "ACTIVE", serverAddress: "localhost:18010" }]
       })
-    ).toMatchObject({ title: "Submit federated run", section: "run" });
+    ).toMatchObject({ title: "Start run", section: "run" });
   });
 
   it("maps summary readiness items to explicit user actions", () => {
@@ -88,5 +93,18 @@ describe("study workspace navigation", () => {
       buttonLabel: "Open sites",
       section: "sites"
     });
+  });
+
+  it("sends pipeline and run actions to the Code & run workspace, never a legacy section", () => {
+    expect(studyActionHref("s1", "pipeline")).toBe("/studies/s1/projects");
+    expect(studyActionHref("s1", "run")).toBe("/studies/s1/projects");
+    expect(studyActionHref("s1", "sites")).toBe("/studies/s1?section=sites");
+    expect(studyActionHref("s1")).toBe("/studies/s1");
+    for (const item of [
+      resolveStudyNextAction({ status: "ACTIVE", ethics: [{ status: "APPROVED" }] }),
+      ...summaryReadinessItems({ status: "ACTIVE" })
+    ]) {
+      expect(studyActionHref("s1", item.section)).not.toMatch(/section=(pipeline|run)/);
+    }
   });
 });

@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
+import { markStaleSitesOffline } from "@/lib/site-presence";
 import { SITE_ONBOARDING_STEPS } from "@/lib/site-onboarding";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ siteId: string }> }) {
@@ -16,6 +17,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
     if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
     throw error;
   }
+
+  const owner = await prisma.studySite.findUnique({ where: { id: siteId }, select: { studyId: true } });
+  if (owner) await markStaleSitesOffline(owner.studyId);
 
   const studySite = await prisma.studySite.findUnique({
     where: { id: siteId },

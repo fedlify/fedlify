@@ -33,6 +33,12 @@ class ModelTest(unittest.TestCase):
         self.assertLess(model.evaluate(x_valid, y_valid)["loss"], before)
         self.assertEqual(model.get_weights().shape, (x.shape[1] + 1,))
 
+    def test_contract_has_no_identifier_or_offset_features(self):
+        banned = {"patientunitstayid", "patienthealthsystemstayid", "uniquepid", "sao2_periodic", "temperature_periodic"}
+        for name in CONFIG["dataContract"]["features"]:
+            self.assertNotIn(name.lower(), banned)
+            self.assertNotIn("offset", name.lower())
+
     def test_missing_contract_column_is_rejected(self):
         frame = synthetic_frame().drop(columns=[CONFIG["dataContract"]["features"][0]])
         with self.assertRaises(ValueError):

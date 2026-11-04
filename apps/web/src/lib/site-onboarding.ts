@@ -76,7 +76,7 @@ export function buildStartupPackageManifest(input: StartupPackageManifestInput) 
       envExample: ".env.example",
       nvflareClientConfig: "nvflare/client.json",
       manifest: "manifest.json"
-    },
+    } as Record<string, string>,
     installCommands: [
       "chmod +x fedlify-runner.sh",
       "FEDLIFY_SITE_TOKEN=<token-shown-once-in-fedlify> ./fedlify-runner.sh start --safe"
@@ -331,8 +331,14 @@ export function buildStartupKitFiles(manifest: ReturnType<typeof buildStartupPac
   const envFile = environmentFile("");
   const envExample = environmentFile("<paste-token-shown-once-in-fedlify>");
   const compose = [
+    "x-logging: &default-logging",
+    "  driver: json-file",
+    "  options:",
+    "    max-size: \"10m\"",
+    "    max-file: \"3\"",
     "services:",
     "  fedlify-site-agent:",
+    "    logging: *default-logging",
     "    image: curlimages/curl:latest",
     "    extra_hosts:",
     "      - \"host.docker.internal:host-gateway\"",
@@ -352,6 +358,7 @@ export function buildStartupKitFiles(manifest: ReturnType<typeof buildStartupPac
     "          sleep 30",
     "        done",
     "  nvflare-client:",
+    "    logging: *default-logging",
     "    image: ${NVFLARE_DOCKER_IMAGE:-fedlify-nvflare:2.6.2}",
     "    extra_hosts:",
     "      - \"host.docker.internal:host-gateway\"",

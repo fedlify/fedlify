@@ -4,6 +4,7 @@ import { getNvflareSystemInfo } from "@/lib/nvflare";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { markStaleSitesOffline } from "@/lib/site-presence";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ studyId: string }> }) {
   const authResult = await requireUser();
@@ -16,6 +17,8 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
     throw error;
   }
+
+  await markStaleSitesOffline(studyId);
 
   const [siteStatuses, runningJobCount, deployment] = await Promise.all([
     prisma.nvflareSiteStatus.findMany({

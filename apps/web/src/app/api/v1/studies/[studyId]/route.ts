@@ -8,6 +8,7 @@ import { json, problem } from "@/lib/json";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { markStaleSitesOffline } from "@/lib/site-presence";
 
 const optionalNullableGovernanceString = (max: number) =>
   z.preprocess((value) => normalizeNullableMultiSelectValue(value), z.string().trim().max(max).nullable().optional());
@@ -75,6 +76,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
     throw error;
   }
+
+  // Reconcile silent sites first so Summary and readiness never show a dead runner as CONNECTED.
+  await markStaleSitesOffline(studyId);
 
   const study = await prisma.study.findUnique({
     where: { id: studyId },

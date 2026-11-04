@@ -170,7 +170,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     await tx.nvflareDeployment.update({
       where: { id: target!.id },
       data: {
-        pipelineVersionId: version.id,
+        // pipelineVersionId is what the aggregator serves: only the success callback may move it.
         kitGeneration,
         ...(provision
           ? { provisionedSites: sites as Prisma.InputJsonArray, clientKitPrefix: clientKitPrefix(studyId, target!.id), status: "DRAFT" }

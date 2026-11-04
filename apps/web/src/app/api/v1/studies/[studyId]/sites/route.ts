@@ -6,6 +6,7 @@ import { randomToken, sha256 } from "@/lib/crypto";
 import { normalizeMultiSelectValue } from "@/lib/governance-options";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
+import { markStaleSitesOffline } from "@/lib/site-presence";
 import { slugify } from "@/lib/slug";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 
@@ -55,6 +56,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     throw error;
   }
 
+  await markStaleSitesOffline(studyId);
   const sites = await prisma.site.findMany({
     where: { studyId },
     include: {

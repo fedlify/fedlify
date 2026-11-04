@@ -9,9 +9,9 @@ export const WORKFLOW_TERMS = {
   federatedRun: "Federated run",
   modelRelease: "Model release",
   trainedModelRelease: "Trained model release",
-  codeKitArtifacts: "Code and kit artifacts",
+  siteKit: "Site kit",
   createPipelineVersion: "Create pipeline version",
-  submitFederatedRun: "Submit federated run",
+  startRun: "Start run",
   createOrEditWithAi: "Create or edit with AI",
   proposeReusableTemplateUpdate: "Propose reusable template update"
 } as const;
