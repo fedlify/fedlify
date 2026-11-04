@@ -22,12 +22,17 @@ export default function SignInPage() {
 
   async function onFinish(values: LoginForm) {
     setFormError(null);
-    const result = await signIn("credentials", {
-      email: values.email,
-      password: values.password,
-      redirect: false
-    });
+    const attempt = () => signIn("credentials", { email: values.email, password: values.password, redirect: false });
+    // A CSRF cookie mismatch comes back as ok with ?csrf=true and no session: page-load requests can race to set that
+    // cookie. It is not a wrong password, so retry once with a fresh token instead of pretending the sign-in worked.
+    const isCsrfFailure = (url?: string | null) => Boolean(url && url.includes("csrf=true"));
+    let result = await attempt();
+    if (isCsrfFailure(result?.url)) result = await attempt();
 
+    if (isCsrfFailure(result?.url)) {
+      setFormError("Sign-in could not be completed. Please reload the page and try again.");
+      return;
+    }
     if (!result?.ok) {
       setFormError("Invalid email or password.");
       return;
@@ -41,7 +46,10 @@ export default function SignInPage() {
       });
     }
 
-    router.push(callbackUrl);
+    // Full page load: the in-memory session can still read "signed out" right after signIn, and the app layout
+    // would bounce back here. Only same-site paths are followed, so callbackUrl cannot send users elsewhere.
+    const safeTarget = callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !callbackUrl.startsWith("/\\") ? callbackUrl : "/dashboard";
+    window.location.assign(safeTarget);
   }
 
   return (

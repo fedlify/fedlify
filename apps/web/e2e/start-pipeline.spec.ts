@@ -98,7 +98,7 @@ test("wizard walks to the name step without creating anything", async ({ page })
   await page.goto(`/studies/${studyId}/projects?start=1`);
   await page.getByTestId("path-card-template").click();
   await expect(page.getByTestId("template-row").first()).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId("template-row").filter({ hasText: "Mock template" }).first().click();
+  await page.getByTestId("template-row").first().click();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByTestId("wizard-step-contract")).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
