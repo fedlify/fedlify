@@ -5168,7 +5168,33 @@ h4.ant-typography {
 .fedlify-ws-centre {
   min-width: 0;
   display: grid;
+  /* Without this the implicit track grows to the widest table and overlaps the assistant. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
+}
+
+.fedlify-ws-centre .ant-table-wrapper {
+  overflow-x: auto;
+}
+
+.fedlify-ws-assistant {
+  overflow: hidden;
+}
+
+.fedlify-ws-quick-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.fedlify-ws-quick-list .ant-btn {
+  width: 100%;
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+  text-align: left;
+  justify-content: flex-start;
 }
 
 .fedlify-ws-code {
