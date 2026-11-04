@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type { PipelineTemplate, Study, StudySite } from "@prisma/client";
 import { nvflarePython, openAiCodeAgentConfig, runtimeRoot } from "@/lib/runtime-config";
 import { generateExecutorCode } from "@/lib/template-agent";
+import { isProhibitedDataPath } from "@/lib/data-paths";
 import { slugify } from "@/lib/slug";
 
 const execFileAsync = promisify(execFile);
@@ -346,13 +347,8 @@ export async function prepareNvflareJobWorkspaceForRun(input: {
   await writeFile(serverConfigPath, serverConfig);
 }
 
-const prohibitedPathPatterns = [/patient/i, /patients/i, /clinical[-_ ]?extract/i, /raw[-_ ]?data/i, /\.csv$/i, /\.parquet$/i];
-
-// Pipeline repositories carry code only; data-like paths must never reach Gitea.
-export function isProhibitedDataPath(filePath: string): boolean {
-  if (filePath === "README.md" || filePath === "fedlify-pipeline.json") return false;
-  return prohibitedPathPatterns.some((pattern) => pattern.test(filePath));
-}
+// Pipeline repositories carry code only; data-like paths must never reach Gitea. The rule lives in data-paths.ts.
+export { isProhibitedDataPath };
 
 export function validatePipelineFiles(files: PipelineFile[]): PipelineValidationResult {
   const paths = new Set(files.map((file) => file.path));

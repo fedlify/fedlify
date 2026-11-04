@@ -4,6 +4,7 @@ import {
   DIAGNOSTICS_LIMITS,
   diagnosticsRelevant,
   firstErrorLines,
+  headMovedPast,
   looksLikeDataRow,
   redactText,
   sanitizeLog,
@@ -79,7 +80,7 @@ describe("bounding", () => {
   it("boundDiagnostics re-redacts and caps everything it is given", () => {
     const big: DiagnosticsContext = {
       publish: {
-        id: "r1", version: "v2", commit: "abc", status: "FAILED", summary: "token=supersecretvalue1", workflowPhase: "Failed",
+        id: "r1", version: "v2", commit: "abc", headCommit: null, headMoved: null, status: "FAILED", summary: "token=supersecretvalue1", workflowPhase: "Failed",
         steps: Array.from({ length: 40 }, (_, i) => ({ step: `s${i}`, phase: "Succeeded", message: "", seconds: 1 })),
         failedStep: "build-image",
         firstErrorLines: Array.from({ length: 30 }, (_, i) => `err ${i} 192.168.1.5`),
@@ -163,7 +164,7 @@ describe("relevance and summaries", () => {
 
   it("summarises a failed publish and a failed run, and nothing for healthy ones", () => {
     const base: DiagnosticsContext = {
-      publish: { id: "r1", version: "v2", commit: null, status: "FAILED", summary: "Publish Failed", workflowPhase: "Failed", steps: [], failedStep: "build-image", firstErrorLines: ["error: x"], logTail: null, logNote: null },
+      publish: { id: "r1", version: "v2", commit: null, headCommit: null, headMoved: null, status: "FAILED", summary: "Publish Failed", workflowPhase: "Failed", steps: [], failedStep: "build-image", firstErrorLines: ["error: x"], logTail: null, logNote: null },
       aggregator: null,
       run: { id: "j1", status: "FAILED", nvflareJobId: null, submittedAt: null, completedAt: null, events: [{ type: "FAILED", site: "site-a", message: "client died", at: "t" }] },
       sites: [], notes: [], siteSideNote: ""
@@ -172,13 +173,16 @@ describe("relevance and summaries", () => {
     expect(out.map((f) => f.key)).toEqual(["publish:r1", "run:j1"]);
     expect(out[0].title).toBe('Publish v2 failed in step "build-image"');
     expect(out[1].lines).toEqual(["site-a: client died"]);
+    expect(out[0]).toMatchObject({ commit: null, headCommit: null, headMoved: null });
+    const moved = summarizeFailures({ ...base, publish: { ...base.publish!, commit: "aaaaaaaaaaaa", headCommit: "bbbbbbbbbbbb", headMoved: true } });
+    expect(moved[0]).toMatchObject({ commit: "aaaaaaaaaaaa", headCommit: "bbbbbbbbbbbb", headMoved: true });
     expect(summarizeFailures({ ...base, publish: { ...base.publish!, status: "PASSED" }, run: { ...base.run!, status: "COMPLETED" } })).toEqual([]);
   });
 });
 
 describe("assistant context", () => {
   const diag: DiagnosticsContext = {
-    publish: { id: "r1", version: "v2", commit: null, status: "FAILED", summary: null, workflowPhase: "Failed", steps: [], failedStep: "clone-validate", firstErrorLines: ["ValueError: x"], logTail: "ValueError: x", logNote: null },
+    publish: { id: "r1", version: "v2", commit: null, headCommit: null, headMoved: null, status: "FAILED", summary: null, workflowPhase: "Failed", steps: [], failedStep: "clone-validate", firstErrorLines: ["ValueError: x"], logTail: "ValueError: x", logNote: null },
     aggregator: null, run: null, sites: [], notes: [], siteSideNote: "x"
   };
   const input = { study: { title: "t" }, requirementResponses: [], sites: [], files: [], commit: "abc" };
@@ -240,3 +244,12 @@ describe("first error lines ignore Argo executor noise", () => {
   });
 });
 
+describe("headMovedPast", () => {
+  it("compares the failed commit with the saved head, tolerating abbreviations, and is null when unknown", () => {
+    expect(headMovedPast("0123456789ab", "0123456789abcdef0123")).toBe(false);
+    expect(headMovedPast("0123456789ab", "fedcba987654")).toBe(true);
+    expect(headMovedPast(null, "fedcba987654")).toBeNull();
+    expect(headMovedPast("0123456789ab", undefined)).toBeNull();
+    expect(headMovedPast("abc", "abcdef0")).toBeNull();
+  });
+});

@@ -140,6 +140,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
       name: project.name,
       giteaRepoUrl: project.giteaRepoUrl,
       defaultBranch: project.defaultBranch,
+      // Where the project came from. Null for projects created before lineage was recorded (shown as "Template").
+      sourceKind: project.sourceKind,
+      sourceRef: project.sourceRef,
+      parentProjectId: project.parentProjectId,
+      parentVersion: project.parentVersion,
       versions: project.versions.map((version) => ({
         id: version.id,
         version: version.gitTag ?? version.version,

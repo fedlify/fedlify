@@ -13,6 +13,8 @@ import { commitGiteaFiles, ensureGiteaRepository, getGiteaBranch, GiteaApiError,
 import { ensureStudyGiteaWorkspace, publicTemplateOwner } from "@/lib/gitea-workspaces";
 import { json, problem } from "@/lib/json";
 import { isProhibitedDataPath } from "@/lib/pipeline-code";
+import { checkLineage, sameCommit } from "@/lib/pipeline-lineage";
+import { isCommitRef } from "@/lib/pipeline-start";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { slugify } from "@/lib/slug";
@@ -21,7 +23,11 @@ const repoPart = z.string().trim().regex(/^[A-Za-z0-9_.-]{1,100}$/);
 
 const cloneSchema = z.object({
   name: z.string().trim().min(3).max(120),
-  source: z.object({ owner: repoPart, repo: repoPart, ref: z.string().trim().min(1).max(200).optional() }).optional()
+  source: z.object({ owner: repoPart, repo: repoPart, ref: z.string().trim().min(1).max(200).optional() }).optional(),
+  // How the project was started. "import" is not accepted here: it belongs to the import route.
+  sourceKind: z.enum(["template", "assistant", "copy"]).optional(),
+  parentProjectId: z.string().trim().min(1).max(100).optional(),
+  parentVersion: z.string().trim().min(1).max(100).optional()
 });
 
 type Params = { params: Promise<{ studyId: string }> };
@@ -50,6 +56,23 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!study) return problem(404, "Study not found.", "not_found");
 
   const source = parsed.data.source ?? starterSource();
+  const { parentProjectId, parentVersion } = parsed.data;
+  const lineage = checkLineage({ sourceKind: parsed.data.sourceKind, parentProjectId, parentVersion });
+  if (!lineage.ok) return problem(400, lineage.message, lineage.code);
+  const sourceKind = lineage.sourceKind;
+
+  // The parent must belong to this study, be the repository being cloned, and (when given) own that version, and the
+  // commit being copied must be that version's commit, so the recorded lineage is what was actually copied.
+  if (parentProjectId) {
+    const parent = await prisma.pipelineProject.findFirst({ where: { id: parentProjectId, studyId }, select: { id: true, giteaOwner: true, giteaRepo: true } });
+    if (!parent) return problem(404, "The pipeline to copy was not found in this study.", "parent_not_found");
+    if (parent.giteaOwner !== source.owner || parent.giteaRepo !== source.repo) return problem(400, "The source does not match the pipeline being copied.", "invalid_lineage");
+    if (parentVersion) {
+      const version = await prisma.pipelineVersion.findFirst({ where: { projectId: parent.id, OR: [{ gitTag: parentVersion }, { version: parentVersion }] }, select: { id: true, gitCommit: true } });
+      if (!version) return problem(404, "That version of the pipeline was not found.", "parent_version_not_found");
+      if (!sameCommit(version.gitCommit, source.ref)) return problem(400, "The source commit is not the one published as that version.", "invalid_lineage");
+    }
+  }
   const repoName = `${slugify(parsed.data.name).slice(0, 60) || "pipeline"}`;
 
   let created;
@@ -65,8 +88,13 @@ export async function POST(request: NextRequest, { params }: Params) {
       return problem(409, `A project named ${repoName} already exists in this study.`, "project_exists");
     }
 
-    const sourceBranch = await getGiteaBranch({ owner: source.owner, repo: source.repo, branchName: source.ref ?? "main" });
-    const sourceCommit = sourceBranch.commit?.id ?? sourceBranch.commit?.sha ?? "";
+    // A commit id is read directly; only a branch name (or no ref) goes through the branch endpoint.
+    let sourceCommit: string;
+    if (isCommitRef(source.ref)) sourceCommit = source.ref;
+    else {
+      const sourceBranch = await getGiteaBranch({ owner: source.owner, repo: source.repo, branchName: source.ref ?? "main" });
+      sourceCommit = sourceBranch.commit?.id ?? sourceBranch.commit?.sha ?? "";
+    }
     const files = (await readGiteaRepositoryFiles({ owner: source.owner, repo: source.repo, ref: sourceCommit || source.ref || "main" })).filter(
       (file) => !isProhibitedDataPath(file.path)
     );
@@ -121,7 +149,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       giteaRepoUrl: created.repo.repoUrl,
       giteaDefaultBranch: created.repo.defaultBranch,
       defaultBranch: created.repo.defaultBranch,
-      status: "DRAFT"
+      status: "DRAFT",
+      sourceKind,
+      sourceRef: sourceKind === "copy" ? null : `${source.owner}/${source.repo}@${created.sourceCommit ? created.sourceCommit.slice(0, 12) : (source.ref ?? "main")}`,
+      parentProjectId: parentProjectId ?? null,
+      parentVersion: parentVersion ?? null
     }
   });
 
@@ -132,7 +164,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     action: "pipeline_project.clone",
     targetType: "PipelineProject",
     targetId: project.id,
-    metadata: { source, sourceCommit: created.sourceCommit, repo: `${created.repo.owner}/${created.repo.repo}`, commitSha: created.saved.commitSha },
+    metadata: { source, sourceKind, parentProjectId: parentProjectId ?? null, parentVersion: parentVersion ?? null, sourceCommit: created.sourceCommit, repo: `${created.repo.owner}/${created.repo.repo}`, commitSha: created.saved.commitSha },
     request
   });
 

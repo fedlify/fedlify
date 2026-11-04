@@ -5849,3 +5849,261 @@ h4.ant-typography {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Stale failure notice: the saved head has moved past the commit that failed. */
+.fedlify-ws-msg.is-system.is-stale {
+  border-color: var(--fedlify-line);
+  background: #faf9fd;
+}
+
+.fedlify-ws-stale-note {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Start a pipeline screen and wizard ---- */
+.fedlify-start {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.fedlify-start-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fedlify-start-head h2 {
+  margin: 0 0 2px;
+  font-size: var(--fedlify-text-3xl);
+  color: var(--fedlify-ink);
+}
+
+.fedlify-start-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fedlify-start-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 999px;
+  background: var(--fedlify-panel);
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-start-steps li span {
+  font-weight: 600;
+}
+
+.fedlify-start-steps li.is-current {
+  border-color: var(--fedlify-primary);
+  background: var(--fedlify-soft);
+  color: var(--fedlify-ink);
+}
+
+.fedlify-start-steps li.is-done {
+  color: var(--fedlify-ink);
+}
+
+.fedlify-start-paths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.fedlify-start-path,
+.fedlify-start-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 14px;
+  background: var(--fedlify-panel);
+}
+
+.fedlify-start-path.is-selected {
+  border-color: var(--fedlify-primary);
+  box-shadow: 0 0 0 2px rgba(133, 118, 181, 0.18);
+}
+
+.fedlify-start-path p {
+  margin: 0;
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-start-path-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fedlify-start-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fedlify-start-cards {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fedlify-start-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 10px;
+  background: var(--fedlify-panel);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fedlify-start-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.fedlify-start-card.is-on {
+  border-color: var(--fedlify-primary);
+  background: var(--fedlify-soft);
+}
+
+.fedlify-start-card:focus-visible {
+  outline: 2px solid var(--fedlify-primary);
+  outline-offset: 2px;
+}
+
+.fedlify-start-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+  font-size: var(--fedlify-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.fedlify-start-card-meta,
+.fedlify-start-note {
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.fedlify-start-fit {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fedlify-start-fit .ant-tag {
+  flex: none;
+  margin-inline-end: 0;
+}
+
+.fedlify-start-fit-reason {
+  min-width: 0;
+  font-size: var(--fedlify-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.fedlify-start-report {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 10px;
+  background: #fbfafc;
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-start-finding {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-start-finding.is-blocking .anticon {
+  color: #cf4a4a;
+}
+
+.fedlify-start-finding.is-advisory .anticon {
+  color: #d99a1b;
+}
+
+.fedlify-start-finding.is-ok .anticon {
+  color: #3f9b5f;
+}
+
+.fedlify-start-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.fedlify-start-fields label,
+.fedlify-start-name {
+  display: grid;
+  gap: 4px;
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-start-features {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fedlify-start-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-start-summary dt {
+  color: var(--fedlify-muted);
+}
+
+.fedlify-start-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-start-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fedlify-pipelines-table .ant-table-wrapper {
+  overflow-x: auto;
+}

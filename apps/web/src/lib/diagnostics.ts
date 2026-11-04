@@ -202,7 +202,12 @@ export type DiagnosticsContext = {
   publish: null | {
     id: string;
     version: string | null;
+    /** Commit the publish built (first 12 characters). */
     commit: string | null;
+    /** Saved head of the project's branch now (first 12 characters); null when it could not be read. */
+    headCommit: string | null;
+    /** True when the saved head differs from the commit this publish built; null when unknown. */
+    headMoved: boolean | null;
     status: string;
     summary: string | null;
     workflowPhase: string | null;
@@ -251,6 +256,15 @@ export function diagnosticsRelevant(message: string, flagged = false): boolean {
   );
 }
 
+/** Whether the saved head differs from the commit a publish built. Null when either is unknown. Abbreviations of 7+ characters compare by prefix. */
+export function headMovedPast(failedCommit: string | null | undefined, head: string | null | undefined): boolean | null {
+  if (!failedCommit || !head) return null;
+  const a = failedCommit.toLowerCase();
+  const b = head.toLowerCase();
+  if (Math.min(a.length, b.length) < 7) return null;
+  return !(a.startsWith(b) || b.startsWith(a));
+}
+
 /** Bound and redact a diagnostics object that may have come from a looser source. Idempotent. */
 export function boundDiagnostics(input: DiagnosticsContext): DiagnosticsContext {
   const L = DIAGNOSTICS_LIMITS;
@@ -277,7 +291,16 @@ export function boundDiagnostics(input: DiagnosticsContext): DiagnosticsContext 
 
 // ---- failure summary for the workspace ------------------------------------------------------------------------
 
-export type FailureSummary = { kind: "publish" | "run"; key: string; title: string; lines: string[] };
+export type FailureSummary = {
+  kind: "publish" | "run";
+  key: string;
+  title: string;
+  lines: string[];
+  /** Publish only: the commit that failed, the saved head now, and whether the head has moved past it (null = unknown). */
+  commit?: string | null;
+  headCommit?: string | null;
+  headMoved?: boolean | null;
+};
 
 /** The system-message content for a failed publish or run: a title and the first error lines. Null if nothing failed. */
 export function summarizeFailures(diagnostics: DiagnosticsContext): FailureSummary[] {
@@ -289,7 +312,10 @@ export function summarizeFailures(diagnostics: DiagnosticsContext): FailureSumma
       kind: "publish",
       key: `publish:${publish.id}`,
       title: [`Publish`, publish.version, publish.failedStep ? `failed in step "${publish.failedStep}"` : "failed"].filter(Boolean).join(" "),
-      lines: lines.slice(0, DIAGNOSTICS_LIMITS.firstErrorLines)
+      lines: lines.slice(0, DIAGNOSTICS_LIMITS.firstErrorLines),
+      commit: publish.commit,
+      headCommit: publish.headCommit,
+      headMoved: publish.headMoved
     });
   }
   const run = diagnostics.run;

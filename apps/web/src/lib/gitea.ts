@@ -228,6 +228,13 @@ export async function getGiteaBranch(input: { owner: string; repo: string; branc
   );
 }
 
+/** Gitea's branches endpoint knows branches only; a tag is resolved here. The commit it points at is in `commit.sha`. */
+export async function getGiteaTag(input: { owner: string; repo: string; tagName: string }) {
+  return giteaRequest<{ name: string; commit?: { sha?: string; id?: string } }>(
+    `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/tags/${encodeURIComponent(input.tagName)}`
+  );
+}
+
 async function contentSha(input: { owner: string; repo: string; branchName: string; path: string }): Promise<string | undefined> {
   const existing = await giteaRequestNullable<{ sha?: string }>(
     `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/contents/${encodePath(input.path)}?ref=${encodeURIComponent(

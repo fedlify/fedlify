@@ -72,6 +72,17 @@ function isScannedForSecrets(path: string): boolean {
   return base === ".env" || base.startsWith(".env.");
 }
 
+/** Same rule validate_repo.py applies to every file except README.md and fedlify-pipeline.json. */
+export function isDataLikePath(path: string): boolean {
+  if (path === "README.md" || path === "fedlify-pipeline.json") return false;
+  return DATA_SUFFIXES.has(suffixOf(path)) || DATA_PATH_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+/** True when the file would be scanned and matches a credential pattern. Never returns the matched text. */
+export function fileHasSecret(path: string, content: string): boolean {
+  return isScannedForSecrets(path) && SECRET_PATTERNS.some((pattern) => pattern.test(content));
+}
+
 function isEmptyish(value: unknown): boolean {
   if (value == null || value === false || value === 0 || value === "") return true;
   if (Array.isArray(value)) return value.length === 0;
@@ -100,7 +111,7 @@ export function checkRepoFiles(allFiles: RepoFile[]): RepoCheckReport {
   for (const name of REQUIRED_FILES) {
     if (!byPath.has(name)) layout.push(`missing required file: ${name}`);
   }
-  const total = files.reduce((sum, file) => sum + Buffer.byteLength(file.content), 0);
+  const total = files.reduce((sum, file) => sum + new TextEncoder().encode(file.content).length, 0);
   if (total > MAX_REPO_BYTES) {
     layout.push(
       `repository is ${Math.floor(total / 1024)} KB; the limit is ${MAX_REPO_BYTES / 1024} KB (code only, no data or models)`

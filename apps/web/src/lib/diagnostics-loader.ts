@@ -9,6 +9,7 @@ import {
   boundDiagnostics,
   DIAGNOSTICS_LIMITS,
   firstErrorLines,
+  headMovedPast,
   sanitizeLog,
   sanitizeMessage,
   selectFailedPod,
@@ -17,6 +18,7 @@ import {
   SITE_SIDE_NOTE,
   type DiagnosticsContext
 } from "@/lib/diagnostics";
+import { getGiteaBranch } from "@/lib/gitea";
 import { prisma } from "@/lib/prisma";
 import { adapterSystemInfo, nvflareClientName } from "@/lib/study-runtime";
 
@@ -33,14 +35,22 @@ async function loadPublish(projectId: string): Promise<DiagnosticsContext["publi
   const run = await prisma.cIValidationRun.findFirst({
     where: { provider: PUBLISH_PROVIDER, pipelineVersion: { projectId } },
     orderBy: { startedAt: "desc" },
-    include: { pipelineVersion: { select: { version: true, gitCommit: true } } }
+    include: { pipelineVersion: { select: { version: true, gitCommit: true, project: { select: { giteaOwner: true, giteaRepo: true, defaultBranch: true } } } } }
   });
   if (!run) return null;
+
+  // Where the saved branch is now, so a failure for an older commit is not presented as the current state.
+  const repo = run.pipelineVersion?.project;
+  const head = repo?.giteaOwner && repo.giteaRepo
+    ? await withTimeout(getGiteaBranch({ owner: repo.giteaOwner, repo: repo.giteaRepo, branchName: repo.defaultBranch }).then((branch) => branch.commit?.id ?? branch.commit?.sha ?? null).catch(() => null), CLUSTER_TIMEOUT_MS)
+    : null;
 
   const publish: PublishDiag = {
     id: run.id,
     version: run.pipelineVersion?.version ?? null,
     commit: run.pipelineVersion?.gitCommit?.slice(0, 12) ?? null,
+    headCommit: head ? head.slice(0, 12) : null,
+    headMoved: headMovedPast(run.pipelineVersion?.gitCommit, head),
     status: run.status,
     summary: run.summary ? sanitizeMessage(run.summary, DIAGNOSTICS_LIMITS.summaryChars) : null,
     workflowPhase: null,

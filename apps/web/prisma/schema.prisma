@@ -939,15 +939,31 @@ model PipelineProject {
   giteaDefaultBranch String                   @default("main")
   defaultBranch      String                   @default("main")
   status             PipelineVersionStatus    @default(DRAFT)
+  // How the project was started. Null for projects created before these columns existed (shown as "template").
+  sourceKind         PipelineSourceKind?
+  // Template repo@commit, import URL (no credentials) or "zip:<sha256>", or parent project id + version.
+  sourceRef          String?
+  parentProjectId    String?
+  parentVersion      String?
   study              Study                    @relation(fields: [studyId], references: [id], onDelete: Cascade)
   template           PipelineTemplate         @relation(fields: [templateId], references: [id])
   templateVersion    PipelineTemplateVersion? @relation(fields: [templateVersionId], references: [id])
+  parentProject      PipelineProject?         @relation("PipelineProjectLineage", fields: [parentProjectId], references: [id], onDelete: SetNull)
+  childProjects      PipelineProject[]        @relation("PipelineProjectLineage")
   versions           PipelineVersion[]
   proposals          AgentProposal[]
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
   @@index([studyId, status])
+  @@index([parentProjectId])
+}
+
+enum PipelineSourceKind {
+  template
+  assistant
+  import
+  copy
 }
 
 model PipelineVersion {

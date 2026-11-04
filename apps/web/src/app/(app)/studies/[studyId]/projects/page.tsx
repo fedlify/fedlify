@@ -1,7 +1,7 @@
 "use client";
 
 import type { Key } from "react";
-import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
+import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,8 +11,12 @@ import { ChecksPanel } from "@/components/ChecksPanel";
 import { CodeReviewPanel, type ProposalReviewState, type SourceFile } from "@/components/CodeReviewPanel";
 import { FileTree } from "@/components/FileTree";
 import { PipelineRail } from "@/components/PipelineRail";
+import { PipelinesList } from "@/components/PipelinesList";
+import { StartPipeline, type CreatedPipeline } from "@/components/StartPipeline";
 import { acceptProposal, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
+import type { StartPath } from "@/lib/pipeline-start";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
+import { ApiError, apiCall } from "@/lib/web-api";
 
 type Version = {
   id: string;
@@ -25,7 +29,18 @@ type Version = {
   publishedAt: string | null;
   publish: { status: string; summary: string | null; workflowId: string | null; step?: string | null; stepState?: string | null; waiting?: string | null } | null;
 };
-type Project = { id: string; name: string; giteaRepoUrl: string | null; defaultBranch: string; versions: Version[] };
+type Project = {
+  id: string;
+  name: string;
+  giteaRepoUrl: string | null;
+  defaultBranch: string;
+  versions: Version[];
+  /** Present once the server returns lineage columns; older responses omit them (shown as "Template"). */
+  sourceKind?: "template" | "assistant" | "import" | "copy" | null;
+  sourceRef?: string | null;
+  parentProjectId?: string | null;
+  parentVersion?: string | null;
+};
 type Site = {
   studySiteId: string;
   code: string;
@@ -72,23 +87,6 @@ const statusColor: Record<string, string> = {
   DRAFT: "default"
 };
 
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code?: string
-  ) {
-    super(message);
-  }
-}
-
-async function apiCall<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", ...init, headers: { "content-type": "application/json", ...init?.headers } });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(body?.error?.message ?? `Request failed (${response.status}).`, response.status, body?.error?.code);
-  return body as T;
-}
-
 function short(value?: string | null, length = 12) {
   return value ? value.slice(0, length) : "—";
 }
@@ -110,9 +108,11 @@ export default function StudyProjectsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [cloneOpen, setCloneOpen] = useState(false);
-  const [cloneName, setCloneName] = useState("");
-  const [cloning, setCloning] = useState(false);
+  const [view, setView] = useState<"workspace" | "pipelines" | "start">(searchParams.get("start") ? "start" : "workspace");
+  const [startPath, setStartPath] = useState<StartPath | null>(null);
+  const [copyFromId, setCopyFromId] = useState<string | null>(null);
+  const [startKey, setStartKey] = useState(0);
+  const [startPrompt, setStartPrompt] = useState<{ id: number; text: string; mode: "ask" | "propose" } | null>(null);
   const [rounds, setRounds] = useState(5);
   const [minClients, setMinClients] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
@@ -190,6 +190,7 @@ export default function StudyProjectsPage() {
   const latestPublish = project?.versions[0];
   const assistantFailures = {
     publish: latestPublish?.publish?.status === "FAILED" ? `publish:${latestPublish.id}:${latestPublish.publish.workflowId ?? ""}` : null,
+    publishCommit: latestPublish?.publish?.status === "FAILED" ? latestPublish.gitCommit : null,
     run: overview?.jobs[0] && ["FAILED", "REJECTED"].includes(overview.jobs[0].status) ? `run:${overview.jobs[0].id}` : null
   };
   const unconnectedSites = aggregatorActive ? (overview?.sites.filter((site) => site.connected === false).map((site) => site.code) ?? []) : [];
@@ -382,23 +383,38 @@ export default function StudyProjectsPage() {
     }
   }
 
-  async function cloneProject() {
-    setCloning(true);
-    try {
-      const body = await apiCall<{ project: { id: string } }>(`/api/v1/studies/${studyId}/pipeline-projects/clone`, {
-        method: "POST",
-        body: JSON.stringify({ name: cloneName })
-      });
-      setCloneOpen(false);
-      setCloneName("");
-      setProjectId(body.project.id);
-      await load();
-      message.success("Project created from the Fedlify starter repository.");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "Could not create the project.");
-    } finally {
-      setCloning(false);
-    }
+  /** The workspace unmounts when another view opens, so an unsaved edit needs the same confirmation as switching files. */
+  function showView(next: "workspace" | "pipelines" | "start") {
+    if (next === "workspace") return setView(next);
+    confirmDiscard(() => {
+      setDirtyPath(null);
+      setView(next);
+    });
+  }
+
+  function openStart(path: StartPath | null = null, copyId: string | null = null) {
+    setStartPath(path);
+    setCopyFromId(copyId);
+    setStartKey((key) => key + 1);
+    showView("start");
+  }
+
+  async function pipelineCreated(created: CreatedPipeline) {
+    setProjectId(created.projectId);
+    // Fresh workspace for the new project: nothing carries over from the previous one.
+    setDirtyPath(null);
+    setSelectedPath(null);
+    setRepoPaths([]);
+    setSourceCommit(null);
+    setLoadedCommit(null);
+    setAskRequest(null);
+    setActiveStage("code");
+    if (created.startPrompt) setStartPrompt({ id: Date.now(), ...created.startPrompt });
+    await load();
+    setProjectId(created.projectId);
+    setView("workspace");
+    if (created.warning) message.warning(created.warning, 8);
+    else message.success("Pipeline created. Nothing was published or run.");
   }
 
   async function startRun() {
@@ -514,6 +530,7 @@ export default function StudyProjectsPage() {
       setSourceCommit(null);
       setLoadedCommit(null);
       setAskRequest(null);
+      setStartPrompt(null);
       setProjectId(id);
     });
   }
@@ -534,7 +551,7 @@ export default function StudyProjectsPage() {
     const lastJob = overview?.jobs[0];
     switch (action.key) {
       case "new_project":
-        return setCloneOpen(true);
+        return openStart();
       case "save":
         setActiveStage("code");
         return editorControl.current?.save();
@@ -828,17 +845,27 @@ export default function StudyProjectsPage() {
         backLabel="Study"
         actions={
           <Space wrap>
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="Select a project"
-              aria-label="Project"
-              value={projectId ?? undefined}
-              options={(overview?.projects ?? []).map((item) => ({ value: item.id, label: item.name }))}
-              onChange={selectProject}
-            />
+            {overview && overview.projects.length > 0 ? (
+              <>
+                <Select
+                  style={{ minWidth: 220 }}
+                  placeholder="Switch pipeline"
+                  aria-label="Switch pipeline"
+                  value={projectId ?? undefined}
+                  options={(overview?.projects ?? []).map((item) => ({ value: item.id, label: item.name }))}
+                  onChange={(id) => {
+                    selectProject(id);
+                    setView("workspace");
+                  }}
+                />
+                <Button type={view === "pipelines" ? "primary" : "default"} icon={<UnorderedListOutlined />} onClick={() => showView(view === "pipelines" ? "workspace" : "pipelines")}>
+                  Pipelines ({overview.projects.length})
+                </Button>
+              </>
+            ) : null}
             {overview ? (
-              <Button icon={<PlusOutlined />} onClick={() => setCloneOpen(true)}>
-                New project
+              <Button icon={<PlusOutlined />} onClick={() => openStart()}>
+                New pipeline
               </Button>
             ) : null}
             <Button icon={<ReloadOutlined />} onClick={() => void load()} aria-label="Refresh" />
@@ -868,15 +895,47 @@ export default function StudyProjectsPage() {
             </div>
           </Card>
         )
-      ) : !project ? (
-        <Card>
-          <Empty description="No project yet. Start from the Fedlify starter repository (federated logistic regression on tabular site data).">
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCloneOpen(true)}>
-              New project
-            </Button>
-          </Empty>
+      ) : overview.projects.length === 0 || view === "start" ? (
+        <StartPipeline
+          key={startKey}
+          studyId={studyId}
+          projects={overview.projects}
+          liveVersionId={overview.aggregator?.pipelineVersionId ?? null}
+          jobs={overview.jobs}
+          initialPath={startPath}
+          initialCopyProjectId={copyFromId}
+          onCancel={overview.projects.length > 0 ? () => setView("workspace") : undefined}
+          onCreated={(created) => void pipelineCreated(created)}
+        />
+      ) : null}
+
+      {overview && view === "pipelines" && overview.projects.length > 0 ? (
+        <Card data-testid="pipelines-list">
+          <SectionHeader
+            title="Pipelines"
+            description="Every pipeline in this study. Open one to edit, publish and run it; Copy starts a new pipeline from it."
+            actions={
+              <Button icon={<PlusOutlined />} onClick={() => openStart()}>
+                New pipeline
+              </Button>
+            }
+          />
+          <PipelinesList
+            projects={overview.projects}
+            liveVersionId={overview.aggregator?.pipelineVersionId}
+            jobs={overview.jobs}
+            openId={projectId}
+            statusColor={statusColor}
+            onOpen={(id) => {
+              selectProject(id);
+              setView("workspace");
+            }}
+            onCopy={(id) => openStart("copy", id)}
+          />
         </Card>
-      ) : (
+      ) : null}
+
+      {overview && project && view === "workspace" ? (
         <>
           <PipelineRail stages={stages} activeStage={activeStage} currentStage={currentStage} onSelect={setActiveStage} onAction={handleStageAction} />
 
@@ -965,11 +1024,14 @@ export default function StudyProjectsPage() {
               onRejectProposal={decideProposalReject}
               proposalSync={proposalSync}
               failures={assistantFailures}
+              onOpenPublish={() => setActiveStage("publish")}
+              startPrompt={startPrompt}
+              onStartPromptConsumed={(id) => setStartPrompt((current) => (current?.id === id ? null : current))}
               unconnectedSites={unconnectedSites}
             />
           </div>
         </>
-      )}
+      ) : null}
 
       <Modal
         title="This file changed since you opened it"
@@ -1002,21 +1064,6 @@ export default function StudyProjectsPage() {
         </Typography.Paragraph>
       </Modal>
 
-      <Modal
-        title="New project"
-        open={cloneOpen}
-        onCancel={() => setCloneOpen(false)}
-        onOk={() => void cloneProject()}
-        okText="Create from starter"
-        confirmLoading={cloning}
-        okButtonProps={{ disabled: cloneName.trim().length < 3 }}
-      >
-        <Typography.Paragraph type="secondary">
-          Creates a repository in this study&apos;s Gitea organization, cloned from the Fedlify starter (FedAvg logistic regression, NVFLARE
-          Client API, eICU-style tabular data contract). You can then edit it here, with the assistant, or with any Git client.
-        </Typography.Paragraph>
-        <Input placeholder="Project name, e.g. HF mortality FedAvg" value={cloneName} onChange={(event) => setCloneName(event.target.value)} />
-      </Modal>
     </AppPage>
   );
 }

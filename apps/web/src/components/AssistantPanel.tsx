@@ -13,6 +13,7 @@ import {
   type ProposalSummary
 } from "@/lib/agent-proposal-client";
 import type { FailureSummary } from "@/lib/diagnostics";
+import { failureIsStale } from "@/lib/pipeline-start";
 import { MAX_MESSAGE_CHARS, MAX_SELECTION_CHARS, buildHistory, createSseParser, splitFences } from "@/lib/assistant-stream";
 
 export type AskRequest = { id: number; path: string; selection?: string };
@@ -53,7 +54,13 @@ type AssistantPanelProps = {
   /** Set by the page when a proposal is decided from the diff view, so the card here follows. */
   proposalSync: ProposalSync | null;
   /** Keys of the failed publish and run the page sees (null when the latest one did not fail). A new key posts a notice. */
-  failures?: { publish: string | null; run: string | null };
+  failures?: { publish: string | null; run: string | null; /** Commit the failed publish built; lets the notice tell when the saved head has moved past it. */ publishCommit?: string | null };
+  /** Opens the Publish stage. The only thing "Publish latest" does: publishing itself stays a person's action there. */
+  onOpenPublish?: () => void;
+  /** Request handed over when the project opens: "propose" is sent as a proposal at once (the person still reviews and accepts), "ask" is only placed in the box. */
+  startPrompt?: { id: number; text: string; mode: "ask" | "propose" } | null;
+  /** Called once the prompt has been taken, so the page can drop it and it never returns on a remount. */
+  onStartPromptConsumed?: (id: number) => void;
   /** Codes of sites that should be connected to the live aggregator but are not. */
   unconnectedSites?: string[];
 };
@@ -250,6 +257,9 @@ export function AssistantPanel({
   onRejectProposal,
   proposalSync,
   failures,
+  onOpenPublish,
+  startPrompt,
+  onStartPromptConsumed,
   unconnectedSites = []
 }: AssistantPanelProps) {
   const [mode, setMode] = useState<"ask" | "propose">("ask");
@@ -453,6 +463,25 @@ export function AssistantPanel({
     [attachedPath, attachedSelection, projectId, studyId, update]
   );
 
+  // A prompt handed over by the Start a pipeline screen. A "propose" prompt is sent as a proposal right away, so the
+  // assistant's first changes are waiting as a card; nothing is saved until the person accepts. An "ask" prompt is only
+  // placed in the box. The page drops the prompt once it is taken, so it is sent once.
+  const startPromptId = startPrompt?.id ?? null;
+  const startPromptTaken = useRef<number | null>(null);
+  useEffect(() => {
+    if (!startPrompt || startPromptTaken.current === startPrompt.id) return;
+    startPromptTaken.current = startPrompt.id;
+    onStartPromptConsumed?.(startPrompt.id);
+    if (startPrompt.mode === "propose") {
+      setMode("propose");
+      void propose(startPrompt.text);
+    } else {
+      setMode("ask");
+      setInput((current) => current.trim() || startPrompt.text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startPromptId]);
+
   async function acceptCard(id: string) {
     setBusyProposal(id);
     setCardErrors((current) => ({ ...current, [id]: "" }));
@@ -575,18 +604,33 @@ export function AssistantPanel({
       </div>
 
       <div className="fedlify-ws-log" ref={logRef} role="log" aria-live="polite" aria-label="Conversation">
-        {notices.map((notice) => (
-          <div key={notice.key} className="fedlify-ws-msg is-system" role="alert" data-testid={`failure-notice-${notice.kind}`}>
+        {notices.map((notice) => {
+          // Only a publish failure belongs to a commit; the saved head moving past it makes the notice out of date.
+          const stale = notice.kind === "publish" && (notice.headMoved ?? failureIsStale(notice.commit ?? failures?.publishCommit, notice.headCommit ?? commit));
+          const failedCommit = notice.commit ?? failures?.publishCommit;
+          const headNow = notice.headCommit ?? commit;
+          return (
+          <div key={notice.key} className={["fedlify-ws-msg is-system", stale ? "is-stale" : ""].join(" ")} role="alert" data-testid={`failure-notice-${notice.kind}`}>
             <span className="fedlify-ws-msg-role">System</span>
             <strong>{notice.title}</strong>
+            {stale ? (
+              <Typography.Text className="fedlify-ws-stale-note" data-testid="failure-notice-stale">
+                This failure was for commit <code>{failedCommit?.slice(0, 8)}</code>; you have saved newer commits since (head is <code>{headNow?.slice(0, 8)}</code>).
+              </Typography.Text>
+            ) : null}
             {notice.lines.length > 0 ? <pre className="fedlify-ws-msg-code"><code>{notice.lines.join("\n")}</code></pre> : <Typography.Text className="fedlify-muted">No error text was recorded.</Typography.Text>}
             <div className="fedlify-ws-proposal-actions">
               <Button size="small" disabled={streaming} onClick={() => explainFailure(notice.kind)}>Explain</Button>
-              <Button size="small" type="primary" disabled={streaming} onClick={() => proposeFix(notice.kind)}>Propose fix</Button>
+              {stale && onOpenPublish ? (
+                <Button size="small" type="primary" onClick={onOpenPublish}>Publish latest</Button>
+              ) : (
+                <Button size="small" type="primary" disabled={streaming} onClick={() => proposeFix(notice.kind)}>Propose fix</Button>
+              )}
               <Button size="small" type="text" onClick={() => dismissNotice(notice.key)}>Dismiss</Button>
             </div>
           </div>
-        ))}
+          );
+        })}
         {messages.length === 0 ? (
           <div className="fedlify-ws-quick">
             <Typography.Text className="fedlify-muted">
