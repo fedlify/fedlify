@@ -1,11 +1,16 @@
 "use client";
 
 import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Steps, Table, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
+import { AssistantPanel, type AskRequest } from "@/components/AssistantPanel";
+import { ChecksPanel } from "@/components/ChecksPanel";
 import { CodeReviewPanel, type SourceFile } from "@/components/CodeReviewPanel";
+import { FileTree } from "@/components/FileTree";
+import { PipelineRail } from "@/components/PipelineRail";
+import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
 
 type Version = {
   id: string;
@@ -49,6 +54,7 @@ type Job = {
 type Overview = { aggregator: Aggregator | null; sites: Site[]; projects: Project[]; jobs: Job[] };
 type RoundRow = { round: number; sites: Array<{ site: string; numSamples: number; metrics: Record<string, number> }>; weighted: Record<string, number> };
 
+const ASSISTANT_OPEN_KEY = "fedlify.workspace.assistantOpen";
 const ACTIVE_JOB = new Set(["SUBMITTED", "SCHEDULED", "RUNNING"]);
 const statusColor: Record<string, string> = {
   PASSED: "green",
@@ -62,10 +68,20 @@ const statusColor: Record<string, string> = {
   DRAFT: "default"
 };
 
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string
+  ) {
+    super(message);
+  }
+}
+
 async function apiCall<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init, headers: { "content-type": "application/json", ...init?.headers } });
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(body?.error?.message ?? `Request failed (${response.status}).`);
+  if (!response.ok) throw new ApiError(body?.error?.message ?? `Request failed (${response.status}).`, response.status, body?.error?.code);
   return body as T;
 }
 
@@ -85,6 +101,8 @@ export default function StudyProjectsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(searchParams.get("project"));
   const [sourceCommit, setSourceCommit] = useState<string | null>(null);
+  /** The commit the editor's files were actually read at; the base for a save's stale-write check. */
+  const [loadedCommit, setLoadedCommit] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -96,13 +114,45 @@ export default function StudyProjectsPage() {
   const [starting, setStarting] = useState(false);
   const [progress, setProgress] = useState<{ jobId: string; nvflareStatus: string | null; rounds: RoundRow[] } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollGeneration = useRef(0);
+  const [activeStage, setActiveStage] = useState<StageKey>("code");
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [repoPaths, setRepoPaths] = useState<string[]>([]);
+  const [dirtyPath, setDirtyPath] = useState<string | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(true);
+  const [askRequest, setAskRequest] = useState<AskRequest | null>(null);
+  const [conflict, setConflict] = useState<{ file: SourceFile; content: string } | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const editorControl = useRef<{ save: () => void; hasEdits: () => boolean } | null>(null);
+  const askCounter = useRef(0);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(ASSISTANT_OPEN_KEY);
+      if (saved !== null) setAssistantOpen(saved === "true");
+      else if (window.innerWidth < 1280) setAssistantOpen(false);
+    } catch {
+      // Storage is optional.
+    }
+  }, []);
+
+  function toggleAssistant() {
+    setAssistantOpen((current) => {
+      try {
+        window.localStorage.setItem(ASSISTANT_OPEN_KEY, String(!current));
+      } catch {
+        // Ignore unavailable storage.
+      }
+      return !current;
+    });
+  }
 
   const load = useCallback(async () => {
     try {
       const body = await apiCall<Overview>(`/api/v1/studies/${studyId}/aggregator`);
       setOverview(body);
       setLoadError(null);
-      setProjectId((current) => current ?? body.projects[0]?.id ?? null);
+      setProjectId((current) => (current && body.projects.some((item) => item.id === current) ? current : (body.projects[0]?.id ?? null)));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Could not load the study pipeline.");
     }
@@ -118,6 +168,13 @@ export default function StudyProjectsPage() {
   const liveVersion = project?.versions.find((version) => version.id === overview?.aggregator?.pipelineVersionId) ?? null;
   const connectedCount = overview?.sites.filter((site) => site.connected).length ?? 0;
 
+  const aggregatorActive = overview?.aggregator?.status === "ACTIVE";
+  const runBlockers = [
+    !aggregatorActive ? "The aggregator is not active yet. Publish a version first." : null,
+    aggregatorActive && connectedCount === 0 ? "No site is connected. Sites connect by running their kit." : null,
+    activeJob ? "A run is already in progress." : null
+  ].filter((item): item is string => Boolean(item));
+
   // Keep the page live while something is moving (publish, run).
   useEffect(() => {
     if (!publishInFlight && !activeJob) return;
@@ -128,9 +185,12 @@ export default function StudyProjectsPage() {
   const followJob = useCallback(
     (jobId: string) => {
       if (pollRef.current) clearInterval(pollRef.current);
+      // A tick already in flight for a previous job must not touch state or the new job's timer.
+      const generation = ++pollGeneration.current;
       const tick = async () => {
         try {
           const body = await apiCall<{ job: Job; nvflareStatus: string | null; rounds: RoundRow[] }>(`/api/v1/nvflare/jobs/${jobId}/progress`);
+          if (generation !== pollGeneration.current) return;
           setProgress({ jobId, nvflareStatus: body.nvflareStatus, rounds: body.rounds });
           if (!ACTIVE_JOB.has(body.job.status) && pollRef.current) {
             clearInterval(pollRef.current);
@@ -138,6 +198,7 @@ export default function StudyProjectsPage() {
             void load();
           }
         } catch (error) {
+          if (generation !== pollGeneration.current) return;
           message.error(error instanceof Error ? error.message : "Could not read run progress.");
         }
       };
@@ -153,7 +214,13 @@ export default function StudyProjectsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview?.jobs[0]?.id]);
 
-  useEffect(() => () => void (pollRef.current && clearInterval(pollRef.current)), []);
+  useEffect(
+    () => () => {
+      pollGeneration.current += 1;
+      if (pollRef.current) clearInterval(pollRef.current);
+    },
+    []
+  );
 
   const loadSourceCommit = useCallback(async () => {
     if (!projectId) return;
@@ -169,20 +236,32 @@ export default function StudyProjectsPage() {
     void loadSourceCommit();
   }, [loadSourceCommit, reloadKey]);
 
-  async function save(file: SourceFile, content: string) {
+  async function save(file: SourceFile, content: string, baseCommit: string | null = loadedCommit ?? sourceCommit) {
     if (!projectId) return;
     setSaving(true);
     try {
       const body = await apiCall<{ commitSha: string; changed: number }>(`/api/v1/studies/${studyId}/pipeline-projects/${projectId}/save`, {
         method: "POST",
-        body: JSON.stringify({ baseCommit: sourceCommit ?? undefined, message: `Edit ${file.path}`, files: [{ path: file.path, content }] })
+        body: JSON.stringify({ baseCommit: baseCommit ?? undefined, message: `Edit ${file.path}`, files: [{ path: file.path, content }] })
       });
       message.success(body.changed ? `Saved ${file.path} (${short(body.commitSha, 8)})` : "No changes to save.");
+      setConflict(null);
       setReloadKey((key) => key + 1);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Save failed.");
+      if (error instanceof ApiError && error.code === "save_conflict") setConflict({ file, content });
+      else message.error(error instanceof Error ? error.message : "Save failed.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveOnTopOfLatest() {
+    if (!conflict || !projectId) return;
+    try {
+      const latest = await apiCall<{ commit: string | null }>(`/api/v1/studies/${studyId}/pipeline-projects/${projectId}/source`);
+      await save(conflict.file, conflict.content, latest.commit);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Could not read the latest commit.");
     }
   }
 
@@ -227,6 +306,7 @@ export default function StudyProjectsPage() {
   async function startRun() {
     if (!overview?.aggregator?.pipelineVersionId) return;
     setStarting(true);
+    setRunError(null);
     try {
       const body = await apiCall<{ job: Job }>(`/api/v1/studies/${studyId}/nvflare/jobs`, {
         method: "POST",
@@ -238,10 +318,12 @@ export default function StudyProjectsPage() {
         })
       });
       message.success("Run started.");
+      setActiveStage("run");
       await load();
       followJob(body.job.id);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Could not start the run.");
+      setActiveStage("run");
+      setRunError(error instanceof Error ? error.message : "Could not start the run.");
     } finally {
       setStarting(false);
     }
@@ -266,53 +348,397 @@ export default function StudyProjectsPage() {
     }
   }
 
-  const stage = useMemo(() => {
-    if (!project) return 0;
-    if (!overview?.aggregator || overview.aggregator.status !== "ACTIVE") return publishInFlight ? 1 : 0;
-    if (connectedCount === 0) return 2;
-    return 3;
-  }, [project, overview, publishInFlight, connectedCount]);
-
   const metricKeys = useMemo(() => [...new Set((progress?.rounds ?? []).flatMap((row) => Object.keys(row.weighted)))], [progress]);
 
+  const { current: currentStage, stages } = useMemo(
+    () =>
+      computeStages({
+        hasProject: Boolean(project),
+        unsavedFiles: dirtyPath ? 1 : 0,
+        sourceCommit,
+        versions: project?.versions ?? [],
+        aggregator: overview?.aggregator ?? null,
+        sites: overview?.sites ?? [],
+        jobs: overview?.jobs ?? [],
+        busy: { saving, publishing, starting },
+        activeStage
+      }),
+    [project, dirtyPath, sourceCommit, overview, saving, publishing, starting, activeStage]
+  );
+
+  /** Run `proceed` now, or after the user agrees to discard the unsaved edit. */
+  function confirmDiscard(proceed: () => void) {
+    if (!dirtyPath) return proceed();
+    Modal.confirm({
+      title: "Discard unsaved edits?",
+      content: `${dirtyPath} has edits that are not saved. Leaving or switching away discards them.`,
+      okText: "Discard and continue",
+      okButtonProps: { danger: true },
+      cancelText: "Keep editing",
+      onOk: proceed
+    });
+  }
+
+  /** Navigate away, asking first when there is an unsaved edit. */
+  function leaveTo(href: string) {
+    confirmDiscard(() => router.push(href));
+  }
+
+  useEffect(() => {
+    if (!dirtyPath) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirtyPath]);
+
+  function selectFile(path: string) {
+    if (path === selectedPath) return setActiveStage("code");
+    confirmDiscard(() => {
+      setDirtyPath(null);
+      setSelectedPath(path);
+      setActiveStage("code");
+    });
+  }
+
+  function selectProject(id: string) {
+    if (id === projectId) return;
+    confirmDiscard(() => {
+      setDirtyPath(null);
+      setSelectedPath(null);
+      setRepoPaths([]);
+      setSourceCommit(null);
+      setLoadedCommit(null);
+      setAskRequest(null);
+      setProjectId(id);
+    });
+  }
+
+  function requestPublish() {
+    if (!dirtyPath) return void publish();
+    Modal.confirm({
+      title: "Publish without your unsaved edits?",
+      content: "Publishing builds the last saved commit. Your unsaved edit is not included.",
+      okText: "Publish saved commit",
+      onOk: () => publish()
+    });
+  }
+
+  function handleStageAction(stage: StageSummary) {
+    const action = stage.action;
+    if (!action) return;
+    const lastJob = overview?.jobs[0];
+    switch (action.key) {
+      case "new_project":
+        return setCloneOpen(true);
+      case "save":
+        setActiveStage("code");
+        return editorControl.current?.save();
+      case "publish":
+        setActiveStage("publish");
+        return requestPublish();
+      case "release_kit": {
+        // Same predicate as computeStages: a kit is outdated only when both digests are known and differ.
+        const liveDigest = overview?.aggregator?.imageDigest;
+        const target =
+          overview?.sites.find((site) => !site.kitReleased) ??
+          overview?.sites.find((site) => site.kitReleased && site.kitImageDigest && liveDigest && site.kitImageDigest !== liveDigest);
+        if (target) leaveTo(`/sites/${target.studySiteId}`);
+        return;
+      }
+      case "setup_run":
+        return setActiveStage("run");
+      case "start_run":
+        return void startRun();
+      case "save_model":
+        if (lastJob) void syncResult(lastJob.id);
+        return;
+    }
+  }
+
+  const publishPanel = project ? (
+    <Card>
+      <SectionHeader
+        title="Publish"
+        description="Freeze the latest saved commit as a version, build the study image, and (re)start the study aggregator."
+        actions={
+          <Space wrap>
+            {project.giteaRepoUrl ? (
+              <Button icon={<LinkOutlined />} href={project.giteaRepoUrl} target="_blank">
+                Repository
+              </Button>
+            ) : null}
+            <Tooltip title={activeJob ? "A run is in progress; publishing restarts the aggregator." : undefined}>
+              <Button type="primary" icon={<CloudUploadOutlined />} loading={publishing || publishInFlight} disabled={Boolean(activeJob) || !sourceCommit} onClick={requestPublish}>
+                Publish {short(sourceCommit, 8)}
+              </Button>
+            </Tooltip>
+          </Space>
+        }
+      />
+      {!sourceCommit ? <Typography.Paragraph type="secondary">Publish is unavailable: there is no saved commit yet.</Typography.Paragraph> : null}
+      {activeJob ? <Typography.Paragraph type="secondary">Publish is unavailable while a run is in progress; publishing restarts the aggregator.</Typography.Paragraph> : null}
+      <Table<Version>
+        size="small"
+        rowKey="id"
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        dataSource={project.versions}
+        locale={{ emptyText: "Not published yet." }}
+        columns={[
+          {
+            title: "Version",
+            dataIndex: "version",
+            render: (value: string, row) => (
+              <Space>
+                {value}
+                {row.id === overview?.aggregator?.pipelineVersionId ? <Tag color="green">live</Tag> : null}
+              </Space>
+            )
+          },
+          { title: "Commit", dataIndex: "gitCommit", render: (value: string | null) => <code>{short(value, 8)}</code> },
+          {
+            title: "Publish",
+            render: (_, row) => (
+              <div>
+                <Tooltip title={row.publish?.summary}>
+                  <Tag color={statusColor[row.publish?.status ?? row.validationStatus] ?? "default"}>{row.publish?.status ?? row.validationStatus}</Tag>
+                </Tooltip>
+                {row.publish?.step && ["QUEUED", "RUNNING"].includes(row.publish.status) ? (
+                  <Typography.Text type={row.publish.waiting ? "warning" : "secondary"}>
+                    step: {row.publish.step}
+                    {row.publish.stepState === "pending" ? " (starting)" : ""}
+                    {row.publish.waiting ? ` - ${row.publish.waiting}` : ""}
+                  </Typography.Text>
+                ) : null}
+                {row.publish?.status === "FAILED" && row.publish.summary ? (
+                  <div>
+                    <Typography.Text type="danger">{row.publish.summary}</Typography.Text>
+                  </div>
+                ) : null}
+              </div>
+            )
+          },
+          { title: "Image", dataIndex: "imageDigest", render: (value: string | null) => <code>{digestLabel(value)}</code> },
+          { title: "Published", dataIndex: "publishedAt", render: (value: string | null) => (value ? new Date(value).toLocaleString() : "—") }
+        ]}
+      />
+    </Card>
+  ) : null;
+
+  const sitesPanel = (
+    <Card>
+      <SectionHeader
+        title="Aggregator and sites"
+        description={
+          overview?.aggregator?.hostname
+            ? `Sites connect to ${overview.aggregator.hostname}:443 with the kit from their site page (outbound HTTPS only).`
+            : "The study aggregator is created on the first publish."
+        }
+        actions={
+          overview?.aggregator ? (
+            <Space>
+              <Tag color={statusColor[overview.aggregator.status] ?? "default"}>{overview.aggregator.status}</Tag>
+              {liveVersion ? <Tag>serving {liveVersion.version}</Tag> : null}
+            </Space>
+          ) : null
+        }
+      />
+      {overview?.aggregator?.lastError ? <Alert type="warning" showIcon message={overview.aggregator.lastError} style={{ marginBottom: 12 }} /> : null}
+      {overview?.aggregator?.error ? <Alert type="error" showIcon message={overview.aggregator.error} style={{ marginBottom: 12 }} /> : null}
+      <Table<Site>
+        size="small"
+        rowKey="studySiteId"
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        dataSource={overview?.sites ?? []}
+        columns={[
+          { title: "Site", render: (_, row) => `${row.name} (${row.code})` },
+          { title: "NVFLARE client", dataIndex: "nvflareClientName", render: (value: string) => <code>{value}</code> },
+          {
+            title: "Certificate",
+            render: (_, row) => (row.provisioned ? <Tag color="green">issued</Tag> : <Tag>{overview?.aggregator ? "republish to issue" : "on publish"}</Tag>)
+          },
+          {
+            title: "Kit",
+            render: (_, row) =>
+              row.kitReleased ? (
+                <Tag color={row.kitImageDigest && row.kitImageDigest !== overview?.aggregator?.imageDigest ? "orange" : "green"}>
+                  {row.kitImageDigest && row.kitImageDigest !== overview?.aggregator?.imageDigest ? "update available" : "released"}
+                </Tag>
+              ) : (
+                <Button size="small" type="link" onClick={() => leaveTo(`/sites/${row.studySiteId}`)}>
+                  Release kit
+                </Button>
+              )
+          },
+          {
+            title: "Connected",
+            render: (_, row) => (row.connected == null ? <Tag>unknown</Tag> : row.connected ? <Tag color="green">connected</Tag> : <Tag color="default">waiting</Tag>)
+          }
+        ]}
+      />
+    </Card>
+  );
+
+  const runPanel = (
+    <Card>
+      <SectionHeader
+        title="Run"
+        description="Runs the published version on the connected sites. Only model weights and aggregate metrics leave the sites."
+        actions={
+          <Space wrap>
+            <span>Rounds</span>
+            <InputNumber min={1} max={1000} value={rounds} onChange={(value) => setRounds(Number(value) || 1)} />
+            <span>Min sites</span>
+            <InputNumber min={1} max={Math.max(1, connectedCount)} value={minClients ?? connectedCount} onChange={(value) => setMinClients(Number(value) || 1)} />
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              loading={starting}
+              disabled={runBlockers.length > 0}
+              onClick={() => void startRun()}
+            >
+              Start run
+            </Button>
+          </Space>
+        }
+      />
+      {runBlockers.length > 0 ? (
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Start run is unavailable" description={runBlockers.map((item) => <div key={item}>{item}</div>)} />
+      ) : (
+        <Typography.Paragraph type="secondary">
+          Every site must also have its readiness recorded by site staff; if it is missing, starting the run will tell you.
+        </Typography.Paragraph>
+      )}
+      {runError ? <Alert type="error" showIcon closable onClose={() => setRunError(null)} message="The run was not started" description={runError} style={{ marginBottom: 12 }} /> : null}
+      {progress ? (
+        <>
+          <Typography.Paragraph type="secondary">
+            NVFLARE status: <Tag>{progress.nvflareStatus ?? "pending"}</Tag> {progress.rounds.length} round(s) reported.
+          </Typography.Paragraph>
+          <Table<RoundRow>
+            size="small"
+            rowKey="round"
+            pagination={false}
+            scroll={{ x: "max-content" }}
+            dataSource={progress.rounds}
+            locale={{ emptyText: "Waiting for the first round." }}
+            columns={[
+              { title: "Round", dataIndex: "round" },
+              ...metricKeys.map((key) => ({
+                title: `${key} (weighted)`,
+                render: (_: unknown, row: RoundRow) => (row.weighted[key] != null ? row.weighted[key].toFixed(4) : "—")
+              })),
+              {
+                title: "Per site",
+                render: (_: unknown, row: RoundRow) => (
+                  <Space wrap size={4}>
+                    {row.sites.map((site) => (
+                      <Tooltip key={site.site} title={`n=${site.numSamples}`}>
+                        <Tag>
+                          {site.site}: {Object.entries(site.metrics).map(([k, v]) => `${k} ${v.toFixed(3)}`).join(" · ")}
+                        </Tag>
+                      </Tooltip>
+                    ))}
+                  </Space>
+                )
+              }
+            ]}
+          />
+        </>
+      ) : null}
+      <Table<Job>
+        size="small"
+        rowKey="id"
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        style={{ marginTop: 16 }}
+        dataSource={overview?.jobs ?? []}
+        locale={{ emptyText: "No runs yet." }}
+        columns={[
+          { title: "Started", dataIndex: "createdAt", render: (value: string) => new Date(value).toLocaleString() },
+          { title: "Version", render: (_, row) => row.pipelineVersion?.version ?? "—" },
+          { title: "Status", dataIndex: "status", render: (value: string) => <Tag color={statusColor[value] ?? "default"}>{value}</Tag> },
+          { title: "NVFLARE job", dataIndex: "nvflareJobId", render: (value: string | null) => <code>{short(value, 8)}</code> },
+          {
+            title: "",
+            render: (_, row) => (
+              <Space>
+                <Button size="small" onClick={() => followJob(row.id)} disabled={!row.nvflareJobId}>
+                  Metrics
+                </Button>
+                {ACTIVE_JOB.has(row.status) ? (
+                  <Button size="small" danger icon={<StopOutlined />} onClick={() => void abortRun(row.id)}>
+                    Abort
+                  </Button>
+                ) : null}
+                {row.status === "COMPLETED" && !row.result ? (
+                  <Button size="small" onClick={() => void syncResult(row.id)}>
+                    Save model
+                  </Button>
+                ) : null}
+                {row.result ? <Tag color="green">model saved</Tag> : null}
+              </Space>
+            )
+          }
+        ]}
+      />
+    </Card>
+  );
+
   return (
-    <AppPage>
+    <AppPage className="fedlify-ws-page">
       <AppPageHeader
-        title="Study pipeline"
+        title="Code & run"
         subtitle="Edit the study code, publish it to the study aggregator, connect the sites, and run the federated study."
-        onBack={() => router.push(`/studies/${studyId}`)}
+        onBack={() => leaveTo(`/studies/${studyId}`)}
         backLabel="Study"
         actions={
           <Space wrap>
             <Select
-              style={{ minWidth: 240 }}
+              style={{ minWidth: 220 }}
               placeholder="Select a project"
+              aria-label="Project"
               value={projectId ?? undefined}
               options={(overview?.projects ?? []).map((item) => ({ value: item.id, label: item.name }))}
-              onChange={(value) => setProjectId(value)}
+              onChange={selectProject}
             />
-            <Button icon={<PlusOutlined />} onClick={() => setCloneOpen(true)}>
-              New project
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => void load()} />
+            {overview ? (
+              <Button icon={<PlusOutlined />} onClick={() => setCloneOpen(true)}>
+                New project
+              </Button>
+            ) : null}
+            <Button icon={<ReloadOutlined />} onClick={() => void load()} aria-label="Refresh" />
           </Space>
         }
       />
 
-      {loadError ? <Alert type="error" showIcon message={loadError} style={{ marginBottom: 16 }} /> : null}
+      {loadError ? (
+        <Alert
+          type="error"
+          showIcon
+          message={loadError}
+          style={{ marginBottom: 16 }}
+          action={
+            <Button size="small" onClick={() => void load()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : null}
 
-      <Steps
-        current={stage}
-        style={{ marginBottom: 24 }}
-        items={[
-          { title: "Code", description: "Edit and save to Gitea" },
-          { title: "Publish", description: "Image + aggregator" },
-          { title: "Sites", description: `${connectedCount}/${overview?.sites.length ?? 0} connected` },
-          { title: "Run", description: activeJob ? activeJob.status : "Start a run" }
-        ]}
-      />
-
-      {!project ? (
+      {!overview ? (
+        loadError ? null : (
+          <Card>
+            <div style={{ textAlign: "center", padding: 32 }}>
+              <Spin tip="Loading the study pipeline" />
+            </div>
+          </Card>
+        )
+      ) : !project ? (
         <Card>
           <Empty description="No project yet. Start from the Fedlify starter repository (federated logistic regression on tabular site data).">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCloneOpen(true)}>
@@ -321,235 +747,99 @@ export default function StudyProjectsPage() {
           </Empty>
         </Card>
       ) : (
-        <Space direction="vertical" size={24} style={{ width: "100%" }}>
-          <CodeReviewPanel
-            sourceUrl={`/api/v1/studies/${studyId}/pipeline-projects/${project.id}/source`}
-            title={project.name}
-            description={`Every save is a commit to ${project.defaultBranch} in Gitea. Publishing builds exactly the saved commit.`}
-            reloadKey={`${project.id}-${reloadKey}`}
-            savingDraft={saving}
-            onSaveDraft={(file, content) => void save(file, content)}
-          />
+        <>
+          <PipelineRail stages={stages} activeStage={activeStage} currentStage={currentStage} onSelect={setActiveStage} onAction={handleStageAction} />
 
-          <Card>
-            <SectionHeader
-              title="Publish"
-              description="Freeze the latest saved commit as a version, build the study image, and (re)start the study aggregator."
-              actions={
-                <Space wrap>
-                  {project.giteaRepoUrl ? (
-                    <Button icon={<LinkOutlined />} href={project.giteaRepoUrl} target="_blank">
-                      Repository
-                    </Button>
-                  ) : null}
-                  <Tooltip title={activeJob ? "A run is in progress; publishing restarts the aggregator." : undefined}>
-                    <Button
-                      type="primary"
-                      icon={<CloudUploadOutlined />}
-                      loading={publishing || publishInFlight}
-                      disabled={Boolean(activeJob)}
-                      onClick={() => void publish()}
-                    >
-                      Publish {short(sourceCommit, 8)}
-                    </Button>
-                  </Tooltip>
-                </Space>
-              }
-            />
-            <Table<Version>
-              size="small"
-              rowKey="id"
-              pagination={false}
-              dataSource={project.versions}
-              locale={{ emptyText: "Not published yet." }}
-              columns={[
-                {
-                  title: "Version",
-                  dataIndex: "version",
-                  render: (value: string, row) => (
-                    <Space>
-                      {value}
-                      {row.id === overview?.aggregator?.pipelineVersionId ? <Tag color="green">live</Tag> : null}
-                    </Space>
-                  )
-                },
-                { title: "Commit", dataIndex: "gitCommit", render: (value: string | null) => <code>{short(value, 8)}</code> },
-                {
-                  title: "Publish",
-                  render: (_, row) => (
-                    <div>
-                      <Tooltip title={row.publish?.summary}>
-                        <Tag color={statusColor[row.publish?.status ?? row.validationStatus] ?? "default"}>{row.publish?.status ?? row.validationStatus}</Tag>
-                      </Tooltip>
-                      {row.publish?.step && ["QUEUED", "RUNNING"].includes(row.publish.status) ? (
-                        <Typography.Text type={row.publish.waiting ? "warning" : "secondary"}>
-                          step: {row.publish.step}
-                          {row.publish.stepState === "pending" ? " (starting)" : ""}
-                          {row.publish.waiting ? ` - ${row.publish.waiting}` : ""}
-                        </Typography.Text>
-                      ) : null}
-                      {row.publish?.status === "FAILED" && row.publish.summary ? (
-                        <div>
-                          <Typography.Text type="danger">{row.publish.summary}</Typography.Text>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                },
-                { title: "Image", dataIndex: "imageDigest", render: (value: string | null) => <code>{digestLabel(value)}</code> },
-                { title: "Published", dataIndex: "publishedAt", render: (value: string | null) => (value ? new Date(value).toLocaleString() : "—") }
-              ]}
-            />
-          </Card>
+          <div className={["fedlify-ws-grid", assistantOpen ? "has-assistant" : "assistant-collapsed"].join(" ")}>
+            <aside className="fedlify-ws-side" aria-label="Files and checks">
+              <div className="fedlify-ws-section-title">
+                <strong>Files</strong>
+                <span className="fedlify-muted">{repoPaths.length}</span>
+              </div>
+              <FileTree paths={repoPaths} selectedPath={selectedPath} modifiedPaths={dirtyPath ? [dirtyPath] : []} onSelect={selectFile} />
+              <ChecksPanel key={project.id} studyId={studyId} projectId={project.id} commit={sourceCommit} />
+            </aside>
 
-          <Card>
-            <SectionHeader
-              title="Aggregator and sites"
-              description={
-                overview?.aggregator?.hostname
-                  ? `Sites connect to ${overview.aggregator.hostname}:443 with the kit from their site page (outbound HTTPS only).`
-                  : "The study aggregator is created on the first publish."
-              }
-              actions={
-                overview?.aggregator ? (
-                  <Space>
-                    <Tag color={statusColor[overview.aggregator.status] ?? "default"}>{overview.aggregator.status}</Tag>
-                    {liveVersion ? <Tag>serving {liveVersion.version}</Tag> : null}
-                  </Space>
-                ) : null
-              }
-            />
-            {overview?.aggregator?.lastError ? <Alert type="warning" showIcon message={overview.aggregator.lastError} style={{ marginBottom: 12 }} /> : null}
-            {overview?.aggregator?.error ? <Alert type="error" showIcon message={overview.aggregator.error} style={{ marginBottom: 12 }} /> : null}
-            <Table<Site>
-              size="small"
-              rowKey="studySiteId"
-              pagination={false}
-              dataSource={overview?.sites ?? []}
-              columns={[
-                { title: "Site", render: (_, row) => `${row.name} (${row.code})` },
-                { title: "NVFLARE client", dataIndex: "nvflareClientName", render: (value: string) => <code>{value}</code> },
-                {
-                  title: "Certificate",
-                  render: (_, row) => (row.provisioned ? <Tag color="green">issued</Tag> : <Tag>{overview?.aggregator ? "republish to issue" : "on publish"}</Tag>)
-                },
-                {
-                  title: "Kit",
-                  render: (_, row) =>
-                    row.kitReleased ? (
-                      <Tag color={row.kitImageDigest && row.kitImageDigest !== overview?.aggregator?.imageDigest ? "orange" : "green"}>
-                        {row.kitImageDigest && row.kitImageDigest !== overview?.aggregator?.imageDigest ? "update available" : "released"}
-                      </Tag>
-                    ) : (
-                      <Button size="small" type="link" onClick={() => router.push(`/sites/${row.studySiteId}`)}>
-                        Release kit
-                      </Button>
-                    )
-                },
-                {
-                  title: "Connected",
-                  render: (_, row) =>
-                    row.connected == null ? <Tag>unknown</Tag> : row.connected ? <Tag color="green">connected</Tag> : <Tag color="default">waiting</Tag>
-                }
-              ]}
-            />
-          </Card>
-
-          <Card>
-            <SectionHeader
-              title="Run"
-              description="Runs the published version on the connected sites. Only model weights and aggregate metrics leave the sites."
-              actions={
-                <Space wrap>
-                  <span>Rounds</span>
-                  <InputNumber min={1} max={1000} value={rounds} onChange={(value) => setRounds(Number(value) || 1)} />
-                  <span>Min sites</span>
-                  <InputNumber min={1} max={Math.max(1, connectedCount)} value={minClients ?? connectedCount} onChange={(value) => setMinClients(Number(value) || 1)} />
-                  <Button
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    loading={starting}
-                    disabled={overview?.aggregator?.status !== "ACTIVE" || connectedCount === 0 || Boolean(activeJob)}
-                    onClick={() => void startRun()}
-                  >
-                    Start run
-                  </Button>
-                </Space>
-              }
-            />
-            {progress ? (
-              <>
-                <Typography.Paragraph type="secondary">
-                  NVFLARE status: <Tag>{progress.nvflareStatus ?? "pending"}</Tag> {progress.rounds.length} round(s) reported.
-                </Typography.Paragraph>
-                <Table<RoundRow>
-                  size="small"
-                  rowKey="round"
-                  pagination={false}
-                  dataSource={progress.rounds}
-                  locale={{ emptyText: "Waiting for the first round." }}
-                  columns={[
-                    { title: "Round", dataIndex: "round" },
-                    ...metricKeys.map((key) => ({
-                      title: `${key} (weighted)`,
-                      render: (_: unknown, row: RoundRow) => (row.weighted[key] != null ? row.weighted[key].toFixed(4) : "—")
-                    })),
-                    {
-                      title: "Per site",
-                      render: (_: unknown, row: RoundRow) => (
-                        <Space wrap size={4}>
-                          {row.sites.map((site) => (
-                            <Tooltip key={site.site} title={`n=${site.numSamples}`}>
-                              <Tag>
-                                {site.site}: {Object.entries(site.metrics).map(([k, v]) => `${k} ${v.toFixed(3)}`).join(" · ")}
-                              </Tag>
-                            </Tooltip>
-                          ))}
-                        </Space>
-                      )
-                    }
-                  ]}
+            <main className="fedlify-ws-centre">
+              <div hidden={activeStage !== "code"} className="fedlify-ws-code">
+                <div className="fedlify-ws-code-note fedlify-muted">
+                  Every save is a commit to <code>{project.defaultBranch}</code> in Gitea (base <code>{short(sourceCommit, 8)}</code>). Publishing builds exactly the saved commit.
+                </div>
+                <CodeReviewPanel
+                  hideHeader
+                  hideExplorer
+                  sourceUrl={`/api/v1/studies/${studyId}/pipeline-projects/${project.id}/source`}
+                  title={project.name}
+                  reloadKey={`${project.id}-${reloadKey}`}
+                  savingDraft={saving}
+                  editLabel="Edit"
+                  saveLabel="Save to main"
+                  selectedPath={selectedPath}
+                  onSelectedPathChange={setSelectedPath}
+                  onFilesLoaded={(files, commit) => {
+                    setRepoPaths(files.map((file) => file.path));
+                    setLoadedCommit(commit);
+                  }}
+                  onDirtyChange={setDirtyPath}
+                  controlRef={editorControl}
+                  onSaveDraft={(file, content) => void save(file, content)}
+                  onAskAssistant={({ path, selection }) => {
+                    askCounter.current += 1;
+                    setAskRequest({ id: askCounter.current, path, selection });
+                    setAssistantOpen(true);
+                  }}
                 />
-              </>
-            ) : null}
-            <Table<Job>
-              size="small"
-              rowKey="id"
-              pagination={false}
-              style={{ marginTop: 16 }}
-              dataSource={overview?.jobs ?? []}
-              locale={{ emptyText: "No runs yet." }}
-              columns={[
-                { title: "Started", dataIndex: "createdAt", render: (value: string) => new Date(value).toLocaleString() },
-                { title: "Version", render: (_, row) => row.pipelineVersion?.version ?? "—" },
-                { title: "Status", dataIndex: "status", render: (value: string) => <Tag color={statusColor[value] ?? "default"}>{value}</Tag> },
-                { title: "NVFLARE job", dataIndex: "nvflareJobId", render: (value: string | null) => <code>{short(value, 8)}</code> },
-                {
-                  title: "",
-                  render: (_, row) => (
-                    <Space>
-                      <Button size="small" onClick={() => followJob(row.id)} disabled={!row.nvflareJobId}>
-                        Metrics
-                      </Button>
-                      {ACTIVE_JOB.has(row.status) ? (
-                        <Button size="small" danger icon={<StopOutlined />} onClick={() => void abortRun(row.id)}>
-                          Abort
-                        </Button>
-                      ) : null}
-                      {row.status === "COMPLETED" && !row.result ? (
-                        <Button size="small" onClick={() => void syncResult(row.id)}>
-                          Save model
-                        </Button>
-                      ) : null}
-                      {row.result ? <Tag color="green">model saved</Tag> : null}
-                    </Space>
-                  )
-                }
-              ]}
+              </div>
+              {activeStage === "publish" ? publishPanel : null}
+              {activeStage === "sites" ? sitesPanel : null}
+              {activeStage === "run" ? runPanel : null}
+            </main>
+
+            <AssistantPanel
+              key={project.id}
+              studyId={studyId}
+              projectId={project.id}
+              commit={sourceCommit}
+              focusFile={selectedPath}
+              unsavedPaths={dirtyPath ? [dirtyPath] : []}
+              open={assistantOpen}
+              onToggle={toggleAssistant}
+              askRequest={askRequest}
             />
-          </Card>
-        </Space>
+          </div>
+        </>
       )}
+
+      <Modal
+        title="This file changed since you opened it"
+        open={Boolean(conflict)}
+        onCancel={() => setConflict(null)}
+        footer={[
+          <Button key="keep" onClick={() => setConflict(null)}>
+            Keep editing
+          </Button>,
+          <Button
+            key="reload"
+            onClick={() => {
+              setConflict(null);
+              setReloadKey((key) => key + 1);
+            }}
+          >
+            Reload latest (discard my edit)
+          </Button>,
+          <Button key="overwrite" type="primary" danger loading={saving} onClick={() => void saveOnTopOfLatest()}>
+            Save over latest
+          </Button>
+        ]}
+      >
+        <Typography.Paragraph>
+          Someone saved to <code>{project?.defaultBranch ?? "main"}</code> after you loaded this project, so your save was not applied.
+        </Typography.Paragraph>
+        <Typography.Paragraph type="secondary">
+          &quot;Save over latest&quot; replaces <code>{conflict?.file.path}</code> with your version on top of the newest commit. Other files are untouched. Reloading
+          discards your edit.
+        </Typography.Paragraph>
+      </Modal>
 
       <Modal
         title="New project"
@@ -562,7 +852,7 @@ export default function StudyProjectsPage() {
       >
         <Typography.Paragraph type="secondary">
           Creates a repository in this study&apos;s Gitea organization, cloned from the Fedlify starter (FedAvg logistic regression, NVFLARE
-          Client API, eICU-style tabular data contract). You can then edit it here, with the agent, or with any Git client.
+          Client API, eICU-style tabular data contract). You can then edit it here, with the assistant, or with any Git client.
         </Typography.Paragraph>
         <Input placeholder="Project name, e.g. HF mortality FedAvg" value={cloneName} onChange={(event) => setCloneName(event.target.value)} />
       </Modal>

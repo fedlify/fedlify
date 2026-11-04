@@ -131,3 +131,65 @@ export function pipelineExecutionGate(input: PipelineExecutionInput): { allowed:
 
   return { allowed: missing.length === 0, missing };
 }
+
+export type SiteReadinessSnapshot = {
+  code: string;
+  name: string;
+  /** Latest readiness check for the site, or null when none has been recorded. */
+  check: {
+    status: ReadinessStatus;
+    connectivityVerified?: boolean | null;
+    kitInstalled?: boolean | null;
+    dependenciesVerified?: boolean | null;
+    policyAccepted?: boolean | null;
+  } | null;
+};
+
+export type UnreadySite = { code: string; name: string; problems: string[] };
+
+/** Sites whose latest readiness check is missing or not PASSED, with what is still open for each. */
+export function describeUnreadySites(sites: SiteReadinessSnapshot[]): UnreadySite[] {
+  const unready: UnreadySite[] = [];
+  for (const site of sites) {
+    if (!site.check) {
+      unready.push({ code: site.code, name: site.name, problems: ["no readiness check has been recorded"] });
+      continue;
+    }
+    if (site.check.status === "PASSED") continue;
+    const problems: string[] = [];
+    if (!site.check.kitInstalled) problems.push("site kit not confirmed installed");
+    if (!site.check.connectivityVerified) problems.push("connectivity not verified");
+    if (!site.check.dependenciesVerified) problems.push("dependencies not verified");
+    if (!site.check.policyAccepted) problems.push("data-use policy not accepted");
+    if (problems.length === 0) problems.push(`readiness status is ${site.check.status}, not PASSED`);
+    unready.push({ code: site.code, name: site.name, problems });
+  }
+  return unready;
+}
+
+const GATE_EXPLANATIONS: Record<string, string> = {
+  ethicsApproval: "ethics approval is not recorded as approved (add or update it under the study's Governance)",
+  approvedPipelineVersion: "the pipeline version is not approved (an authorised reviewer must approve it)",
+  passedPipelineValidation: "pipeline validation has not passed (publish the version and wait for its checks)",
+  readySites: "no participating sites are selected (add at least one site and record its readiness)"
+};
+
+/** One human-readable sentence per unmet execution requirement; names unready sites and the fix. */
+export function executionGateMessage(missing: string[], unreadySites: UnreadySite[] = []): string {
+  const parts: string[] = [];
+  for (const key of missing) {
+    if (key === "allSitesReady") {
+      if (unreadySites.length === 0) {
+        parts.push("some sites have not passed their readiness check (open Sites and record readiness for each)");
+      } else {
+        const detail = unreadySites.map((site) => `${site.name} (${site.code}): ${site.problems.join(", ")}`).join("; ");
+        parts.push(
+          `${unreadySites.length} site(s) are not ready: ${detail}. Ask each site operator to finish onboarding, then record a PASSED readiness check for the site under Sites`
+        );
+      }
+    } else {
+      parts.push(GATE_EXPLANATIONS[key] ?? key);
+    }
+  }
+  return `Cannot start the run yet: ${parts.join("; ")}.`;
+}

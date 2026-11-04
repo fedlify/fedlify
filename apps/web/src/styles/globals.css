@@ -5029,3 +5029,410 @@ h4.ant-typography {
     grid-template-columns: 24px max-content 1fr;
   }
 }
+
+/* ---- Code & run workspace (rail, files + checks, editor, assistant) ---- */
+.fedlify-ws-page [hidden] {
+  display: none !important;
+}
+
+.fedlify-ws-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.fedlify-ws-stage {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 10px;
+  background: var(--fedlify-panel);
+}
+
+.fedlify-ws-stage.is-open {
+  border-color: var(--fedlify-primary);
+  box-shadow: 0 0 0 2px rgba(133, 118, 181, 0.18);
+}
+
+.fedlify-ws-stage.is-current {
+  background: var(--fedlify-soft);
+}
+
+.fedlify-ws-stage-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fedlify-ws-stage-main:focus-visible {
+  outline: 2px solid var(--fedlify-primary);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.fedlify-ws-stage-icon {
+  flex: none;
+  font-size: 18px;
+  color: var(--fedlify-muted);
+}
+
+.fedlify-ws-stage.is-ok .fedlify-ws-stage-icon {
+  color: #2f8f5b;
+}
+
+.fedlify-ws-stage.is-warn .fedlify-ws-stage-icon {
+  color: #c78a1a;
+}
+
+.fedlify-ws-stage.is-error .fedlify-ws-stage-icon {
+  color: #c4423f;
+}
+
+.fedlify-ws-stage.is-active .fedlify-ws-stage-icon {
+  color: var(--fedlify-primary);
+}
+
+.fedlify-ws-stage-copy {
+  min-width: 0;
+  display: grid;
+  line-height: 1.3;
+}
+
+.fedlify-ws-stage-copy strong {
+  color: var(--fedlify-ink);
+  font-size: var(--fedlify-text-md);
+}
+
+.fedlify-ws-stage-copy span {
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fedlify-ws-stage-copy span.fedlify-ws-stage-detail {
+  white-space: normal;
+  font-size: var(--fedlify-text-xs, 12px);
+}
+
+.fedlify-ws-stage-action {
+  flex: none;
+}
+
+.fedlify-ws-stage-arrow {
+  display: none;
+}
+
+.fedlify-ws-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) clamp(300px, 26vw, 380px);
+  gap: 14px;
+  align-items: start;
+}
+
+.fedlify-ws-grid.assistant-collapsed {
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) 44px;
+}
+
+.fedlify-ws-side,
+.fedlify-ws-assistant {
+  min-width: 0;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 10px;
+  background: #fbfafc;
+}
+
+.fedlify-ws-side {
+  padding: 8px;
+  max-height: calc(100vh - 260px);
+  min-height: 320px;
+  overflow: auto;
+}
+
+.fedlify-ws-centre {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.fedlify-ws-code {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.fedlify-ws-code-note {
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-ws-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--fedlify-ink);
+}
+
+.fedlify-ws-empty {
+  padding: 8px;
+}
+
+.fedlify-ws-modified {
+  margin-left: auto;
+  padding-right: 6px;
+  color: #c78a1a;
+  font-weight: 700;
+  font-size: var(--fedlify-text-xs);
+}
+
+.fedlify-ws-checks {
+  margin-top: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--fedlify-line);
+}
+
+.fedlify-ws-check-list {
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-ws-check-list li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.fedlify-ws-check-list small {
+  display: block;
+  color: var(--fedlify-muted);
+  overflow-wrap: anywhere;
+}
+
+.fedlify-ws-check-list small.is-error {
+  color: #c4423f;
+}
+
+.fedlify-ws-check-list .is-pass .fedlify-ws-check-icon {
+  color: #2f8f5b;
+}
+
+.fedlify-ws-check-list .is-fail .fedlify-ws-check-icon {
+  color: #c4423f;
+}
+
+.fedlify-ws-check-list .is-not_run .fedlify-ws-check-icon {
+  color: var(--fedlify-muted);
+}
+
+.fedlify-ws-check-notice {
+  display: block;
+  margin: 8px 4px 0;
+  font-size: var(--fedlify-text-xs);
+}
+
+.fedlify-ws-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.fedlify-ws-assistant {
+  display: flex;
+  flex-direction: column;
+  height: clamp(460px, calc(100vh - 260px), 760px);
+  background: var(--fedlify-panel);
+}
+
+.fedlify-ws-assistant.is-collapsed {
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  height: auto;
+  min-height: 160px;
+}
+
+.fedlify-ws-assistant-vertical {
+  writing-mode: vertical-rl;
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-ws-assistant-glyph {
+  color: var(--fedlify-primary);
+}
+
+.fedlify-ws-assistant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--fedlify-line);
+}
+
+.fedlify-ws-readonly {
+  margin-left: 8px;
+}
+
+.fedlify-ws-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fedlify-line);
+}
+
+.fedlify-ws-chips .ant-tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fedlify-ws-chip-off {
+  cursor: pointer;
+  border-style: dashed;
+}
+
+.fedlify-ws-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.fedlify-ws-quick,
+.fedlify-ws-quick-list {
+  display: grid;
+  gap: 8px;
+}
+
+.fedlify-ws-quick-list .ant-btn {
+  justify-self: start;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  text-align: left;
+}
+
+.fedlify-ws-msg {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fedlify-ws-msg-role {
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-xs);
+  font-weight: 600;
+}
+
+.fedlify-ws-msg.is-user .fedlify-ws-msg-text {
+  background: var(--fedlify-soft);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.fedlify-ws-msg-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-ws-msg-code {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #1f2030;
+  color: #e8e6f2;
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-ws-composer {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--fedlify-line);
+}
+
+.fedlify-ws-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@media (max-width: 1280px) {
+  .fedlify-ws-grid,
+  .fedlify-ws-grid.assistant-collapsed {
+    grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  }
+
+  .fedlify-ws-assistant {
+    grid-column: 1 / -1;
+    height: 480px;
+  }
+
+  .fedlify-ws-assistant.is-collapsed {
+    height: auto;
+    min-height: 0;
+    flex-direction: row;
+    padding: 4px 8px;
+  }
+
+  .fedlify-ws-assistant-vertical {
+    writing-mode: horizontal-tb;
+  }
+
+  .fedlify-ws-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .fedlify-ws-grid,
+  .fedlify-ws-grid.assistant-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fedlify-ws-side {
+    max-height: 280px;
+    min-height: 0;
+  }
+
+  .fedlify-ws-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fedlify-ws-stage {
+    flex-wrap: wrap;
+  }
+}

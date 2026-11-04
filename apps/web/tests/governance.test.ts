@@ -97,3 +97,35 @@ describe("governance gates", () => {
     ).toBe(true);
   });
 });
+
+import { describeUnreadySites, executionGateMessage } from "@/lib/governance";
+
+describe("execution gate message", () => {
+  const sites = [
+    { code: "A", name: "Site A", check: { status: "PASSED" as const, kitInstalled: true, connectivityVerified: true, dependenciesVerified: true, policyAccepted: true } },
+    { code: "B", name: "Site B", check: { status: "PENDING" as const, kitInstalled: true, connectivityVerified: false, dependenciesVerified: true, policyAccepted: false } },
+    { code: "C", name: "Site C", check: null }
+  ];
+
+  it("lists only unready sites with what is open", () => {
+    const unready = describeUnreadySites(sites);
+    expect(unready.map((s) => s.code)).toEqual(["B", "C"]);
+    expect(unready[0].problems).toEqual(["connectivity not verified", "data-use policy not accepted"]);
+    expect(unready[1].problems).toEqual(["no readiness check has been recorded"]);
+  });
+
+  it("names the sites and the fix in the message", () => {
+    const message = executionGateMessage(["allSitesReady"], describeUnreadySites(sites));
+    expect(message).toContain("Site B (B)");
+    expect(message).toContain("Site C (C)");
+    expect(message).not.toContain("Site A");
+    expect(message).toMatch(/record a PASSED readiness check/);
+    expect(message).not.toContain("allSitesReady");
+  });
+
+  it("explains other missing requirements in words", () => {
+    const message = executionGateMessage(["ethicsApproval", "approvedPipelineVersion"]);
+    expect(message).toMatch(/ethics approval/);
+    expect(message).toMatch(/pipeline version is not approved/);
+  });
+});

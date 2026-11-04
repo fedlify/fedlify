@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
-import { latestEthicsStatus, pipelineExecutionGate } from "@/lib/governance";
+import { describeUnreadySites, executionGateMessage, latestEthicsStatus, pipelineExecutionGate } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
 import { submitNvflareJob } from "@/lib/nvflare";
 import { pipelineRunWorkspacePath, prepareNvflareJobWorkspaceForRun, runtimeParametersForSelectedSites } from "@/lib/pipeline-code";
@@ -95,7 +95,20 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     readinessChecks: studySites.map((site) => ({ status: site.readinessChecks[0]?.status ?? "PENDING" }))
   });
   if (!gate.allowed) {
-    return problem(409, `NVFLARE job submission is blocked by missing requirements: ${gate.missing.join(", ")}.`, "execution_gate");
+    const unreadySites = describeUnreadySites(
+      studySites.map((site) => ({ code: site.code, name: site.name, check: site.readinessChecks[0] ?? null }))
+    );
+    return json(
+      {
+        error: {
+          code: "execution_gate",
+          message: executionGateMessage(gate.missing, unreadySites),
+          missing: gate.missing,
+          unreadySites
+        }
+      },
+      { status: 409 }
+    );
   }
 
   const deployment = await prisma.nvflareDeployment.findFirst({ where: { studyId, active: true, status: "ACTIVE" } });

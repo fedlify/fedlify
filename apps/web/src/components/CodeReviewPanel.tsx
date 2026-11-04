@@ -22,7 +22,7 @@ import {
 import { Bubble, Prompts, Sender, ThoughtChain } from "@ant-design/x";
 import { Alert, Button, Segmented, Select, Space, Tag, Tooltip, Typography, message } from "antd";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { Monaco } from "@monaco-editor/react";
 import { FieldGrid, FieldRow } from "@/components/EntityDetail";
 import { InlineLoadError } from "@/components/LoadStates";
@@ -109,6 +109,20 @@ type CodeReviewPanelProps = {
   onRequestChange?: (file: SourceFile, context?: { instruction?: string; mode?: "assistant_request" }) => void;
   onSaveDraft?: (file: SourceFile, content: string) => void;
   onReviewApplied?: (proposalId: string) => void;
+  /** Workspace mode: the page owns the file tree, so the built-in explorer and layout toggles are hidden. */
+  hideExplorer?: boolean;
+  /** Controlled selection: when set and present in the repo, this file is shown. */
+  selectedPath?: string | null;
+  onSelectedPathChange?: (path: string | null) => void;
+  onFilesLoaded?: (files: SourceFile[], commit: string | null) => void;
+  /** Reports the path with unsaved edits (edit mode and content differs), or null. */
+  onDirtyChange?: (path: string | null) => void;
+  /** "Ask assistant" with the current file and (if any) the editor selection. */
+  onAskAssistant?: (context: { path: string; selection?: string }) => void;
+  editLabel?: string;
+  saveLabel?: string;
+  /** Lets the host trigger Save for the file being edited. */
+  controlRef?: MutableRefObject<{ save: () => void; hasEdits: () => boolean } | null>;
 };
 
 function shortCommit(value?: string | null) {
@@ -358,7 +372,16 @@ export function CodeReviewPanel({
   hideHeader = false,
   onRequestChange,
   onSaveDraft,
-  onReviewApplied
+  onReviewApplied,
+  hideExplorer = false,
+  selectedPath: controlledPath,
+  onSelectedPathChange,
+  onFilesLoaded,
+  onDirtyChange,
+  onAskAssistant,
+  editLabel = "Edit in review",
+  saveLabel = "Preview change",
+  controlRef
 }: CodeReviewPanelProps) {
   const [payload, setPayload] = useState<SourcePayload | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -388,23 +411,36 @@ export function CodeReviewPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Only the newest load may write state: a slow response for a previous project must not overwrite the current one.
+  const loadSeq = useRef(0);
+  const selectedPathRef = useRef<string | null>(null);
+  selectedPathRef.current = selectedPath;
+
   async function load() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(sourceUrl, { cache: "no-store" });
       const body = await response.json().catch(() => null);
+      if (seq !== loadSeq.current) return;
       if (!response.ok) throw new Error(apiErrorMessage(body, "Source code could not be loaded."));
       const files = body?.files ?? [];
       setPayload({ ...body, files });
-      setSelectedPath(preferredInitialFile(files)?.path ?? null);
+      const previous = selectedPathRef.current;
+      const nextPath = previous && files.some((file: SourceFile) => file.path === previous) ? previous : preferredInitialFile(files)?.path ?? null;
+      setSelectedPath(nextPath);
+      // Report the path after every load: the host may have reset its own copy while this one kept the same file.
+      onSelectedPathChange?.(nextPath);
+      onFilesLoaded?.(files, body?.commit ?? body?.gitRef ?? null);
       setCollapsedFolders(new Set());
     } catch (loadError) {
+      if (seq !== loadSeq.current) return;
       setPayload(null);
       setSelectedPath(null);
       setError(loadError instanceof Error ? loadError.message : "Source code could not be loaded.");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }
 
@@ -427,7 +463,7 @@ export function CodeReviewPanel({
   const reviewCommit = payload?.commit ?? payload?.gitRef;
   const shellClassName = [
     "fedlify-code-review-shell",
-    explorerOpen && !expandedEditor ? "has-explorer" : "is-explorer-hidden",
+    explorerOpen && !expandedEditor && !hideExplorer ? "has-explorer" : "is-explorer-hidden",
     assistantOpen && reviewEnabled && !expandedEditor ? "has-assistant" : "is-assistant-hidden",
     expandedEditor ? "is-expanded" : ""
   ]
@@ -476,6 +512,47 @@ export function CodeReviewPanel({
     setEditMode(false);
     setDraftContent(selectedFile?.content ?? "");
   }, [selectedFile?.path, selectedFile?.content]);
+
+  // Controlled selection from the host's file tree.
+  useEffect(() => {
+    if (controlledPath && controlledPath !== selectedPath && files.some((file) => file.path === controlledPath)) {
+      setSelectedPath(controlledPath);
+      setEditorMode("source");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlledPath, files]);
+
+  useEffect(() => {
+    onSelectedPathChange?.(selectedFile?.path ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFile?.path]);
+
+  const dirtyPath = editMode && isModified && selectedFile ? selectedFile.path : null;
+  useEffect(() => {
+    onDirtyChange?.(dirtyPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirtyPath]);
+
+  const editorRef = useRef<{ getSelectedText: () => string } | null>(null);
+  const askRef = useRef<() => void>(() => undefined);
+  const saveRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    askRef.current = () => {
+      if (!selectedFile || !onAskAssistant) return;
+      const selection = editorRef.current?.getSelectedText().trim();
+      onAskAssistant({ path: selectedFile.path, selection: selection ? selection.slice(0, 20000) : undefined });
+    };
+    saveRef.current = () => {
+      if (editMode && isModified) saveManualEditForReview();
+    };
+  });
+  useEffect(() => {
+    if (!controlRef) return;
+    controlRef.current = { save: () => saveRef.current(), hasEdits: () => Boolean(dirtyPath) };
+    return () => {
+      controlRef.current = null;
+    };
+  }, [controlRef, dirtyPath]);
 
   useEffect(() => {
     setReviewSessionId(null);
@@ -871,7 +948,7 @@ export function CodeReviewPanel({
       ) : null}
 
       <div className={shellClassName}>
-        {explorerOpen && !expandedEditor ? (
+        {explorerOpen && !expandedEditor && !hideExplorer ? (
           <aside className="fedlify-code-file-list" aria-label="Source files">
             <div className="fedlify-code-explorer-header">
               <strong>Explorer</strong>
@@ -913,6 +990,7 @@ export function CodeReviewPanel({
               ) : null}
             </div>
             <Space className="fedlify-code-editor-actions" wrap>
+              {hideExplorer ? null : (
               <Space.Compact className="fedlify-code-layout-actions">
                 <Tooltip title={explorerOpen && !expandedEditor ? "Hide explorer" : "Show explorer"}>
                   <Button size="small" icon={explorerOpen && !expandedEditor ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={toggleExplorer} />
@@ -933,6 +1011,7 @@ export function CodeReviewPanel({
                   <Button size="small" icon={<LayoutOutlined />} onClick={resetLayout} />
                 </Tooltip>
               </Space.Compact>
+              )}
               {(reviewEnabled || onSaveDraft) && selectedFile && activeEditorMode === "source" ? (
                 editMode ? (
                   <>
@@ -944,7 +1023,7 @@ export function CodeReviewPanel({
                       loading={savingDraft}
                       onClick={saveManualEditForReview}
                     >
-                      Preview change
+                      {saveLabel}
                     </Button>
                     <Button
                       size="small"
@@ -958,9 +1037,16 @@ export function CodeReviewPanel({
                   </>
                 ) : (
                   <Button size="small" onClick={() => setEditMode(true)}>
-                    Edit in review
+                    {editLabel}
                   </Button>
                 )
+              ) : null}
+              {onAskAssistant && selectedFile && activeEditorMode === "source" ? (
+                <Tooltip title="Send this file (and any selected lines) to the assistant. Shortcut: Cmd/Ctrl+K in the editor.">
+                  <Button size="small" icon={<RobotOutlined />} onClick={() => askRef.current()}>
+                    Ask assistant
+                  </Button>
+                </Tooltip>
               ) : null}
               {(reviewEnabled || onRequestChange) && selectedFile ? (
                 <Button
@@ -1043,6 +1129,17 @@ export function CodeReviewPanel({
             ) : (
               <MonacoEditor
                 beforeMount={configureMonaco}
+                onMount={(editor, monaco) => {
+                  editorRef.current = { getSelectedText: () => editor.getModel()?.getValueInRange(editor.getSelection() ?? { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }) ?? "" };
+                  editor.addAction({
+                    id: "fedlify.askAssistant",
+                    label: "Ask Fedlify assistant",
+                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
+                    contextMenuGroupId: "navigation",
+                    contextMenuOrder: 0,
+                    run: () => askRef.current()
+                  });
+                }}
                 height="100%"
                 language={monacoLanguage(activeEditorMode === "proposed" && selectedChange ? changedFileLanguage(selectedChange, files) : selectedFile?.language)}
                 path={activeEditorMode === "proposed" && selectedChange ? `${selectedChange.path}:proposed` : selectedFile?.path ?? "source"}

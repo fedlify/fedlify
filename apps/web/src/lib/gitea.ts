@@ -527,7 +527,7 @@ export async function readGiteaRepositoryFiles(input: {
   owner: string;
   repo: string;
   ref: string;
-}): Promise<Array<{ path: string; content: string }>> {
+}): Promise<Array<{ path: string; content: string; unreadable?: boolean }>> {
   const tree = await giteaRequest<GiteaTreeResponse>(
     `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/git/trees/${encodeURIComponent(input.ref)}?recursive=1`
   );
@@ -536,14 +536,19 @@ export async function readGiteaRepositoryFiles(input: {
     .map((item) => item.path as string)
     .filter((path) => !path.startsWith(".git/"));
 
-  const files = [];
+  const files: Array<{ path: string; content: string; unreadable?: boolean }> = [];
   for (const filePath of paths) {
     const content = await giteaRequest<GiteaContentResponse>(
       `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/contents/${encodePath(filePath)}?ref=${encodeURIComponent(
         input.ref
       )}`
     );
-    if (!content.content) continue;
+    if (content.content === undefined || content.content === null) {
+      // No inline body (very large file or a type Gitea will not inline): keep the path so layout, data-suffix and
+      // size rules still apply, and flag it so the checks report that it could not be read.
+      files.push({ path: filePath, content: "", unreadable: true });
+      continue;
+    }
     const normalized = content.content.replace(/\s/g, "");
     const decoded = Buffer.from(normalized, content.encoding === "base64" || content.encoding == null ? "base64" : "utf8").toString("utf8");
     files.push({ path: filePath, content: decoded });

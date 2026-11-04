@@ -115,10 +115,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       ...STUDY_WORKSPACE_SECTIONS.map((section) => ({
         key: `study:${section.key}`,
         icon: studySectionIcons[section.key],
-        label: section.label,
+        label: section.key === "pipeline" ? <span title="Code, publish and run the study pipeline">{section.label}</span> : section.label,
         disabled: !selectedStudyId,
         onClick: () => {
-          if (selectedStudyId) router.push(studySectionHref(selectedStudyId, section.key));
+          if (!selectedStudyId) return;
+          // The Pipeline section is the Code & run workspace.
+          if (section.key === "pipeline") router.push(`/studies/${selectedStudyId}/projects`);
+          else router.push(studySectionHref(selectedStudyId, section.key));
         }
       }))
     ],
@@ -183,7 +186,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           mode="inline"
           inlineCollapsed={sidebarCollapsed}
           selectedKeys={
-            pathname.startsWith("/studies/") && pathname !== "/studies/manage"
+            /^\/studies\/[^/]+\/(projects|pipeline-agent)/.test(pathname)
+              ? ["study:pipeline"]
+              : pathname.startsWith("/studies/") && pathname !== "/studies/manage"
               ? [`study:${currentStudySection}`]
               : []
           }
