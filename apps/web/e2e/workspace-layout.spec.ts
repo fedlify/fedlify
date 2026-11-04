@@ -18,6 +18,8 @@ for (const width of [1300, 1440, 1728, 2000]) {
     await page.goto(`/studies/${studyId}/projects`);
     const stages = page.locator(".fedlify-ws-stage-main");
     await expect(stages).toHaveCount(4);
+    await expect(page.locator(".fedlify-ws-code .fedlify-monaco-frame").first()).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(1500);
     for (let i = 0; i < 4; i++) {
       await stages.nth(i).click();
       await page.waitForTimeout(800);
@@ -34,8 +36,13 @@ for (const width of [1300, 1440, 1728, 2000]) {
           expect(Math.abs(pane.y - code.y)).toBeLessThanOrEqual(2);
           expect(Math.abs(pane.height - code.height)).toBeLessThanOrEqual(2);
         }
-        const inner = (await page.locator(".fedlify-ws-code .fedlify-monaco-frame").first().boundingBox())!;
-        expect(inner.y + inner.height).toBeLessThanOrEqual(code.y + code.height + 2);
+        // Measured in one step: the rail can grow when the source finishes loading, which moves the panes.
+        const overflow = await page.evaluate(() => {
+          const pane = document.querySelector(".fedlify-ws-code")!.getBoundingClientRect();
+          const editor = document.querySelector(".fedlify-ws-code .fedlify-monaco-frame")!.getBoundingClientRect();
+          return editor.bottom - pane.bottom;
+        });
+        expect(overflow).toBeLessThanOrEqual(2);
       }
       // Nothing inside the assistant may stick out of it.
       for (const button of await page.locator(".fedlify-ws-quick-list .ant-btn").all()) {
