@@ -58,7 +58,7 @@ function pipelineWorkflowTemplate(): string {
   return process.env.FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE?.trim() || "fedlify-study-pipeline-ci";
 }
 
-export async function kubernetesRequest(path: string, init: RequestInit) {
+export async function kubernetesRequest(path: string, init: RequestInit, options: { asText?: boolean } = {}) {
   const host = process.env.KUBERNETES_SERVICE_HOST;
   const port = process.env.KUBERNETES_SERVICE_PORT || "443";
   if (!host) throw new Error("Kubernetes service host is not configured.");
@@ -92,7 +92,8 @@ export async function kubernetesRequest(path: string, init: RequestInit) {
             reject(new Error(`Kubernetes API request failed with status ${res.statusCode}: ${text}`));
             return;
           }
-          resolve(text ? JSON.parse(text) : null);
+          if (options.asText) resolve(text);
+          else resolve(text ? JSON.parse(text) : null);
         });
       }
     );
@@ -241,6 +242,48 @@ export async function getWorkflowSnapshot(workflowName: string): Promise<Workflo
     items?: import("@/lib/workflow-health").PodLike[];
   } | null;
   return { phase: workflow?.status?.phase ?? null, pods: pods?.items ?? [] };
+}
+
+export type WorkflowNode = {
+  id?: string;
+  name?: string;
+  displayName?: string;
+  type?: string;
+  phase?: string;
+  message?: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+/** Workflow phase, message and node states plus its pods (read-only). Needs get on workflows and list on pods. */
+export async function getWorkflowDiagnostics(workflowName: string): Promise<{
+  phase: string | null;
+  message: string | null;
+  nodes: WorkflowNode[];
+  pods: import("@/lib/workflow-health").PodLike[];
+}> {
+  const ns = encodeURIComponent(argoNamespace());
+  const workflow = (await kubernetesRequest(`/apis/argoproj.io/v1alpha1/namespaces/${ns}/workflows/${encodeURIComponent(workflowName)}`, { method: "GET" })) as {
+    status?: { phase?: string; message?: string; nodes?: Record<string, WorkflowNode> };
+  } | null;
+  const selector = encodeURIComponent(`workflows.argoproj.io/workflow=${workflowName}`);
+  const pods = (await kubernetesRequest(`/api/v1/namespaces/${ns}/pods?labelSelector=${selector}`, { method: "GET" })) as {
+    items?: import("@/lib/workflow-health").PodLike[];
+  } | null;
+  return {
+    phase: workflow?.status?.phase ?? null,
+    message: workflow?.status?.message ?? null,
+    nodes: Object.values(workflow?.status?.nodes ?? {}),
+    pods: pods?.items ?? []
+  };
+}
+
+/** Raw tail of one pod container's log, capped by the API server (lines and bytes). Needs get on pods/log. */
+export async function getPodLogTail(podName: string, options: { container?: string; tailLines: number; limitBytes: number }): Promise<string> {
+  const ns = encodeURIComponent(argoNamespace());
+  const query = `container=${encodeURIComponent(options.container ?? "main")}&tailLines=${options.tailLines}&limitBytes=${options.limitBytes}`;
+  const text = await kubernetesRequest(`/api/v1/namespaces/${ns}/pods/${encodeURIComponent(podName)}/log?${query}`, { method: "GET", headers: { accept: "*/*" } }, { asText: true });
+  return typeof text === "string" ? text : "";
 }
 
 /** spec.shutdown=Stop: running pods are stopped and the onExit handler still runs. Needs patch on workflows. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentStep, describeStuckPod, detectStuckPods, type PodLike } from "@/lib/workflow-health";
+import { currentStep, describeStuckPod, detectStuckPods, readablePublishSummary, type PodLike } from "@/lib/workflow-health";
 
 const now = Date.parse("2026-11-03T12:10:00Z");
 function pod(name: string, phase: string, created: string, waiting?: { reason: string; message?: string }): PodLike {
@@ -36,3 +36,22 @@ describe("currentStep", () => {
     expect(currentStep([pod("a", "Succeeded", "2026-11-03T12:00:00Z")])).toBeNull();
   });
 });
+
+describe("readablePublishSummary", () => {
+  const failures = JSON.stringify([
+    { displayName: "wf", templateName: "publish", message: "child failed", podName: "wf" },
+    { displayName: "clone-validate", templateName: "clone-validate", message: "main: Error (exit code 1)", podName: "wf-clone" }
+  ]);
+
+  it("names the failed step from Argo's failure list, quoted or not", () => {
+    const expected = 'Publish failed in step "clone-validate": main: Error (exit code 1)';
+    expect(readablePublishSummary(`Publish Failed: ${failures}`)).toBe(expected);
+    expect(readablePublishSummary(`Publish Failed: ${JSON.stringify(failures)}`)).toBe(expected);
+  });
+
+  it("keeps plain or truncated text unchanged", () => {
+    expect(readablePublishSummary("Aggregator live.")).toBe("Aggregator live.");
+    expect(readablePublishSummary('Publish Failed: "[{\\"a')).toBe('Publish Failed: "[{\\"a');
+  });
+});
+

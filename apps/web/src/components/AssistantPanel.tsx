@@ -12,6 +12,7 @@ import {
   type ProposalStatus,
   type ProposalSummary
 } from "@/lib/agent-proposal-client";
+import type { FailureSummary } from "@/lib/diagnostics";
 import { MAX_MESSAGE_CHARS, MAX_SELECTION_CHARS, buildHistory, createSseParser, splitFences } from "@/lib/assistant-stream";
 
 export type AskRequest = { id: number; path: string; selection?: string };
@@ -51,7 +52,22 @@ type AssistantPanelProps = {
   onRejectProposal: (id: string) => Promise<{ ok: true } | ProposalFailure>;
   /** Set by the page when a proposal is decided from the diff view, so the card here follows. */
   proposalSync: ProposalSync | null;
+  /** Keys of the failed publish and run the page sees (null when the latest one did not fail). A new key posts a notice. */
+  failures?: { publish: string | null; run: string | null };
+  /** Codes of sites that should be connected to the live aggregator but are not. */
+  unconnectedSites?: string[];
 };
+
+const FAILURE_PROMPTS = {
+  publish: {
+    explain: "Why did the latest publish fail? Use the publish diagnostics in the context and quote the step and log lines you rely on.",
+    fix: "Propose a fix for the failed publish. Use the publish diagnostics in the context; change only repository files."
+  },
+  run: {
+    explain: "Why did the latest run fail? Use the run diagnostics in the context, and say what is not visible to the server.",
+    fix: "Propose a fix for the failed run. Use the run diagnostics in the context; change only repository files."
+  }
+} as const;
 
 const PROPOSE_PROMPTS = [
   "Add a unit test for the main training function",
@@ -232,7 +248,9 @@ export function AssistantPanel({
   onReviewProposal,
   onAcceptProposal,
   onRejectProposal,
-  proposalSync
+  proposalSync,
+  failures,
+  unconnectedSites = []
 }: AssistantPanelProps) {
   const [mode, setMode] = useState<"ask" | "propose">("ask");
   const [proposals, setProposals] = useState<Record<string, ProposalSummary>>({});
@@ -248,6 +266,8 @@ export function AssistantPanel({
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<{ focus: () => void } | null>(null);
+  const [notices, setNotices] = useState<FailureSummary[]>([]);
+  const dismissedRef = useRef<Set<string>>(new Set(typeof window === "undefined" ? [] : (() => { try { return JSON.parse(window.sessionStorage.getItem(`fedlify-dismissed-notices:${projectId}`) ?? "[]") as string[]; } catch { return []; } })()));
   const streaming = messages.some((message) => message.status === "streaming");
 
   const update = useCallback((updater: (current: ChatMessage[]) => ChatMessage[]) => {
@@ -271,6 +291,29 @@ export function AssistantPanel({
       cancelled = true;
     };
   }, [studyId, projectId]);
+
+  // A failed publish or run posts a system message with the first error lines (redacted and bounded server-side).
+  const publishKey = failures?.publish ?? null;
+  const runKey = failures?.run ?? null;
+  useEffect(() => {
+    if (!publishKey && !runKey) {
+      setNotices([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/v1/studies/${studyId}/pipeline-projects/${projectId}/agent/diagnostics`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { failures?: FailureSummary[] } | null) => {
+        if (cancelled || !body?.failures) return;
+        // Only the failure the page reports (same publish or run), so the notice and the page agree.
+        const kinds = new Set([publishKey ? "publish" : null, runKey ? "run" : null]);
+        setNotices(body.failures.filter((item) => kinds.has(item.kind) && !dismissedRef.current.has(item.key)));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [studyId, projectId, publishKey, runKey]);
 
   useEffect(() => {
     if (!proposalSync) return;
@@ -298,7 +341,7 @@ export function AssistantPanel({
   const attachedSelection = selection && selection.path === attachedPath ? selection.text : undefined;
 
   const send = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, options?: { diagnostics?: boolean }) => {
       const text = rawText.trim().slice(0, MAX_MESSAGE_CHARS);
       if (!text || messagesRef.current.some((message) => message.status === "streaming")) return;
       const history = buildHistory(messagesRef.current);
@@ -324,7 +367,8 @@ export function AssistantPanel({
             message: text,
             history,
             filePath: attachedPath ?? undefined,
-            selection: attachedSelection ? attachedSelection.slice(0, MAX_SELECTION_CHARS) : undefined
+            selection: attachedSelection ? attachedSelection.slice(0, MAX_SELECTION_CHARS) : undefined,
+            diagnostics: options?.diagnostics || undefined
           }),
           signal: controller.signal
         });
@@ -374,7 +418,7 @@ export function AssistantPanel({
   const proposalContextRef = useRef<Record<string, { filePath?: string; selection?: string }>>({});
 
   const propose = useCallback(
-    async (rawText: string, context?: { filePath?: string; selection?: string }) => {
+    async (rawText: string, context?: { filePath?: string; selection?: string }, options?: { diagnostics?: boolean }) => {
       const text = rawText.trim().slice(0, MAX_MESSAGE_CHARS);
       if (!text || messagesRef.current.some((message) => message.status === "streaming")) return;
       const history = buildHistory(messagesRef.current);
@@ -390,7 +434,7 @@ export function AssistantPanel({
       const controller = new AbortController();
       abortRef.current = controller;
       const sent = context ?? { filePath: attachedPath ?? undefined, selection: attachedSelection ? attachedSelection.slice(0, MAX_SELECTION_CHARS) : undefined };
-      const result = await createProposal(studyId, projectId, { message: text, history, filePath: sent.filePath, selection: sent.selection }, controller.signal);
+      const result = await createProposal(studyId, projectId, { message: text, history, filePath: sent.filePath, selection: sent.selection, diagnostics: options?.diagnostics || undefined }, controller.signal);
       if (abortRef.current === controller) abortRef.current = null;
       if (controller.signal.aborted) {
         patch({ status: "stopped" });
@@ -466,6 +510,22 @@ export function AssistantPanel({
     else void send(lastUser.content);
   }
 
+  function dismissNotice(key: string) {
+    dismissedRef.current.add(key);
+    try { window.sessionStorage.setItem(`fedlify-dismissed-notices:${projectId}`, JSON.stringify([...dismissedRef.current].slice(-50))); } catch { /* storage unavailable */ }
+    setNotices((current) => current.filter((item) => item.key !== key));
+  }
+
+  function explainFailure(kind: FailureSummary["kind"]) {
+    setMode("ask");
+    void send(FAILURE_PROMPTS[kind].explain, { diagnostics: true });
+  }
+
+  function proposeFix(kind: FailureSummary["kind"]) {
+    setMode("propose");
+    void propose(FAILURE_PROMPTS[kind].fix, undefined, { diagnostics: true });
+  }
+
   function clearChat() {
     abortRef.current?.abort();
     update(() => []);
@@ -515,6 +575,18 @@ export function AssistantPanel({
       </div>
 
       <div className="fedlify-ws-log" ref={logRef} role="log" aria-live="polite" aria-label="Conversation">
+        {notices.map((notice) => (
+          <div key={notice.key} className="fedlify-ws-msg is-system" role="alert" data-testid={`failure-notice-${notice.kind}`}>
+            <span className="fedlify-ws-msg-role">System</span>
+            <strong>{notice.title}</strong>
+            {notice.lines.length > 0 ? <pre className="fedlify-ws-msg-code"><code>{notice.lines.join("\n")}</code></pre> : <Typography.Text className="fedlify-muted">No error text was recorded.</Typography.Text>}
+            <div className="fedlify-ws-proposal-actions">
+              <Button size="small" disabled={streaming} onClick={() => explainFailure(notice.kind)}>Explain</Button>
+              <Button size="small" type="primary" disabled={streaming} onClick={() => proposeFix(notice.kind)}>Propose fix</Button>
+              <Button size="small" type="text" onClick={() => dismissNotice(notice.key)}>Dismiss</Button>
+            </div>
+          </div>
+        ))}
         {messages.length === 0 ? (
           <div className="fedlify-ws-quick">
             <Typography.Text className="fedlify-muted">
@@ -526,6 +598,11 @@ export function AssistantPanel({
               {(mode === "propose" ? PROPOSE_PROMPTS : QUICK_PROMPTS).map((prompt) => (
                 <Button key={prompt} size="small" onClick={() => void submit(prompt)}>{prompt}</Button>
               ))}
+              {mode === "ask" && publishKey && !notices.some((n) => n.kind === "publish") ? <Button size="small" onClick={() => void send("Why did publish fail?", { diagnostics: true })}>Why did publish fail?</Button> : null}
+              {mode === "ask" && runKey && !notices.some((n) => n.kind === "run") ? <Button size="small" onClick={() => void send("Why did the run fail?", { diagnostics: true })}>Why did the run fail?</Button> : null}
+              {mode === "ask" && unconnectedSites.length > 0 ? (
+                <Button size="small" onClick={() => void send(`Why is site ${unconnectedSites[0]} not connected?`, { diagnostics: true })}>{`Why is site ${unconnectedSites[0]} not connected?`}</Button>
+              ) : null}
               {mode === "ask" && focusFile ? <Button size="small" onClick={() => void send(`Explain ${focusFile}`)}>{`Explain ${focusFile}`}</Button> : null}
             </div>
           </div>

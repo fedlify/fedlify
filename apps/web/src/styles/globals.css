@@ -5832,3 +5832,20 @@ h4.ant-typography {
   height: auto;
   min-height: 0;
 }
+
+/* Failure notice posted by the assistant panel for a failed publish or run. */
+.fedlify-ws-msg.is-system {
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #f0b4b4;
+  border-radius: 12px;
+  background: #fff6f6;
+}
+
+.fedlify-ws-msg.is-system .fedlify-ws-msg-code {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

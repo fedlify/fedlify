@@ -2,7 +2,7 @@
  * E2E: Pipeline build flow
  *
  * Tests the simplified researcher journey:
- *   Study Pipeline section (State A) → pipeline-agent → back to study (State B) → approve → State C
+ *   Study Pipeline section (State A) → projects (legacy pipeline-agent URL redirects) → back to study (State B) → approve → State C
  *
  * Relies on:
  *   - A running dev server at PLAYWRIGHT_BASE_URL (default: http://localhost:3000)
@@ -45,90 +45,24 @@ test.describe("Pipeline build flow", () => {
     const pipelinePanel = page.locator(".fedlify-pipeline-state-panel");
     await expect(pipelinePanel).toBeVisible({ timeout: 10_000 });
 
-    // "Describe to AI" button should be present in State A
+    // "Start a pipeline" button should be present in State A
     // OR "Go to Run section" in State C — either is valid depending on prior runs
-    const hasDescribeBtn = await page.locator('button:has-text("Describe to AI")').isVisible().catch(() => false);
+    const hasStartBtn = await page.locator('button:has-text("Start a pipeline")').isVisible().catch(() => false);
     const hasRunBtn = await page.locator('button:has-text("Go to Run section")').isVisible().catch(() => false);
     const hasApproveBtn = await page.locator('button:has-text("Approve this pipeline")').isVisible().catch(() => false);
 
-    expect(hasDescribeBtn || hasRunBtn || hasApproveBtn).toBe(true);
+    expect(hasStartBtn || hasRunBtn || hasApproveBtn).toBe(true);
   });
 
-  for (const entry of [
-    { mode: "develop", suffix: "" },
-    { mode: "adjust", suffix: "?mode=adjust" },
-    { mode: "from-template", suffix: `?mode=from-template&templateId=${SEEDED_TEMPLATE_ID}` }
-  ]) {
-    test(`pipeline-agent starts in chat-first layout for ${entry.mode} mode`, async ({ page }) => {
-      await signIn(page);
-
-      const studyUrl = page.url();
-      const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
-      expect(studyId).toBeTruthy();
-
-      await page.goto(`/studies/${studyId}/pipeline-agent${entry.suffix}`);
-      await page.waitForLoadState("domcontentloaded");
-      await page.waitForTimeout(3000);
-
-      await expect(page.locator(".fedlify-pa-chat-panel")).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator(".fedlify-pa-code-panel")).toHaveCount(0);
-      await expect(page.locator(".fedlify-pa-messages")).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator("[data-testid='pipeline-files']")).toHaveCount(0);
-      await expect(page.locator("[data-testid='guided-intake-modal']")).toHaveCount(0);
-    });
-  }
-
-  test("pipeline-agent only opens guided intake after plan mode is enabled", async ({ page }) => {
+  test("legacy pipeline-agent URLs redirect to study projects", async ({ page }) => {
     await signIn(page);
-
-    const studyUrl = page.url();
-    const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
+    const studyId = page.url().match(/studies\/([^?/]+)/)?.[1];
     expect(studyId).toBeTruthy();
 
-    await page.goto(`/studies/${studyId}/pipeline-agent`);
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(3000);
-
-    await expect(page.locator("[data-testid='guided-intake-modal']")).toHaveCount(0);
-    await page.getByRole("button", { name: "Toggle plan mode" }).click();
-    await expect(page.locator("[data-testid='guided-intake-modal']")).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("pipeline-agent page opens files intentionally", async ({ page }) => {
-    await signIn(page);
-
-    const studyUrl = page.url();
-    const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
-    expect(studyId).toBeTruthy();
-
-    await page.goto(`/studies/${studyId}/pipeline-agent`);
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(3000);
-
-      await expect(page.locator("[data-testid='pipeline-files']")).toHaveCount(0);
-      await page.locator('button:has-text("Open files")').first().click();
-      await expect(page.locator("[data-testid='pipeline-files']")).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator(".fedlify-pa-code-panel")).toBeVisible({ timeout: 10_000 });
-    });
-
-  test("pipeline-agent back button navigates to study pipeline", async ({ page }) => {
-    await signIn(page);
-
-    const studyUrl = page.url();
-    const studyId = studyUrl.match(/studies\/([^?/]+)/)?.[1];
-    expect(studyId).toBeTruthy();
-
-    await page.goto(`/studies/${studyId}/pipeline-agent`);
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(2000);
-
-    // Click the back button
-    const backBtn = page.locator('button[aria-label="Back to study pipeline"], button:has-text("Back to study pipeline")').first();
-    await expect(backBtn).toBeVisible({ timeout: 5000 });
-    await backBtn.click();
-    await page.waitForURL(/studies\/[^/]+\?section=pipeline/, { timeout: 8000 });
-
-    expect(page.url()).toContain("section=pipeline");
+    for (const suffix of ["", "?mode=adjust", `?mode=from-template&templateId=${SEEDED_TEMPLATE_ID}`]) {
+      await page.goto(`/studies/${studyId}/pipeline-agent${suffix}`);
+      await page.waitForURL(new RegExp(`/studies/${studyId}/projects$`), { timeout: 10_000 });
+    }
   });
 
   test("templates catalog shows simplified UI without 16-field form", async ({ page }) => {

@@ -186,6 +186,14 @@ export default function StudyProjectsPage() {
     activeJob ? "A run is already in progress." : null
   ].filter((item): item is string => Boolean(item));
 
+  // What the assistant panel turns into a failure notice and quick prompts. Keys change when a new attempt fails.
+  const latestPublish = project?.versions[0];
+  const assistantFailures = {
+    publish: latestPublish?.publish?.status === "FAILED" ? `publish:${latestPublish.id}:${latestPublish.publish.workflowId ?? ""}` : null,
+    run: overview?.jobs[0] && ["FAILED", "REJECTED"].includes(overview.jobs[0].status) ? `run:${overview.jobs[0].id}` : null
+  };
+  const unconnectedSites = aggregatorActive ? (overview?.sites.filter((site) => site.connected === false).map((site) => site.code) ?? []) : [];
+
   // Keep the page live while something is moving (publish, run).
   useEffect(() => {
     if (!publishInFlight && !activeJob) return;
@@ -956,6 +964,8 @@ export default function StudyProjectsPage() {
               onAcceptProposal={decideProposalAccept}
               onRejectProposal={decideProposalReject}
               proposalSync={proposalSync}
+              failures={assistantFailures}
+              unconnectedSites={unconnectedSites}
             />
           </div>
         </>

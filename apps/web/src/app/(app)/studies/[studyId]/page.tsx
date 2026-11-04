@@ -81,7 +81,6 @@ import {
 } from "@/lib/studies";
 import {
   WORKFLOW_TERMS,
-  approvedTemplateCatalog,
   pipelineVersionState,
   templateScopeLabel,
   templateSourceLabel,
@@ -616,6 +615,10 @@ export default function StudyDetailPage() {
     setLastInvite(null);
     setSelectedFile(null);
     setEthicsEditingRecord(null);
+  }
+
+  function projectsUrl(projectId?: unknown) {
+    return typeof projectId === "string" && projectId ? `/studies/${studyId}/projects?project=${encodeURIComponent(projectId)}` : `/studies/${studyId}/projects`;
   }
 
   function sectionUrl(section: StudyWorkspaceSection, detail?: StudyDetailState | null) {
@@ -2628,7 +2631,6 @@ export default function StudyDetailPage() {
         (project.proposals ?? []).map((proposal: EntityRecord) => ({ ...proposal, project }))
       );
       const approvedVersions = currentApprovedPipelineVersions(currentStudy);
-      const approvedTemplatesForPipeline = approvedTemplateCatalog(templates);
       const latestProposal = pipelineProposals[0];
       // Latest validated (not yet approved) version for the approve button
       const pendingVersion = pipelineVersions.find((v) => v.validationStatus === "PASSED" && v.approvalStatus !== "APPROVED");
@@ -2657,28 +2659,18 @@ export default function StudyDetailPage() {
                 <div className="fedlify-psp-body">
                   <Typography.Title level={4} style={{ margin: 0 }}>Build your study pipeline</Typography.Title>
                   <Typography.Text type="secondary">
-                    Describe your federated learning goal and the AI will generate NVFlare executor code,
-                    or start from an existing approved template.
+                    Create a project, work with the assistant on its code, and publish it. Each change is reviewed
+                    and accepted by you before it is saved.
                   </Typography.Text>
                   <Space wrap style={{ marginTop: 8 }}>
                     <Button
                       type="primary"
                       className="fedlify-dark-action"
                       icon={<RobotOutlined />}
-                      onClick={() => router.push(`/studies/${studyId}/pipeline-agent`)}
+                      onClick={() => router.push(`/studies/${studyId}/projects`)}
                     >
-                      Describe to AI
+                      Start a pipeline
                     </Button>
-                    {approvedTemplatesForPipeline.length > 0 ? (
-                      <Button
-                        icon={<CodeOutlined />}
-                        onClick={() => router.push(
-                          `/studies/${studyId}/pipeline-agent?mode=from-template&templateId=${String(approvedTemplatesForPipeline[0].id)}`
-                        )}
-                      >
-                        Start from a template
-                      </Button>
-                    ) : null}
                     <Button
                       icon={<EyeOutlined />}
                       onClick={() => router.push("/templates")}
@@ -2686,21 +2678,6 @@ export default function StudyDetailPage() {
                       Browse templates
                     </Button>
                   </Space>
-                  {approvedTemplatesForPipeline.length > 0 ? (
-                    <div className="fedlify-psp-template-list">
-                      {approvedTemplatesForPipeline.slice(0, 4).map((tmpl) => (
-                        <button
-                          key={String(tmpl.id)}
-                          type="button"
-                          className="fedlify-psp-template-chip"
-                          onClick={() => router.push(`/studies/${studyId}/pipeline-agent?mode=from-template&templateId=${String(tmpl.id)}`)}
-                        >
-                          <CodeOutlined />
-                          <span>{text(tmpl.name, tmpl.templateKey)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -2747,18 +2724,9 @@ export default function StudyDetailPage() {
                         Review code
                       </Button>
                     ) : null}
-                    {latestProposal?.project?.template?.id ? (
-                      <Button
-                        icon={<RobotOutlined />}
-                        onClick={() => router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${String(latestProposal.project.template.id)}`)}
-                      >
-                        Continue editing with AI
-                      </Button>
-                    ) : (
-                      <Button icon={<RobotOutlined />} onClick={() => router.push(`/studies/${studyId}/pipeline-agent`)}>
-                        Continue editing with AI
-                      </Button>
-                    )}
+                    <Button icon={<RobotOutlined />} onClick={() => router.push(projectsUrl(latestProposal?.project?.id))}>
+                      Open project
+                    </Button>
                   </Space>
                 </div>
               </div>
@@ -2788,13 +2756,9 @@ export default function StudyDetailPage() {
                     </Button>
                     <Button
                       icon={<RobotOutlined />}
-                      onClick={() =>
-                        latestApprovedVersion?.project?.template?.id
-                          ? router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${String(latestApprovedVersion.project.template.id)}`)
-                          : router.push(`/studies/${studyId}/pipeline-agent`)
-                      }
+                      onClick={() => router.push(projectsUrl(latestApprovedVersion?.project?.id))}
                     >
-                      Create new version
+                      Open project
                     </Button>
                     {latestApprovedVersion?.project?.template?.id ? (
                       <Button
@@ -2845,10 +2809,9 @@ export default function StudyDetailPage() {
                           { key: "view", label: "View details", icon: <EyeOutlined />, onClick: () => openDetail("pipelineVersion", String(version.id), "pipeline") },
                           {
                             key: "adjust",
-                            label: "Adjust with AI",
+                            label: "Open project",
                             icon: <RobotOutlined />,
-                            disabled: !version.project?.template?.giteaRepo,
-                            onClick: () => router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${version.project?.template?.id ?? version.templateId ?? ""}`)
+                            onClick: () => router.push(projectsUrl(version.project?.id ?? version.projectId))
                           },
                           {
                             key: "approve",

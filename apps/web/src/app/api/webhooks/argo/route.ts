@@ -5,6 +5,7 @@ import { audit } from "@/lib/audit";
 import { verifyHmacSignature } from "@/lib/crypto";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
+import { readablePublishSummary } from "@/lib/workflow-health";
 
 const argoPayloadSchema = z.object({
   agentRunId: z.string().optional(),
@@ -45,7 +46,8 @@ const studyPublishSchema = z.object({
   validationSummary: z.string().max(4000).optional()
 });
 
-async function handleStudyPublish(payload: z.infer<typeof studyPublishSchema>, request: NextRequest) {
+async function handleStudyPublish(rawPayload: z.infer<typeof studyPublishSchema>, request: NextRequest) {
+  const payload = { ...rawPayload, validationSummary: readablePublishSummary(rawPayload.validationSummary) };
   const published = payload.stage === "published" && payload.phase === "Succeeded" && payload.imageDigest.includes("@sha256:");
   const deployment = await prisma.nvflareDeployment.findUnique({ where: { id: payload.deploymentId }, include: { study: true } });
   if (!deployment) return problem(404, "Deployment not found.", "not_found");

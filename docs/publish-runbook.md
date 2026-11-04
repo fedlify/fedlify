@@ -94,4 +94,4 @@ tools/deploy-fedlify.sh passthrough   # until day0 kubespray is re-run with the 
 - **Registry access.** One read-only robot pulls all study images. A per-study robot would stop a site from pulling another study's image, though images contain code only.
 - **Publisher permissions.** The `fedlify-study-publisher` ClusterRole can create Secrets in any namespace. Tighten it with an admission policy limited to `study-*`.
 - **Windows sites.** The published-kit runner is bash only; Windows sites use WSL.
-- **Old paths.** The old local-docker deployment, the `quick-deploy` route and the old agent pipeline are untouched and still use the synthetic smoke job. Retire them once this path is adopted.
+- **Old paths.** The legacy agent page (`/studies/[id]/pipeline-agent`) now redirects to the study's Projects page, and `POST pipeline/quick-deploy` returns 410. The old local-docker deployment, the template catalog and authoring routes, the control-plane, the probe and evaluation code, and the old DB models are kept: probe specs and the paper evaluation use them. They are no longer reachable from the study UI, and they still use the synthetic smoke job.

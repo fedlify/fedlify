@@ -2,7 +2,7 @@
 
 This tutorial walks through a simple three-person Fedlify workflow:
 
-- Study coordinator: creates the study, invites sites, approves the pipeline version, starts the aggregator, submits the federated run, and reviews logs.
+- Study coordinator: creates the study, invites sites, publishes the pipeline, starts the aggregator, submits the federated run, and reviews logs.
 - Site operator 1: joins the study for Site 1 and starts the local site runner.
 - Site operator 2: joins the study for Site 2 and starts the local site runner.
 
@@ -14,7 +14,7 @@ By the end, Fedlify should show:
 
 - One active governed study.
 - Two participant sites with readiness `Passed`.
-- One approved pipeline version backed by a Gitea commit and draft PR.
+- One published pipeline version backed by a Gitea commit.
 - One active NVFLARE aggregator address, for example `localhost:18000`.
 - One completed federated run with runtime events and Docker logs.
 
@@ -137,41 +137,27 @@ Do not upload raw patient data, extracts, CSV files, parquet files, or identifie
 
 If a person has multiple roles, keep them as one person with multiple role chips rather than duplicate cards.
 
-## Step 4: Coordinator Creates a Pipeline Version
+## Step 4: Coordinator Creates a Project and Edits the Pipeline
 
-1. Go to `Pipeline`.
-2. Open `Template sources`.
-3. Choose an approved public or study template, for example `NVFLARE Cross-silo FedAvg`.
-4. Review the template source if needed.
-5. Select `Create pipeline version`.
-6. Provide a short request, for example:
+1. Go to `Pipeline` and select `Start a pipeline`. This opens the study's `Projects` page.
+2. Select `New project` and name it. Fedlify creates a Gitea repository in the study Gitea org.
+3. Work with the assistant on the code. Describe what you want, for example:
 
 ```text
 Create a two-site synthetic NVFLARE smoke pipeline. Keep site count configurable from selected sites, set one federated round for the smoke run, preserve site-local data boundaries, and include README/tests for reviewer inspection.
 ```
 
-7. Submit the request.
-8. Fedlify creates:
-   - A Gitea repository in the study Gitea org.
-   - A proposal branch.
-   - A draft PR.
-   - An immutable pipeline version record tied to a Git commit.
-   - A validation record.
+4. The assistant only proposes changes. Review the diff and select `Accept` or `Reject`. Nothing is saved until you accept, and the assistant never publishes or runs anything itself.
+5. You can also edit files directly and save. Each save is a commit.
 
-## Step 5: Coordinator Reviews and Approves the Pipeline Version
+## Step 5: Coordinator Reviews and Publishes
 
-1. Stay in `Pipeline`.
-2. Open the new pipeline version.
-3. Review:
-   - Source template.
-   - Gitea PR.
-   - Git commit.
-   - Validation status.
-   - Runtime parameters such as `min_clients` and `num_rounds`.
-4. If changes are needed, use code review or AI-assisted review to create another draft PR.
-5. When validation passes, approve the pipeline version for study use.
+1. Stay on `Projects` and open the project.
+2. Review the saved commit, the checks panel, and runtime parameters such as `min_clients` and `num_rounds`.
+3. If changes are needed, ask the assistant for another proposal, or edit and save.
+4. Select `Publish <commit>`. Publishing freezes that saved commit as a pipeline version, builds the study image, and (re)starts the study aggregator. Unsaved edits are not included.
 
-Approval means the commit is runnable for this study. It does not publish a reusable public template.
+Publishing makes the commit runnable for this study. It does not publish a reusable public template.
 
 ## Step 6: Coordinator Provisions and Starts the Aggregator
 

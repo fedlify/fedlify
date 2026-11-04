@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
+import { loadDiagnosticsForMessage } from "@/lib/diagnostics-access";
 import { problem } from "@/lib/json";
 import { buildAgentInput, buildContextPack } from "@/lib/project-context";
 import { loadProjectRepo } from "@/lib/project-repo";
@@ -38,7 +39,9 @@ const requestSchema = z.object({
     .max(50)
     .default([]),
   filePath: filePathSchema.optional(),
-  selection: z.string().max(20000).optional()
+  selection: z.string().max(20000).optional(),
+  /** Set by the failure buttons and site prompts; otherwise the question itself decides. */
+  diagnostics: z.boolean().optional()
 });
 
 type Params = { params: Promise<{ studyId: string; projectId: string }> };
@@ -95,6 +98,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   ]);
   if (!study) return bail(problem(404, "Study not found.", "not_found"));
 
+  const diagnostics = await loadDiagnosticsForMessage({ userId: authResult.userId, studyId, projectId, message: body.message, flagged: body.diagnostics });
+
   const context = buildContextPack({
     study,
     requirementResponses: responses,
@@ -106,7 +111,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     })),
     files: repo.files,
     commit: repo.commit,
-    focus: body.filePath ? { path: body.filePath, selection: body.selection } : null
+    focus: body.filePath ? { path: body.filePath, selection: body.selection } : null,
+    diagnostics
   });
 
   await audit({
@@ -124,7 +130,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       messageChars: body.message.length,
       filePath: body.filePath ?? null,
       hasSelection: Boolean(body.selection),
-      truncated: context.truncated.length > 0
+      truncated: context.truncated.length > 0,
+      diagnosticsIncluded: diagnostics !== null
     },
     request
   });

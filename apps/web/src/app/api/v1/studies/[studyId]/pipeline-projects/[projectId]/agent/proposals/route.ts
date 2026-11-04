@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
+import { loadDiagnosticsForMessage } from "@/lib/diagnostics-access";
 import {
   buildProposalInput,
   parseProposalResponse,
@@ -38,7 +39,8 @@ const requestSchema = z.object({
     .default([]),
   filePath: repoPathSchema.optional(),
   filePaths: z.array(repoPathSchema).max(PROPOSAL_LIMITS.maxRequestedPaths).default([]),
-  selection: z.string().max(20000).optional()
+  selection: z.string().max(20000).optional(),
+  diagnostics: z.boolean().optional()
 });
 
 type Params = { params: Promise<{ studyId: string; projectId: string }> };
@@ -116,13 +118,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     ]);
     if (!study) return problem(404, "Study not found.", "not_found");
 
+    const diagnostics = await loadDiagnosticsForMessage({ userId: authResult.userId, studyId, projectId, message: body.message, flagged: body.diagnostics });
     const context = buildContextPack({
       study,
       requirementResponses: responses,
       sites: studySites.map((site) => ({ code: site.code, name: site.name, institutionName: site.institutionName, dataProfile: site.dataProfile })),
       files: repo.files,
       commit: repo.commit,
-      focus: body.filePath ? { path: body.filePath, selection: body.selection } : null
+      focus: body.filePath ? { path: body.filePath, selection: body.selection } : null,
+      diagnostics
     });
     const shown = selectShownFiles(repo.files, requested);
     const message = body.selection
@@ -208,7 +212,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         contextHash: context.hash,
         baseCommit: repo.commit,
         model: config.model,
-        paths: validation.files.map((file) => file.path)
+        paths: validation.files.map((file) => file.path),
+        diagnosticsIncluded: diagnostics !== null
       },
       request
     });

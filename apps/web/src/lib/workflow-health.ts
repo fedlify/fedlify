@@ -80,3 +80,24 @@ export function currentStep(pods: PodLike[], workflowName?: string): { step: str
   const pending = byNewest.find((pod) => pod.status?.phase === "Pending");
   return pending ? { step: podStep(pending, workflowName), state: "pending" } : null;
 }
+
+// Argo's {{workflow.failures}} is a JSON list (sometimes JSON-quoted). Turn it into a sentence people can read.
+export function readablePublishSummary(summary: string | undefined): string | undefined {
+  if (!summary) return summary;
+  const quoted = summary.indexOf('"[');
+  const start = quoted >= 0 ? quoted : summary.indexOf("[{");
+  if (start < 0) return summary;
+  try {
+    let raw: unknown = JSON.parse(summary.slice(start));
+    if (typeof raw === "string") raw = JSON.parse(raw);
+    if (!Array.isArray(raw)) return summary;
+    const pods = raw.filter((item) => item?.templateName && item.templateName !== "publish" && item?.podName);
+    const steps = pods.length > 0 ? pods : raw;
+    const parts = steps.slice(0, 3).map((item) => `step "${item?.displayName ?? item?.templateName ?? "unknown"}": ${item?.message ?? "failed"}`);
+    return parts.length > 0 ? `Publish failed in ${parts.join("; ")}` : summary;
+  } catch {
+    // Truncated or unexpected text: keep what we were given.
+    return summary;
+  }
+}
+

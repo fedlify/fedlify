@@ -85,7 +85,10 @@ export default function TemplateDetailPage() {
   const isApproved = template?.currentApprovedVersion?.approvalStatus === "APPROVED";
 
   // Can fork: must be approved, non-legacy, and a studyId must be available
-  const canFork = hasGiteaRepo && isApproved && Boolean(studyId);
+  // Forking is hidden until the study projects page can open a forked template: the fork route creates only a
+  // study template row, not an editable project. Projects start from the Fedlify starter repository for now.
+  const FORK_REACHABLE = false;
+  const canFork = FORK_REACHABLE && hasGiteaRepo && isApproved && Boolean(studyId);
 
   // Fork this template into the study's Gitea workspace, then open the pipeline agent
   async function forkToStudy() {
@@ -102,9 +105,9 @@ export default function TemplateDetailPage() {
 
       // Fork succeeded — open the pipeline agent in "adjust" mode with the new study template
       const forkedTemplateId = body.template?.id;
-      message.success("Template forked to your study workspace. Opening code editor…");
+      message.success("Template forked to your study workspace.");
       if (forkedTemplateId) {
-        router.push(`/studies/${studyId}/pipeline-agent?mode=adjust&templateId=${forkedTemplateId}`);
+        router.push(`/studies/${studyId}/projects`);
       } else {
         router.push(`/studies/${studyId}?section=pipeline`);
       }
@@ -203,7 +206,7 @@ export default function TemplateDetailPage() {
         actions={
           <Space wrap>
             {/* Primary action: use this template in the current study */}
-            {studyId ? (
+            {FORK_REACHABLE && studyId ? (
               <Button
                 type="primary"
                 className="fedlify-dark-action"
@@ -217,13 +220,13 @@ export default function TemplateDetailPage() {
               </Button>
             ) : null}
 
-            {/* Edit with AI — only available in study context */}
+            {/* Study projects — only available in study context */}
             {hasGiteaRepo && studyId ? (
               <Button
                 icon={<RobotOutlined />}
-                onClick={() => router.push(`/studies/${studyId}/pipeline-agent?mode=from-template&templateId=${template.id}`)}
+                onClick={() => router.push(`/studies/${studyId}/projects`)}
               >
-                Edit with AI
+                Open study projects
               </Button>
             ) : null}
 
@@ -291,7 +294,7 @@ export default function TemplateDetailPage() {
                           </>
                         }
                       />
-                    ) : (
+                    ) : FORK_REACHABLE ? (
                       <div style={{ marginTop: 16 }}>
                         <Button
                           type="primary"
@@ -306,7 +309,7 @@ export default function TemplateDetailPage() {
                           Creates a branch in your study&apos;s Gitea workspace and opens the AI-assisted code editor.
                         </Typography.Text>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ) : null}
 
