@@ -191,6 +191,10 @@ enum AgentProposalStatus {
   MERGED
   REJECTED
   CLOSED
+  // Workspace assistant proposals (structured file changes accepted by a human as one Gitea commit).
+  PROPOSED
+  ACCEPTED
+  STALE
 }
 
 enum TemplateProposalKind {
@@ -395,6 +399,7 @@ model User {
   createdGiteaWorkspaces     GiteaWorkspace[]          @relation("GiteaWorkspaceCreatedBy")
   templateAgentSessions      TemplateAgentSession[]    @relation("TemplateAgentSessionRequestedBy")
   requestedAgentProposals    AgentProposal[]           @relation("AgentProposalRequestedBy")
+  acceptedAgentProposals     AgentProposal[]           @relation("AgentProposalAcceptedBy")
   approvedPipelineVersions   PipelineVersion[]         @relation("PipelineVersionApprovedBy")
   submittedNvflareJobs       NvflareJob[]              @relation("NvflareJobSubmittedBy")
   syncedNvflareJobResults    NvflareJobResult[]        @relation("NvflareJobResultSyncedBy")
@@ -1058,13 +1063,28 @@ model AgentProposal {
   giteaBaseBranch        String?
   status                 AgentProposalStatus @default(OPEN)
   resultSummary          String?
+  // Workspace assistant proposals only (null for the legacy template pull-request flow).
+  title                  String?
+  rationale              String?
+  files                  Json?
+  baseCommit             String?
+  contextHash            String?
+  model                  String?
+  // The person who accepted. Null until accepted; a reject never sets it (the rejecting actor is in the audit log).
+  acceptedById           String?
+  acceptedCommit         String?
+  acceptedPaths          Json?
+  decidedAt              DateTime?
   project                PipelineProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   requestedBy            User                @relation("AgentProposalRequestedBy", fields: [requestedById], references: [id])
+  acceptedBy             User?               @relation("AgentProposalAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
   ciRuns                 CIValidationRun[]
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 
   @@index([projectId, status])
+  @@index([projectId, acceptedCommit])
+  @@index([acceptedById])
 }
 
 model CIValidationRun {

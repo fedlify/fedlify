@@ -1,21 +1,25 @@
 "use client";
 
+import type { Key } from "react";
 import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
-import { AssistantPanel, type AskRequest } from "@/components/AssistantPanel";
+import { AssistantPanel, type AskRequest, type ProposalActionResult, type ProposalSync } from "@/components/AssistantPanel";
 import { ChecksPanel } from "@/components/ChecksPanel";
-import { CodeReviewPanel, type SourceFile } from "@/components/CodeReviewPanel";
+import { CodeReviewPanel, type ProposalReviewState, type SourceFile } from "@/components/CodeReviewPanel";
 import { FileTree } from "@/components/FileTree";
 import { PipelineRail } from "@/components/PipelineRail";
+import { acceptProposal, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
 
 type Version = {
   id: string;
   version: string;
   gitCommit: string | null;
+  /** Set when the version's commit was accepted from an assistant proposal. */
+  agentProposal?: { id: string; title: string | null } | null;
   imageDigest: string | null;
   validationStatus: string;
   publishedAt: string | null;
@@ -118,11 +122,18 @@ export default function StudyProjectsPage() {
   const [activeStage, setActiveStage] = useState<StageKey>("code");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [repoPaths, setRepoPaths] = useState<string[]>([]);
+  const [sourceStatus, setSourceStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [filesStatus, setFilesStatus] = useState<"loading" | "ready" | "error">("loading");
+  const sourceSeq = useRef(0);
+  const [expandedRounds, setExpandedRounds] = useState<readonly Key[]>([]);
   const [dirtyPath, setDirtyPath] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [askRequest, setAskRequest] = useState<AskRequest | null>(null);
   const [conflict, setConflict] = useState<{ file: SourceFile; content: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [review, setReview] = useState<ProposalReviewState | null>(null);
+  const [proposalSync, setProposalSync] = useState<ProposalSync | null>(null);
+  const syncCounter = useRef(0);
   const editorControl = useRef<{ save: () => void; hasEdits: () => boolean } | null>(null);
   const askCounter = useRef(0);
 
@@ -224,16 +235,27 @@ export default function StudyProjectsPage() {
 
   const loadSourceCommit = useCallback(async () => {
     if (!projectId) return;
+    // Only the newest request may write state: a slow answer for a previous project or reload is dropped.
+    const seq = ++sourceSeq.current;
+    setSourceStatus("loading");
     try {
       const body = await apiCall<{ commit: string | null }>(`/api/v1/studies/${studyId}/pipeline-projects/${projectId}/source`);
+      if (seq !== sourceSeq.current) return;
       setSourceCommit(body.commit);
+      setSourceStatus("ready");
     } catch {
+      if (seq !== sourceSeq.current) return;
       setSourceCommit(null);
+      setSourceStatus("error");
     }
   }, [projectId, studyId]);
 
   useEffect(() => {
+    setFilesStatus("loading");
     void loadSourceCommit();
+    return () => {
+      sourceSeq.current += 1;
+    };
   }, [loadSourceCommit, reloadKey]);
 
   async function save(file: SourceFile, content: string, baseCommit: string | null = loadedCommit ?? sourceCommit) {
@@ -253,6 +275,74 @@ export default function StudyProjectsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function openProposalReview(id: string) {
+    if (!projectId) return;
+    const result = await getProposal(studyId, projectId, id);
+    if (!result.ok) {
+      message.error(result.message);
+      return;
+    }
+    const { proposal } = result;
+    setReview({
+      id: proposal.id,
+      title: proposal.title,
+      status: proposal.status,
+      baseCommit: proposal.baseCommit,
+      files: proposal.files,
+      // Every file starts selected; the person can reject any of them before committing.
+      accepted: Object.fromEntries(proposal.files.map((file) => [file.path, true])),
+      busy: false
+    });
+    setActiveStage("code");
+  }
+
+  useEffect(() => {
+    setReview(null);
+  }, [projectId]);
+
+  function announceProposal(id: string, status: ProposalSync["status"], commit: string | null, paths: string[] | null = null) {
+    syncCounter.current += 1;
+    setProposalSync({ id, status, commit, paths, nonce: syncCounter.current });
+  }
+
+  async function decideProposalAccept(id: string, paths?: string[]): Promise<ProposalActionResult> {
+    if (!projectId) return { ok: false, status: 0, code: "no_project", message: "No project is open.", details: [], stale: false };
+    if (dirtyPath) {
+      const result: ProposalActionResult = { ok: false, status: 0, code: "unsaved_edit", message: `Save or discard your edit to ${dirtyPath} first; accepting reloads the files.`, details: [], stale: false };
+      message.warning(result.message);
+      return result;
+    }
+    const result = await acceptProposal(studyId, projectId, id, paths);
+    if (result.ok) {
+      message.success(`Committed ${result.changed} file(s) (${short(result.commitSha, 8)}). Nothing was published or run.`);
+      announceProposal(id, "ACCEPTED", result.commitSha, paths ?? null);
+      setReview(null);
+      setReloadKey((key) => key + 1);
+      void load();
+      return { ok: true, commitSha: result.commitSha };
+    }
+    if (result.stale) {
+      message.warning(result.message);
+      announceProposal(id, "STALE", null);
+      setReview((current) => (current?.id === id ? { ...current, status: "STALE", busy: false } : current));
+    } else {
+      message.error([result.message, ...result.details].join(" "));
+    }
+    return result;
+  }
+
+  async function decideProposalReject(id: string) {
+    if (!projectId) return { ok: false as const, status: 0, code: "no_project", message: "No project is open.", details: [], stale: false };
+    const result = await rejectProposal(studyId, projectId, id);
+    if (result.ok) {
+      announceProposal(id, "REJECTED", null);
+      setReview((current) => (current?.id === id ? null : current));
+    } else {
+      message.error(result.message);
+    }
+    return result.ok ? { ok: true as const } : result;
   }
 
   async function saveOnTopOfLatest() {
@@ -356,6 +446,7 @@ export default function StudyProjectsPage() {
         hasProject: Boolean(project),
         unsavedFiles: dirtyPath ? 1 : 0,
         sourceCommit,
+        sourceStatus,
         versions: project?.versions ?? [],
         aggregator: overview?.aggregator ?? null,
         sites: overview?.sites ?? [],
@@ -363,7 +454,7 @@ export default function StudyProjectsPage() {
         busy: { saving, publishing, starting },
         activeStage
       }),
-    [project, dirtyPath, sourceCommit, overview, saving, publishing, starting, activeStage]
+    [project, dirtyPath, sourceCommit, sourceStatus, overview, saving, publishing, starting, activeStage]
   );
 
   /** Run `proceed` now, or after the user agrees to discard the unsaved edit. */
@@ -409,6 +500,9 @@ export default function StudyProjectsPage() {
       setDirtyPath(null);
       setSelectedPath(null);
       setRepoPaths([]);
+      sourceSeq.current += 1;
+      setFilesStatus("loading");
+      setSourceStatus("loading");
       setSourceCommit(null);
       setLoadedCommit(null);
       setAskRequest(null);
@@ -472,13 +566,15 @@ export default function StudyProjectsPage() {
             ) : null}
             <Tooltip title={activeJob ? "A run is in progress; publishing restarts the aggregator." : undefined}>
               <Button type="primary" icon={<CloudUploadOutlined />} loading={publishing || publishInFlight} disabled={Boolean(activeJob) || !sourceCommit} onClick={requestPublish}>
-                Publish {short(sourceCommit, 8)}
+                {sourceStatus === "loading" && !sourceCommit ? "Publish" : `Publish ${short(sourceCommit, 8)}`}
               </Button>
             </Tooltip>
           </Space>
         }
       />
-      {!sourceCommit ? <Typography.Paragraph type="secondary">Publish is unavailable: there is no saved commit yet.</Typography.Paragraph> : null}
+      {!sourceCommit && sourceStatus === "loading" ? <Typography.Paragraph type="secondary">Loading the saved commit…</Typography.Paragraph> : null}
+      {!sourceCommit && sourceStatus === "error" ? <Alert type="error" showIcon style={{ marginBottom: 12 }} message="Could not read the saved commit" description="Publish is unavailable until the source loads. Reload the page to try again." /> : null}
+      {!sourceCommit && sourceStatus === "ready" ? <Typography.Paragraph type="secondary">Publish is unavailable: there is no saved commit yet.</Typography.Paragraph> : null}
       {activeJob ? <Typography.Paragraph type="secondary">Publish is unavailable while a run is in progress; publishing restarts the aggregator.</Typography.Paragraph> : null}
       <Table<Version>
         size="small"
@@ -498,7 +594,20 @@ export default function StudyProjectsPage() {
               </Space>
             )
           },
-          { title: "Commit", dataIndex: "gitCommit", render: (value: string | null) => <code>{short(value, 8)}</code> },
+          {
+            title: "Commit",
+            dataIndex: "gitCommit",
+            render: (value: string | null, row) => (
+              <Space size={4}>
+                <code>{short(value, 8)}</code>
+                {row.agentProposal ? (
+                  <Tooltip title={`This commit was written by the assistant and accepted by a person${row.agentProposal.title ? `: ${row.agentProposal.title}` : ""}.`}>
+                    <Tag color="purple">agent</Tag>
+                  </Tooltip>
+                ) : null}
+              </Space>
+            )
+          },
           {
             title: "Publish",
             render: (_, row) => (
@@ -623,29 +732,32 @@ export default function StudyProjectsPage() {
             size="small"
             rowKey="round"
             pagination={false}
-            scroll={{ x: "max-content" }}
+            tableLayout="auto"
+            className="fedlify-run-table"
             dataSource={progress.rounds}
             locale={{ emptyText: "Waiting for the first round." }}
+            expandable={{
+              expandedRowKeys: expandedRounds,
+              onExpandedRowsChange: (keys) => setExpandedRounds(keys),
+              rowExpandable: (row) => row.sites.length > 0,
+              expandedRowRender: (row) => (
+                <Space direction="vertical" size={2}>
+                  {row.sites.map((site) => (
+                    <div key={site.site}>
+                      <strong>{site.site}</strong> <span className="fedlify-muted">n={site.numSamples}</span>:{" "}
+                      {Object.entries(site.metrics).map(([k, v]) => `${k} ${v.toFixed(3)}`).join(" · ") || "no metrics"}
+                    </div>
+                  ))}
+                </Space>
+              )
+            }}
             columns={[
-              { title: "Round", dataIndex: "round" },
+              { title: "Round", dataIndex: "round", width: 64 },
               ...metricKeys.map((key) => ({
-                title: `${key} (weighted)`,
+                title: key,
+                ellipsis: true,
                 render: (_: unknown, row: RoundRow) => (row.weighted[key] != null ? row.weighted[key].toFixed(4) : "—")
-              })),
-              {
-                title: "Per site",
-                render: (_: unknown, row: RoundRow) => (
-                  <Space wrap size={4}>
-                    {row.sites.map((site) => (
-                      <Tooltip key={site.site} title={`n=${site.numSamples}`}>
-                        <Tag>
-                          {site.site}: {Object.entries(site.metrics).map(([k, v]) => `${k} ${v.toFixed(3)}`).join(" · ")}
-                        </Tag>
-                      </Tooltip>
-                    ))}
-                  </Space>
-                )
-              }
+              }))
             ]}
           />
         </>
@@ -654,19 +766,29 @@ export default function StudyProjectsPage() {
         size="small"
         rowKey="id"
         pagination={false}
-        scroll={{ x: "max-content" }}
+        tableLayout="auto"
+        className="fedlify-run-table"
         style={{ marginTop: 16 }}
         dataSource={overview?.jobs ?? []}
         locale={{ emptyText: "No runs yet." }}
         columns={[
-          { title: "Started", dataIndex: "createdAt", render: (value: string) => new Date(value).toLocaleString() },
-          { title: "Version", render: (_, row) => row.pipelineVersion?.version ?? "—" },
-          { title: "Status", dataIndex: "status", render: (value: string) => <Tag color={statusColor[value] ?? "default"}>{value}</Tag> },
-          { title: "NVFLARE job", dataIndex: "nvflareJobId", render: (value: string | null) => <code>{short(value, 8)}</code> },
+          {
+            title: "Run",
+            render: (_, row) => (
+              <div>
+                <div>{new Date(row.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                <span className="fedlify-muted">
+                  {row.pipelineVersion?.version ?? "—"} · <code>{short(row.nvflareJobId, 8)}</code>
+                </span>
+              </div>
+            )
+          },
+          { title: "Status", dataIndex: "status", width: 110, render: (value: string) => <Tag color={statusColor[value] ?? "default"}>{value}</Tag> },
           {
             title: "",
+            width: 120,
             render: (_, row) => (
-              <Space>
+              <Space direction="vertical" size={4} align="end">
                 <Button size="small" onClick={() => followJob(row.id)} disabled={!row.nvflareJobId}>
                   Metrics
                 </Button>
@@ -754,7 +876,7 @@ export default function StudyProjectsPage() {
             <aside className="fedlify-ws-side" aria-label="Files and checks">
               <div className="fedlify-ws-section-title">
                 <strong>Files</strong>
-                <span className="fedlify-muted">{repoPaths.length}</span>
+                <span className="fedlify-muted">{filesStatus === "ready" ? repoPaths.length : filesStatus === "error" ? "error" : "…"}</span>
               </div>
               <FileTree paths={repoPaths} selectedPath={selectedPath} modifiedPaths={dirtyPath ? [dirtyPath] : []} onSelect={selectFile} />
               <ChecksPanel key={project.id} studyId={studyId} projectId={project.id} commit={sourceCommit} />
@@ -778,10 +900,35 @@ export default function StudyProjectsPage() {
                   onSelectedPathChange={setSelectedPath}
                   onFilesLoaded={(files, commit) => {
                     setRepoPaths(files.map((file) => file.path));
+                    setFilesStatus("ready");
                     setLoadedCommit(commit);
+                  }}
+                  onLoadError={() => {
+                    setFilesStatus("error");
+                    setLoadedCommit(null);
                   }}
                   onDirtyChange={setDirtyPath}
                   controlRef={editorControl}
+                  proposalReview={review}
+                  onProposalToggle={(path, accepted) => setReview((current) => (current ? { ...current, accepted: { ...current.accepted, [path]: accepted } } : current))}
+                  onProposalAccept={() => {
+                    if (!review) return;
+                    const id = review.id;
+                    const paths = review.files.filter((file) => review.accepted[file.path]).map((file) => file.path);
+                    setReview((current) => (current ? { ...current, busy: true } : current));
+                    void decideProposalAccept(id, paths).then((result) => {
+                      if (!result.ok) setReview((current) => (current?.id === id ? { ...current, busy: false } : current));
+                    });
+                  }}
+                  onProposalReject={() => {
+                    if (!review) return;
+                    const id = review.id;
+                    setReview((current) => (current ? { ...current, busy: true } : current));
+                    void decideProposalReject(id).then((result) => {
+                      if (!result.ok) setReview((current) => (current?.id === id ? { ...current, busy: false } : current));
+                    });
+                  }}
+                  onProposalClose={() => setReview(null)}
                   onSaveDraft={(file, content) => void save(file, content)}
                   onAskAssistant={({ path, selection }) => {
                     askCounter.current += 1;
@@ -805,6 +952,10 @@ export default function StudyProjectsPage() {
               open={assistantOpen}
               onToggle={toggleAssistant}
               askRequest={askRequest}
+              onReviewProposal={(id) => void openProposalReview(id)}
+              onAcceptProposal={decideProposalAccept}
+              onRejectProposal={decideProposalReject}
+              proposalSync={proposalSync}
             />
           </div>
         </>

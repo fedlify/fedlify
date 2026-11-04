@@ -27,6 +27,7 @@ import type { Monaco } from "@monaco-editor/react";
 import { FieldGrid, FieldRow } from "@/components/EntityDetail";
 import { InlineLoadError } from "@/components/LoadStates";
 import { StatusTag } from "@/components/StatusTag";
+import { SCAN_NOTICE, type ProposalFileSummary, type ProposalStatus } from "@/lib/agent-proposal-client";
 
 const FEDLIFY_EDITOR_THEME = "fedlify-vs-dark";
 const NVFLARE_CONFIG_LANGUAGE = "nvflare-conf";
@@ -94,7 +95,23 @@ type SourceTreeNode = {
 type EditorMode = "source" | "diff" | "proposed";
 type ExplorerView = "files" | "changes";
 
+/** An assistant proposal open for review: the diff is against the files this panel loaded. Nothing commits until a person clicks Accept. */
+export type ProposalReviewState = {
+  id: string;
+  title: string;
+  status: ProposalStatus;
+  baseCommit: string | null;
+  files: ProposalFileSummary[];
+  accepted: Record<string, boolean>;
+  busy: boolean;
+};
+
 type CodeReviewPanelProps = {
+  proposalReview?: ProposalReviewState | null;
+  onProposalToggle?: (path: string, accepted: boolean) => void;
+  onProposalAccept?: () => void;
+  onProposalReject?: () => void;
+  onProposalClose?: () => void;
   sourceUrl: string;
   reviewTemplateId?: string;
   sourceRef?: string;
@@ -115,6 +132,8 @@ type CodeReviewPanelProps = {
   selectedPath?: string | null;
   onSelectedPathChange?: (path: string | null) => void;
   onFilesLoaded?: (files: SourceFile[], commit: string | null) => void;
+  /** Called when the source could not be loaded, so the host can show an error instead of a spinner. */
+  onLoadError?: (message: string) => void;
   /** Reports the path with unsaved edits (edit mode and content differs), or null. */
   onDirtyChange?: (path: string | null) => void;
   /** "Ask assistant" with the current file and (if any) the editor selection. */
@@ -377,12 +396,19 @@ export function CodeReviewPanel({
   selectedPath: controlledPath,
   onSelectedPathChange,
   onFilesLoaded,
+  onLoadError,
   onDirtyChange,
   onAskAssistant,
   editLabel = "Edit in review",
   saveLabel = "Preview change",
-  controlRef
+  controlRef,
+  proposalReview,
+  onProposalToggle,
+  onProposalAccept,
+  onProposalReject,
+  onProposalClose
 }: CodeReviewPanelProps) {
+  const [proposalPath, setProposalPath] = useState<string | null>(null);
   const [payload, setPayload] = useState<SourcePayload | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
@@ -438,7 +464,9 @@ export function CodeReviewPanel({
       if (seq !== loadSeq.current) return;
       setPayload(null);
       setSelectedPath(null);
-      setError(loadError instanceof Error ? loadError.message : "Source code could not be loaded.");
+      const failure = loadError instanceof Error ? loadError.message : "Source code could not be loaded.";
+      setError(failure);
+      onLoadError?.(failure);
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
@@ -459,6 +487,16 @@ export function CodeReviewPanel({
   const activeEditorMode: EditorMode = selectedChange ? editorMode : "source";
   const displayedPath = activeEditorMode === "source" ? selectedFile?.path : selectedChange?.path;
   const displayedLanguage = activeEditorMode === "source" ? selectedFile?.language : selectedChange ? changedFileLanguage(selectedChange, files) : selectedFile?.language;
+  const proposalFile = proposalReview ? (proposalReview.files.find((file) => file.path === proposalPath) ?? proposalReview.files[0]) : undefined;
+  const loadedCommit = payload?.commit ?? payload?.gitRef ?? null;
+  // The diff is "current files -> proposed files", so it is only trustworthy once the loaded files ARE the proposal's
+  // base commit. While the files are unknown (first load, failed load) nothing can be accepted.
+  const proposalFilesUnknown = Boolean(proposalReview && proposalReview.status === "PROPOSED" && !loadedCommit);
+  const proposalStale = Boolean(
+    proposalReview &&
+      (proposalReview.status !== "PROPOSED" || !proposalReview.baseCommit || proposalFilesUnknown || (loadedCommit && loadedCommit !== proposalReview.baseCommit))
+  );
+  const proposalAcceptedPaths = proposalReview ? proposalReview.files.filter((file) => proposalReview.accepted[file.path]).map((file) => file.path) : [];
   const reviewRef = payload?.ref ?? sourceRef ?? "current";
   const reviewCommit = payload?.commit ?? payload?.gitRef;
   const shellClassName = [
@@ -973,8 +1011,8 @@ export function CodeReviewPanel({
         <section className="fedlify-code-file-preview">
           <div className="fedlify-code-file-title">
             <div className="fedlify-code-file-title-main">
-              <strong>{displayedPath ?? "No file selected"}</strong>
-              <span>{displayedLanguage ?? "text"}</span>
+              <strong>{proposalFile ? proposalFile.path : (displayedPath ?? "No file selected")}</strong>
+              <span>{proposalFile ? `proposed ${proposalFile.action}` : (displayedLanguage ?? "text")}</span>
               {changedFiles.length > 0 ? (
                 <Segmented
                   className="fedlify-code-mode-switch"
@@ -1064,7 +1102,65 @@ export function CodeReviewPanel({
               ) : null}
             </Space>
           </div>
-          {changedFiles.length > 0 ? (
+          {proposalReview ? (
+            <div className="fedlify-proposal-toolbar" role="group" aria-label="Review assistant proposal">
+              <div className="fedlify-proposal-head">
+                <strong>{proposalReview.title}</strong>
+                <Tag color={proposalStale ? "orange" : "purple"}>{proposalStale ? (proposalReview.status === "PROPOSED" ? (proposalFilesUnknown ? "Loading" : "Stale") : proposalReview.status.toLowerCase()) : "Proposed by assistant"}</Tag>
+                <span className="fedlify-muted">{proposalAcceptedPaths.length} of {proposalReview.files.length} file(s) selected</span>
+              </div>
+              <Alert type="info" showIcon message={SCAN_NOTICE} />
+              {proposalFilesUnknown ? (
+                <Alert type="info" showIcon message={loading ? "Loading current files…" : "The current files could not be loaded, so this change cannot be reviewed yet."} />
+              ) : null}
+              {proposalStale && proposalReview.status === "PROPOSED" && !proposalFilesUnknown ? (
+                <Alert type="warning" showIcon message="The saved code changed after this proposal was written." description="Close this review and ask the assistant again so the change applies to the latest commit." />
+              ) : null}
+              <ul className="fedlify-proposal-files">
+                {proposalReview.files.map((file) => {
+                  const accepted = Boolean(proposalReview.accepted[file.path]);
+                  return (
+                    <li key={file.path} className={file.path === proposalFile?.path ? "is-selected" : ""}>
+                      <button type="button" className="fedlify-proposal-file" onClick={() => setProposalPath(file.path)}>
+                        <span className="fedlify-proposal-path">{file.path}</span>
+                        <span className="fedlify-proposal-counts">
+                          <span className="is-add">+{file.added}</span> <span className="is-del">-{file.removed}</span>
+                          {file.action !== "update" ? <em> {file.action}</em> : null}
+                        </span>
+                      </button>
+                      <Segmented
+                        size="small"
+                        value={accepted ? "accept" : "reject"}
+                        disabled={proposalStale || proposalReview.busy}
+                        aria-label={`Decision for ${file.path}`}
+                        options={[{ label: "Accept", value: "accept" }, { label: "Reject", value: "reject" }]}
+                        onChange={(value) => onProposalToggle?.(file.path, value === "accept")}
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+              <Space wrap>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<CheckCircleOutlined />}
+                  loading={proposalReview.busy}
+                  disabled={proposalStale || proposalAcceptedPaths.length === 0}
+                  onClick={() => onProposalAccept?.()}
+                >
+                  {`Commit ${proposalAcceptedPaths.length} selected file${proposalAcceptedPaths.length === 1 ? "" : "s"}`}
+                </Button>
+                <Button size="small" danger disabled={proposalReview.busy || !["PROPOSED", "STALE"].includes(proposalReview.status)} onClick={() => onProposalReject?.()}>
+                  Reject proposal
+                </Button>
+                <Button size="small" onClick={() => onProposalClose?.()}>
+                  Close review
+                </Button>
+              </Space>
+            </div>
+          ) : null}
+          {changedFiles.length > 0 && !proposalReview ? (
             <div className="fedlify-code-change-toolbar">
               <Space className="fedlify-code-review-status" wrap size={[6, 6]}>
                 <StatusTag value="PENDING_CHANGES" label={`${changedFiles.length} change${changedFiles.length === 1 ? "" : "s"} pending`} />
@@ -1108,7 +1204,26 @@ export function CodeReviewPanel({
             <Alert className="fedlify-code-inline-alert" type={validation.status === "PASSED" ? "success" : "error"} showIcon message={validation.summary} />
           ) : null}
           <div className="fedlify-monaco-frame">
-            {activeEditorMode === "diff" && selectedChange ? (
+            {proposalFile ? (
+              <MonacoDiffEditor
+                key={`proposal-${proposalReview?.id}-${proposalFile.path}`}
+                beforeMount={configureMonaco}
+                height="100%"
+                language={monacoLanguage(files.find((file) => file.path === proposalFile.path)?.language ?? proposalFile.path.split(".").pop() ?? "text")}
+                original={files.find((file) => file.path === proposalFile.path)?.content ?? ""}
+                modified={proposalFile.content ?? ""}
+                theme={FEDLIFY_EDITOR_THEME}
+                options={{
+                  automaticLayout: true,
+                  fontSize: 14,
+                  minimap: { enabled: false },
+                  readOnly: true,
+                  renderSideBySide: true,
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on"
+                }}
+              />
+            ) : activeEditorMode === "diff" && selectedChange ? (
               <MonacoDiffEditor
                 beforeMount={configureMonaco}
                 height="100%"

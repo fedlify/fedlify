@@ -5,6 +5,7 @@ import { audit } from "@/lib/audit";
 import { activationGate } from "@/lib/governance";
 import { normalizeNullableMultiSelectValue } from "@/lib/governance-options";
 import { json, problem } from "@/lib/json";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 
@@ -103,7 +104,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
           template: true,
           templateVersion: true,
           versions: { include: { ciRuns: true, templateVersion: true }, orderBy: { createdAt: "desc" } },
-          proposals: { include: { ciRuns: true }, orderBy: { createdAt: "desc" } }
+          proposals: { where: { files: { equals: Prisma.DbNull } }, include: { ciRuns: true }, orderBy: { createdAt: "desc" } }
         },
         orderBy: { updatedAt: "desc" }
       },

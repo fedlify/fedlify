@@ -14,6 +14,8 @@ export type StageInput = {
   hasProject: boolean;
   unsavedFiles: number;
   sourceCommit: string | null;
+  /** "loading" until the saved commit is known; "error" if it could not be read. Defaults to "ready". */
+  sourceStatus?: "loading" | "ready" | "error";
   versions: Array<{ id: string; version: string; gitCommit: string | null; publish: { status: string; step?: string | null } | null }>;
   aggregator: { status: string; pipelineVersionId: string | null; imageDigest: string | null; lastError?: string | null; error?: string | null } | null;
   sites: Array<{ kitReleased: boolean; kitImageDigest: string | null; connected: boolean | null }>;
@@ -54,6 +56,7 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
       : { key: "code", title: "Code", status: `Saved ${short(sourceCommit)}`, detail: "No unsaved edits.", tone: "ok" };
 
   // Publish
+  const sourceStatus = input.sourceStatus ?? "ready";
   const liveCurrent = Boolean(live && sourceCommit && live.gitCommit === sourceCommit);
   const lastFailed = !inFlight && newest?.publish?.status === "FAILED" && newest.gitCommit === sourceCommit;
   const publishAction = (label: string): StageAction => ({
@@ -64,6 +67,9 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
   });
   let publish: StageSummary;
   if (!input.hasProject) publish = { key: "publish", title: "Publish", status: "Needs a project", tone: "idle" };
+  else if (sourceStatus === "loading" && !sourceCommit) publish = { key: "publish", title: "Publish", status: "Loading…", detail: "Reading the saved commit.", tone: "idle" };
+  else if (sourceStatus === "error" && !sourceCommit)
+    publish = { key: "publish", title: "Publish", status: "Could not read the saved commit", detail: "Reload to try again.", tone: "error" };
   else if (inFlight)
     publish = {
       key: "publish",
@@ -122,6 +128,7 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
   const stages = [code, publish, siteStage, run];
   let current: StageKey = "run";
   if (!input.hasProject || dirty) current = "code";
+  else if (sourceStatus !== "ready" && !sourceCommit) current = "publish";
   else if (inFlight || lastFailed || !liveCurrent) current = "publish";
   else if (!aggregatorActive || sites.length === 0 || firstNoKit || outdatedKit || connected === 0) current = "sites";
   else if (activeJob) current = "run";

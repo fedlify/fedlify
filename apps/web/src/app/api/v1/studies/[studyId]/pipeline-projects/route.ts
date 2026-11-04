@@ -14,6 +14,7 @@ import {
   validatePipelineFiles,
   writeNvflareJobWorkspace
 } from "@/lib/pipeline-code";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { slugify } from "@/lib/slug";
@@ -58,7 +59,8 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
       template: true,
       templateVersion: true,
       versions: { include: { ciRuns: true, templateVersion: true }, orderBy: { createdAt: "desc" } },
-      proposals: { include: { ciRuns: true }, orderBy: { createdAt: "desc" } }
+      // Workspace assistant proposals (files set) are not template pull requests; they have their own routes.
+      proposals: { where: { files: { equals: Prisma.DbNull } }, include: { ciRuns: true }, orderBy: { createdAt: "desc" } }
     },
     orderBy: { updatedAt: "desc" }
   });

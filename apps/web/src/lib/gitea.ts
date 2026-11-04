@@ -523,6 +523,29 @@ export async function createGiteaTemplateProposal(input: {
   };
 }
 
+const GITEA_READ_CONCURRENCY = 8;
+
+/** Maps with at most `limit` calls in flight; results keep input order and the first rejection is propagated. */
+export async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed) {
+      const index = next++;
+      if (index >= items.length) return;
+      try {
+        results[index] = await fn(items[index], index);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  return results;
+}
+
 export async function readGiteaRepositoryFiles(input: {
   owner: string;
   repo: string;
@@ -536,8 +559,7 @@ export async function readGiteaRepositoryFiles(input: {
     .map((item) => item.path as string)
     .filter((path) => !path.startsWith(".git/"));
 
-  const files: Array<{ path: string; content: string; unreadable?: boolean }> = [];
-  for (const filePath of paths) {
+  const readOne = async (filePath: string): Promise<{ path: string; content: string; unreadable?: boolean }> => {
     const content = await giteaRequest<GiteaContentResponse>(
       `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/contents/${encodePath(filePath)}?ref=${encodeURIComponent(
         input.ref
@@ -546,13 +568,13 @@ export async function readGiteaRepositoryFiles(input: {
     if (content.content === undefined || content.content === null) {
       // No inline body (very large file or a type Gitea will not inline): keep the path so layout, data-suffix and
       // size rules still apply, and flag it so the checks report that it could not be read.
-      files.push({ path: filePath, content: "", unreadable: true });
-      continue;
+      return { path: filePath, content: "", unreadable: true };
     }
     const normalized = content.content.replace(/\s/g, "");
     const decoded = Buffer.from(normalized, content.encoding === "base64" || content.encoding == null ? "base64" : "utf8").toString("utf8");
-    files.push({ path: filePath, content: decoded });
-  }
+    return { path: filePath, content: decoded };
+  };
+  const files = await mapWithConcurrency(paths, GITEA_READ_CONCURRENCY, readOne);
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 

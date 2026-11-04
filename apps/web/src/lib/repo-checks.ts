@@ -52,7 +52,7 @@ const SECRET_PATTERNS = [
 const TEXT_SUFFIXES = new Set([".py", ".json", ".conf", ".yaml", ".yml", ".txt", ".md", ".sh", ".env", ".ini", ".cfg"]);
 /** Python str.splitlines() boundaries: \n, \r, \r\n, \v, \f, \x1c-\x1e, \x85, \u2028, \u2029. */
 const PY_LINE_BREAKS = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/;
-const LAUNCHER_PATH = "/opt/fedlify/code/";
+export const LAUNCHER_PATH = "/opt/fedlify/code/";
 export const MAX_REPO_BYTES = 20 * 1024 * 1024;
 
 export const CHECKS_NOTICE =

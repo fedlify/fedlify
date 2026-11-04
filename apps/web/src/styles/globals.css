@@ -5462,3 +5462,146 @@ h4.ant-typography {
     flex-wrap: wrap;
   }
 }
+
+/* ---- assistant proposals (step 3c) ---- */
+.fedlify-ws-proposal {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.fedlify-ws-proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fedlify-ws-proposal-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-ws-proposal-files,
+.fedlify-proposal-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.fedlify-ws-proposal-files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fedlify-ws-proposal-files code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fedlify-ws-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fedlify-proposal-counts {
+  flex: none;
+  font-size: var(--fedlify-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.fedlify-proposal-counts .is-add {
+  color: #1a7f37;
+}
+
+.fedlify-proposal-counts .is-del {
+  color: #cf222e;
+}
+
+.fedlify-ws-problems {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-ws-earlier {
+  display: grid;
+  gap: 8px;
+}
+
+.fedlify-ws-earlier summary {
+  cursor: pointer;
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-xs);
+}
+
+.fedlify-proposal-toolbar {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--fedlify-line);
+  background: #fff;
+}
+
+.fedlify-proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fedlify-proposal-files {
+  max-height: 150px;
+  overflow: auto;
+}
+
+.fedlify-proposal-files li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.fedlify-proposal-files li.is-selected {
+  background: var(--fedlify-soft);
+}
+
+.fedlify-proposal-file {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fedlify-proposal-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

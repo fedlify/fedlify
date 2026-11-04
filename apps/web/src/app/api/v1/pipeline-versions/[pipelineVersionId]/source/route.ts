@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { GiteaApiError, isRuntimeConfigurationError, readGiteaRepositoryFiles } from "@/lib/gitea";
 import { json, problem } from "@/lib/json";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { readLocalSourceFiles, toReviewSourceFiles } from "@/lib/source-review";
@@ -15,7 +16,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ pi
   const version = await prisma.pipelineVersion.findUnique({
     where: { id: pipelineVersionId },
     include: {
-      project: { include: { study: true, proposals: { orderBy: { createdAt: "desc" }, take: 5 } } }
+      project: { include: { study: true, proposals: { where: { files: { equals: Prisma.DbNull } }, orderBy: { createdAt: "desc" }, take: 5 } } }
     }
   });
   if (!version) return problem(404, "Pipeline version not found.", "not_found");

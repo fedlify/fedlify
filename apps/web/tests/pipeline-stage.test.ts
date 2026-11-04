@@ -60,3 +60,19 @@ describe("pipeline rail stages", () => {
     expect(stages[3].action?.key).toBe("save_model");
   });
 });
+
+describe("computeStages source loading", () => {
+  it("shows a neutral loading state, not a missing-commit warning", () => {
+    const { stages } = computeStages({ ...base, sourceCommit: null, sourceStatus: "loading" });
+    const publish = stages.find((s) => s.key === "publish")!;
+    expect(publish.status).toBe("Loading…");
+    expect(publish.tone).toBe("idle");
+    expect(publish.action).toBeUndefined();
+  });
+  it("distinguishes a load error from an empty repository", () => {
+    const err = computeStages({ ...base, sourceCommit: null, sourceStatus: "error" }).stages.find((s) => s.key === "publish")!;
+    expect(err.tone).toBe("error");
+    const empty = computeStages({ ...base, sourceCommit: null, sourceStatus: "ready" }).stages.find((s) => s.key === "publish")!;
+    expect(empty.action?.disabledReason).toBe("No saved commit to publish.");
+  });
+});

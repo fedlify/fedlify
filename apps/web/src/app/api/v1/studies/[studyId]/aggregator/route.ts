@@ -71,6 +71,15 @@ export async function GET(_request: NextRequest, { params }: Params) {
     })
   ]);
 
+  // Versions published from a commit that a person accepted from an assistant proposal are tagged "agent".
+  const versionCommits = projects.flatMap((project) => project.versions.map((version) => version.gitCommit)).filter((commit): commit is string => Boolean(commit));
+  const agentProposals = versionCommits.length
+    ? await prisma.agentProposal.findMany({
+        where: { projectId: { in: projects.map((project) => project.id) }, acceptedCommit: { in: versionCommits } },
+        select: { id: true, projectId: true, title: true, acceptedCommit: true }
+      })
+    : [];
+
   let connected: string[] | null = null;
   let aggregatorError: string | null = null;
   if (deployment?.status === "ACTIVE") {
@@ -135,6 +144,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
         id: version.id,
         version: version.gitTag ?? version.version,
         gitCommit: version.gitCommit,
+        agentProposal: agentProposals.find((item) => item.projectId === project.id && item.acceptedCommit === version.gitCommit) ?? null,
         imageDigest: version.imageDigest,
         validationStatus: version.validationStatus,
         publishedAt: version.publishedAt,

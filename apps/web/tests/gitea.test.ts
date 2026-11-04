@@ -122,3 +122,27 @@ describe("gitea client", () => {
     });
   });
 });
+
+describe("mapWithConcurrency", () => {
+  it("preserves order, bounds concurrency and propagates errors", async () => {
+    const { mapWithConcurrency } = await import("@/lib/gitea");
+    let active = 0;
+    let peak = 0;
+    const out = await mapWithConcurrency([5, 1, 4, 2, 3, 0], 3, async (n) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, n));
+      active--;
+      return n * 2;
+    });
+    expect(out).toEqual([10, 2, 8, 4, 6, 0]);
+    expect(peak).toBeLessThanOrEqual(3);
+    await expect(
+      mapWithConcurrency([1, 2], 2, async (n) => {
+        if (n === 2) throw new Error("x");
+        return n;
+      })
+    ).rejects.toThrow("x");
+    expect(await mapWithConcurrency([], 4, async (n: number) => n)).toEqual([]);
+  });
+});

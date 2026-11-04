@@ -1,8 +1,17 @@
 "use client";
 
 import { ClearOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, SendOutlined, StopOutlined } from "@ant-design/icons";
-import { Alert, Button, Input, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Input, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  appliedPaths,
+  createProposal,
+  effectiveStatus,
+  listProposals,
+  type ProposalFailure,
+  type ProposalStatus,
+  type ProposalSummary
+} from "@/lib/agent-proposal-client";
 import { MAX_MESSAGE_CHARS, MAX_SELECTION_CHARS, buildHistory, createSseParser, splitFences } from "@/lib/assistant-stream";
 
 export type AskRequest = { id: number; path: string; selection?: string };
@@ -14,7 +23,15 @@ type ChatMessage = {
   status: "streaming" | "done" | "error" | "stopped";
   error?: string;
   notice?: string;
+  /** Problems found by the server-side proposal checks, shown as a list under the error. */
+  details?: string[];
+  /** A proposal card rendered under this message. */
+  proposalId?: string;
 };
+
+/** Page-owned actions: only a click on Accept commits anything, and the page reloads the source afterwards. */
+export type ProposalActionResult = { ok: true; commitSha: string } | ProposalFailure;
+export type ProposalSync = { id: string; status: ProposalStatus; commit: string | null; /** Files committed by an accept; null when not accepted or all files. */ paths?: string[] | null; nonce: number };
 
 type ContextInfo = { hash: string; commit: string | null; truncated: string[]; answered: number; total: number };
 
@@ -29,7 +46,104 @@ type AssistantPanelProps = {
   open: boolean;
   onToggle: () => void;
   askRequest: AskRequest | null;
+  onReviewProposal: (id: string) => void;
+  onAcceptProposal: (id: string, paths?: string[]) => Promise<ProposalActionResult>;
+  onRejectProposal: (id: string) => Promise<{ ok: true } | ProposalFailure>;
+  /** Set by the page when a proposal is decided from the diff view, so the card here follows. */
+  proposalSync: ProposalSync | null;
 };
+
+const PROPOSE_PROMPTS = [
+  "Add a unit test for the main training function",
+  "Add input validation for the features listed in fedlify-pipeline.json",
+  "Document how this pipeline works in README.md"
+];
+
+const STATUS_LABEL: Record<ProposalStatus, string> = { PROPOSED: "Proposed", ACCEPTED: "Accepted", REJECTED: "Rejected", STALE: "Stale" };
+const STATUS_COLOR: Record<ProposalStatus, string> = { PROPOSED: "purple", ACCEPTED: "green", REJECTED: "default", STALE: "orange" };
+
+function ProposalCard({
+  proposal,
+  head,
+  busy,
+  error,
+  onReview,
+  onAccept,
+  onReject,
+  onRegenerate
+}: {
+  proposal: ProposalSummary;
+  head: string | null;
+  busy: boolean;
+  error?: string;
+  onReview: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+  onRegenerate: () => void;
+}) {
+  const status = effectiveStatus(proposal, head);
+  const added = proposal.files.reduce((sum, file) => sum + file.added, 0);
+  const removed = proposal.files.reduce((sum, file) => sum + file.removed, 0);
+  const applied = appliedPaths({ ...proposal, status });
+  const partial = status === "ACCEPTED" && applied.size < proposal.files.length;
+  const appliedFiles = proposal.files.filter((file) => applied.has(file.path));
+  const appliedAdded = appliedFiles.reduce((sum, file) => sum + file.added, 0);
+  const appliedRemoved = appliedFiles.reduce((sum, file) => sum + file.removed, 0);
+  return (
+    <div className="fedlify-ws-proposal" role="group" aria-label={`Proposal: ${proposal.title}`}>
+      <div className="fedlify-ws-proposal-head">
+        <strong>{proposal.title}</strong>
+        <Tag color={STATUS_COLOR[status]}>
+          {STATUS_LABEL[status]}
+          {partial ? ` (${applied.size} of ${proposal.files.length} files)` : ""}
+          {status === "ACCEPTED" && proposal.acceptedCommit ? ` - commit ${proposal.acceptedCommit.slice(0, 8)}` : ""}
+        </Tag>
+      </div>
+      <p className="fedlify-ws-msg-text">{proposal.rationale}</p>
+      <ul className="fedlify-ws-proposal-files">
+        {proposal.files.map((file) => (
+          <li key={file.path}>
+            <code title={file.path} style={partial && !applied.has(file.path) ? { textDecoration: "line-through", opacity: 0.6 } : undefined}>{file.path}</code>
+            {partial && !applied.has(file.path) ? <em className="fedlify-muted"> not applied</em> : null}
+            <span className="fedlify-proposal-counts">
+              <span className="is-add">+{file.added}</span> <span className="is-del">-{file.removed}</span>
+              {file.action !== "update" ? <em> {file.action}</em> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <Typography.Text className="fedlify-muted">{status === "ACCEPTED"
+          ? `${appliedFiles.length} of ${proposal.files.length} file(s) committed, +${appliedAdded} -${appliedRemoved}.`
+          : `${proposal.files.length} file(s), +${added} -${removed}. Nothing is saved until you accept.`}</Typography.Text>
+      {status === "STALE" ? (
+        <Alert type="warning" showIcon message="The saved code changed after this was written." description="Regenerate it against the latest commit." />
+      ) : null}
+      {error ? <Alert type="error" showIcon message={error} /> : null}
+      <div className="fedlify-ws-proposal-actions">
+        {status === "PROPOSED" ? (
+          <>
+            <Button size="small" onClick={onReview} disabled={busy}>Review diff</Button>
+            <Popconfirm
+              title={`Commit ${proposal.files.length} file(s) to the saved code?`}
+              description="This creates one commit under your name. It does not publish or run anything."
+              okText="Accept all"
+              onConfirm={onAccept}
+            >
+              <Button size="small" type="primary" loading={busy}>Accept all</Button>
+            </Popconfirm>
+            <Button size="small" danger onClick={onReject} disabled={busy}>Reject</Button>
+          </>
+        ) : null}
+        {status === "STALE" ? (
+          <>
+            <Button size="small" type="primary" onClick={onRegenerate} disabled={busy}>Regenerate</Button>
+            <Button size="small" danger onClick={onReject} disabled={busy}>Dismiss</Button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 const QUICK_PROMPTS = [
   "Explain this repository",
@@ -62,7 +176,24 @@ function MessageBody({ message }: { message: ChatMessage }) {
   );
 }
 
-export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedPaths, open, onToggle, askRequest }: AssistantPanelProps) {
+export function AssistantPanel({
+  studyId,
+  projectId,
+  commit,
+  focusFile,
+  unsavedPaths,
+  open,
+  onToggle,
+  askRequest,
+  onReviewProposal,
+  onAcceptProposal,
+  onRejectProposal,
+  proposalSync
+}: AssistantPanelProps) {
+  const [mode, setMode] = useState<"ask" | "propose">("ask");
+  const [proposals, setProposals] = useState<Record<string, ProposalSummary>>({});
+  const [busyProposal, setBusyProposal] = useState<string | null>(null);
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [context, setContext] = useState<ContextInfo | null>(null);
@@ -84,6 +215,26 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
   }, []);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Proposals survive a page reload: they are stored server-side, only the chat is local.
+  useEffect(() => {
+    let cancelled = false;
+    void listProposals(studyId, projectId).then((result) => {
+      if (cancelled || !result.ok) return;
+      setProposals((current) => ({ ...Object.fromEntries(result.proposals.map((item) => [item.id, item])), ...current }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [studyId, projectId]);
+
+  useEffect(() => {
+    if (!proposalSync) return;
+    setProposals((current) => {
+      const item = current[proposalSync.id];
+      return item ? { ...current, [proposalSync.id]: { ...item, status: proposalSync.status, acceptedCommit: proposalSync.commit ?? item.acceptedCommit, acceptedPaths: proposalSync.status === "ACCEPTED" ? (proposalSync.paths ?? null) : item.acceptedPaths } } : current;
+    });
+  }, [proposalSync]);
 
   useEffect(() => {
     const log = logRef.current;
@@ -175,12 +326,100 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
     [attachedPath, attachedSelection, projectId, studyId, update]
   );
 
+  /** File and selection each proposal was written with, so Regenerate asks the same question. Lost on reload. */
+  const proposalContextRef = useRef<Record<string, { filePath?: string; selection?: string }>>({});
+
+  const propose = useCallback(
+    async (rawText: string, context?: { filePath?: string; selection?: string }) => {
+      const text = rawText.trim().slice(0, MAX_MESSAGE_CHARS);
+      if (!text || messagesRef.current.some((message) => message.status === "streaming")) return;
+      const history = buildHistory(messagesRef.current);
+      const userId = nextId.current++;
+      const assistantId = nextId.current++;
+      update((current) => [
+        ...current,
+        { id: userId, role: "user", content: `Propose a change: ${text}`, status: "done" },
+        { id: assistantId, role: "assistant", content: "", status: "streaming" }
+      ]);
+      setInput("");
+      const patch = (changes: Partial<ChatMessage>) => update((current) => current.map((message) => (message.id === assistantId ? { ...message, ...changes } : message)));
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const sent = context ?? { filePath: attachedPath ?? undefined, selection: attachedSelection ? attachedSelection.slice(0, MAX_SELECTION_CHARS) : undefined };
+      const result = await createProposal(studyId, projectId, { message: text, history, filePath: sent.filePath, selection: sent.selection }, controller.signal);
+      if (abortRef.current === controller) abortRef.current = null;
+      if (controller.signal.aborted) {
+        patch({ status: "stopped" });
+      } else if (result.ok) {
+        proposalContextRef.current[result.proposal.id] = sent;
+        setProposals((current) => ({ ...current, [result.proposal.id]: result.proposal }));
+        patch({ status: "done", content: "I wrote a proposal. Review the diff below; nothing is saved until you accept it.", proposalId: result.proposal.id });
+      } else if (result.code === "ai_not_configured") {
+        patch({ status: "error", error: errorFromResponse(result.status, { error: { code: result.code, message: result.message } }) });
+      } else if (result.code === "no_changes") {
+        patch({ status: "done", content: result.details[0] ?? result.message });
+      } else {
+        patch({ status: "error", error: result.message, details: result.details });
+      }
+    },
+    [attachedPath, attachedSelection, projectId, studyId, update]
+  );
+
+  async function acceptCard(id: string) {
+    setBusyProposal(id);
+    setCardErrors((current) => ({ ...current, [id]: "" }));
+    const result = await onAcceptProposal(id);
+    setBusyProposal(null);
+    if (result.ok) {
+      setProposals((current) => (current[id] ? { ...current, [id]: { ...current[id], status: "ACCEPTED", acceptedCommit: result.commitSha, acceptedPaths: null } } : current));
+    } else if (result.stale) {
+      setProposals((current) => (current[id] ? { ...current, [id]: { ...current[id], status: "STALE" } } : current));
+    } else {
+      setCardErrors((current) => ({ ...current, [id]: [result.message, ...result.details].join(" ") }));
+    }
+  }
+
+  async function rejectCard(id: string): Promise<boolean> {
+    setBusyProposal(id);
+    const result = await onRejectProposal(id);
+    setBusyProposal(null);
+    if (result.ok) setProposals((current) => (current[id] ? { ...current, [id]: { ...current[id], status: "REJECTED" } } : current));
+    else setCardErrors((current) => ({ ...current, [id]: result.message }));
+    return result.ok;
+  }
+
+  function renderCard(id: string) {
+    const proposal = proposals[id];
+    if (!proposal) return null;
+    return (
+      <ProposalCard
+        key={id}
+        proposal={proposal}
+        head={commit}
+        busy={busyProposal === id}
+        error={cardErrors[id]}
+        onReview={() => onReviewProposal(id)}
+        onAccept={() => void acceptCard(id)}
+        onReject={() => void rejectCard(id)}
+        onRegenerate={() => {
+          setMode("propose");
+          // Only start the new proposal once the old one is really closed; otherwise two open proposals would exist.
+          void rejectCard(id).then((closed) => {
+            if (closed) void propose(proposal.prompt, proposalContextRef.current[id] ?? {});
+          });
+        }}
+      />
+    );
+  }
+
   function retry() {
     const current = messagesRef.current;
     const lastUser = [...current].reverse().find((message) => message.role === "user");
     if (!lastUser) return;
     update((items) => items.slice(0, items.length - 2));
-    void send(lastUser.content);
+    const proposeMarker = "Propose a change: ";
+    if (lastUser.content.startsWith(proposeMarker)) void propose(lastUser.content.slice(proposeMarker.length));
+    else void send(lastUser.content);
   }
 
   function clearChat() {
@@ -189,6 +428,13 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
     setContext(null);
     setSelection(null);
   }
+
+  const submit = (text: string) => (mode === "propose" ? propose(text) : send(text));
+  const shownIds = new Set(messages.flatMap((message) => (message.proposalId ? [message.proposalId] : [])));
+  const earlier = Object.values(proposals)
+    .filter((item) => !shownIds.has(item.id) && ["PROPOSED", "STALE"].includes(effectiveStatus(item, commit)))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 5);
 
   if (!open) {
     return (
@@ -210,7 +456,9 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
       <div className="fedlify-ws-assistant-head">
         <div>
           <strong><RobotOutlined /> Assistant</strong>
-          <Tag className="fedlify-ws-readonly">Read-only</Tag>
+          <Tooltip title="The assistant never saves, publishes, runs or releases. A change is committed only when you accept it.">
+            <Tag className="fedlify-ws-readonly">Proposes only</Tag>
+          </Tooltip>
         </div>
         <span>
           <Tooltip title="Clear conversation">
@@ -259,13 +507,15 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
         {messages.length === 0 ? (
           <div className="fedlify-ws-quick">
             <Typography.Text className="fedlify-muted">
-              Ask about this project. It can read your study context and the saved code, but it cannot save, publish, run, or release anything.
+              {mode === "propose"
+                ? "Describe a change. The assistant writes a proposal you can review as a diff. It cannot save, publish, run, or release anything."
+                : "Ask about this project. It can read your study context and the saved code, but it cannot save, publish, run, or release anything."}
             </Typography.Text>
             <div className="fedlify-ws-quick-list">
-              {QUICK_PROMPTS.map((prompt) => (
-                <Button key={prompt} size="small" onClick={() => void send(prompt)}>{prompt}</Button>
+              {(mode === "propose" ? PROPOSE_PROMPTS : QUICK_PROMPTS).map((prompt) => (
+                <Button key={prompt} size="small" onClick={() => void submit(prompt)}>{prompt}</Button>
               ))}
-              {focusFile ? <Button size="small" onClick={() => void send(`Explain ${focusFile}`)}>{`Explain ${focusFile}`}</Button> : null}
+              {mode === "ask" && focusFile ? <Button size="small" onClick={() => void send(`Explain ${focusFile}`)}>{`Explain ${focusFile}`}</Button> : null}
             </div>
           </div>
         ) : (
@@ -275,25 +525,47 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
               <MessageBody message={message} />
               {message.notice ? <Typography.Text type="warning">{message.notice}</Typography.Text> : null}
               {message.status === "stopped" ? <Typography.Text className="fedlify-muted">Stopped.</Typography.Text> : null}
-              {message.status === "error" ? <Alert type="error" showIcon message={message.error ?? "The assistant failed."} /> : null}
+              {message.status === "error" ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={message.error ?? "The assistant failed."}
+                  description={message.details && message.details.length > 0 ? <ul className="fedlify-ws-problems">{message.details.map((item) => <li key={item}>{item}</li>)}</ul> : undefined}
+                />
+              ) : null}
+              {message.proposalId ? renderCard(message.proposalId) : null}
             </div>
           ))
         )}
+        {earlier.length > 0 ? (
+          <details className="fedlify-ws-earlier">
+            <summary>{`Open proposals (${earlier.length})`}</summary>
+            {earlier.map((item) => renderCard(item.id))}
+          </details>
+        ) : null}
       </div>
 
       <div className="fedlify-ws-composer">
+        <Segmented
+          size="small"
+          block
+          value={mode}
+          onChange={(value) => setMode(value as "ask" | "propose")}
+          options={[{ label: "Ask", value: "ask" }, { label: "Propose change", value: "propose" }]}
+          aria-label="Assistant mode"
+        />
         <Input.TextArea
           ref={inputRef as never}
           value={input}
           maxLength={MAX_MESSAGE_CHARS}
           autoSize={{ minRows: 2, maxRows: 6 }}
-          placeholder={focusFile ? `Ask about ${focusFile} or the project...` : "Ask about the project..."}
+          placeholder={mode === "propose" ? "Describe the change you want proposed..." : focusFile ? `Ask about ${focusFile} or the project...` : "Ask about the project..."}
           aria-label="Message to the assistant"
           onChange={(event) => setInput(event.target.value)}
           onPressEnter={(event) => {
             if (event.shiftKey) return;
             event.preventDefault();
-            void send(input);
+            void submit(input);
           }}
         />
         <div className="fedlify-ws-composer-actions">
@@ -303,7 +575,7 @@ export function AssistantPanel({ studyId, projectId, commit, focusFile, unsavedP
           {streaming ? (
             <Button danger icon={<StopOutlined />} onClick={() => abortRef.current?.abort()}>Stop</Button>
           ) : (
-            <Button type="primary" icon={<SendOutlined />} disabled={!input.trim()} onClick={() => void send(input)}>Send</Button>
+            <Button type="primary" icon={<SendOutlined />} disabled={!input.trim()} onClick={() => void submit(input)}>{mode === "propose" ? "Propose" : "Send"}</Button>
           )}
         </div>
       </div>
