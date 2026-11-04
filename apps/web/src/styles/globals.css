@@ -5605,3 +5605,230 @@ h4.ant-typography {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Code & run polish: stage cards share one layout (text on top, action below); the three panes share one height. */
+.fedlify-ws-rail {
+  align-items: stretch;
+}
+
+.fedlify-ws-stage {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fedlify-ws-stage-main {
+  align-items: flex-start;
+}
+
+.fedlify-ws-stage-action {
+  padding-left: 28px;
+}
+
+.fedlify-ws-code-note {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 1281px) {
+  .fedlify-ws-side,
+  .fedlify-ws-assistant,
+  .fedlify-ws-code {
+    height: clamp(520px, calc(100vh - 230px), 800px);
+    max-height: none;
+  }
+
+  .fedlify-ws-code {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .fedlify-ws-code .fedlify-code-review {
+    min-height: 0;
+    height: 100%;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .fedlify-ws-code .fedlify-code-review-shell {
+    height: 100%;
+    min-height: 0;
+  }
+}
+
+/* Editor column fills its pane exactly. */
+@media (min-width: 1281px) {
+  .fedlify-ws-code .fedlify-code-review {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fedlify-ws-code .fedlify-code-review-shell {
+    flex: 1 1 0;
+    height: auto;
+  }
+
+  .fedlify-ws-code .fedlify-code-review-shell > * {
+    min-height: 0;
+    height: 100%;
+  }
+}
+
+/* Assistant: modern chat presentation. */
+.fedlify-ws-log {
+  padding: 16px 14px;
+  gap: 18px;
+}
+
+.fedlify-ws-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.fedlify-ws-msg.is-user {
+  align-items: flex-end;
+}
+
+.fedlify-ws-msg-role {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.fedlify-ws-msg.is-user .fedlify-ws-msg-text {
+  max-width: 88%;
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 18px 18px 4px 18px;
+  background: var(--fedlify-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-ws-msg.is-assistant .fedlify-ws-msg-text {
+  width: 100%;
+  background: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.fedlify-ws-msg-text p,
+.fedlify-ws-msg-text ul,
+.fedlify-ws-msg-text ol {
+  margin: 0 0 10px;
+}
+
+.fedlify-ws-msg-text > :last-child {
+  margin-bottom: 0;
+}
+
+.fedlify-ws-msg-text ul,
+.fedlify-ws-msg-text ol {
+  padding-left: 20px;
+}
+
+.fedlify-ws-msg-text h5 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fedlify-ws-msg-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(133, 118, 181, 0.13);
+  font-size: 12.5px;
+}
+
+.fedlify-ws-msg-code {
+  width: 100%;
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+
+.fedlify-ws-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.fedlify-ws-typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fedlify-muted);
+  animation: fedlify-ws-typing 1.2s infinite ease-in-out;
+}
+
+.fedlify-ws-typing i:nth-child(2) { animation-delay: 0.15s; }
+.fedlify-ws-typing i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes fedlify-ws-typing {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fedlify-ws-typing i { animation: none; }
+}
+
+.fedlify-ws-composer {
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 16px;
+  background: var(--fedlify-panel);
+  box-shadow: 0 2px 10px rgba(34, 23, 74, 0.07);
+}
+
+.fedlify-ws-composer:focus-within {
+  border-color: var(--fedlify-primary);
+}
+
+.fedlify-ws-composer .fedlify-ws-chips {
+  padding: 0;
+  border: 0;
+}
+
+.fedlify-ws-composer .fedlify-ws-chips .ant-tag {
+  margin: 0;
+  font-size: 11px;
+}
+
+.fedlify-ws-composer textarea.ant-input {
+  padding: 4px 2px;
+  resize: none;
+  box-shadow: none;
+}
+
+.fedlify-ws-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fedlify-ws-composer-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The editor takes the space left under its header, which may wrap to two rows. */
+.fedlify-ws-code .fedlify-monaco-frame {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}

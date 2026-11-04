@@ -1,8 +1,8 @@
 "use client";
 
-import { ClearOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, SendOutlined, StopOutlined } from "@ant-design/icons";
+import { ClearOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
 import { Alert, Button, Input, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   appliedPaths,
   createProposal,
@@ -160,6 +160,50 @@ function errorFromResponse(status: number, body: { error?: { message?: string; c
   return body?.error?.message ?? `The assistant request failed (${status}).`;
 }
 
+// Small Markdown subset for model replies. Builds React elements only, so model output can never inject HTML.
+function inlineMarkdown(text: string) {
+  return text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g).map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) return <code key={index}>{part.slice(1, -1)}</code>;
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    return part;
+  });
+}
+
+function ChatMarkdown({ text }: { text: string }) {
+  const blocks: ReactNode[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  let paragraph: string[] = [];
+  const flush = () => {
+    if (paragraph.length) blocks.push(<p key={blocks.length}>{inlineMarkdown(paragraph.join(" "))}</p>);
+    paragraph = [];
+    if (list) {
+      const items = list.items.map((item, index) => <li key={index}>{inlineMarkdown(item)}</li>);
+      blocks.push(list.ordered ? <ol key={blocks.length}>{items}</ol> : <ul key={blocks.length}>{items}</ul>);
+    }
+    list = null;
+  };
+  for (const line of text.split("\n")) {
+    const heading = /^#{1,6}\s+(.*)/.exec(line);
+    const bullet = /^\s*[-*]\s+(.*)/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(.*)/.exec(line);
+    if (!line.trim()) flush();
+    else if (heading) {
+      flush();
+      blocks.push(<h5 key={blocks.length}>{inlineMarkdown(heading[1])}</h5>);
+    } else if (bullet || numbered) {
+      const ordered = Boolean(numbered);
+      if (paragraph.length || (list && list.ordered !== ordered)) flush();
+      list ??= { ordered, items: [] };
+      list.items.push((bullet ?? numbered)![1]);
+    } else {
+      if (list) flush();
+      paragraph.push(line.trim());
+    }
+  }
+  flush();
+  return <>{blocks}</>;
+}
+
 function MessageBody({ message }: { message: ChatMessage }) {
   if (message.role === "user") return <p className="fedlify-ws-msg-text">{message.content}</p>;
   return (
@@ -168,10 +212,10 @@ function MessageBody({ message }: { message: ChatMessage }) {
         part.type === "code" ? (
           <pre key={index} className="fedlify-ws-msg-code"><code>{part.value}</code></pre>
         ) : (
-          <p key={index} className="fedlify-ws-msg-text">{part.value}</p>
+          <div key={index} className="fedlify-ws-msg-text"><ChatMarkdown text={part.value} /></div>
         )
       )}
-      {message.status === "streaming" && !message.content ? <span className="fedlify-muted">Thinking...</span> : null}
+      {message.status === "streaming" && !message.content ? <span className="fedlify-ws-typing" role="status" aria-label="Thinking"><i /><i /><i /></span> : null}
     </>
   );
 }
@@ -470,39 +514,6 @@ export function AssistantPanel({
         </span>
       </div>
 
-      <div className="fedlify-ws-chips" aria-label="Context sent with your next message">
-        <Tooltip title="Protocol fields, your requirement answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
-          <Tag color={context && context.answered < context.total ? "orange" : "purple"}>
-            {context ? `Study context ${context.answered}/${context.total}` : "Study context"}
-          </Tag>
-        </Tooltip>
-        <Tag>{commit ? `commit ${commit.slice(0, 8)}` : "no commit"}</Tag>
-        {attachedPath ? (
-          <Tag closable onClose={(event) => { event.preventDefault(); setIncludeFile(false); setSelection(null); }} title={attachedPath}>
-            {attachedPath}
-          </Tag>
-        ) : focusFile ? (
-          <Tag className="fedlify-ws-chip-off" onClick={() => setIncludeFile(true)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter") setIncludeFile(true); }}>
-            + {focusFile}
-          </Tag>
-        ) : null}
-        {attachedSelection ? (
-          <Tag closable color="blue" onClose={(event) => { event.preventDefault(); setSelection(null); }}>
-            selection ({attachedSelection.length} chars)
-          </Tag>
-        ) : null}
-        {context && context.truncated.length > 0 ? (
-          <Tooltip title={`Cut to fit: ${context.truncated.join("; ")}`}>
-            <Tag color="gold">context trimmed</Tag>
-          </Tooltip>
-        ) : null}
-        {unsavedNote ? (
-          <Tooltip title="The assistant reads the saved commit. Save first if you want it to see your edits.">
-            <Tag color="gold">unsaved edits not included</Tag>
-          </Tooltip>
-        ) : null}
-      </div>
-
       <div className="fedlify-ws-log" ref={logRef} role="log" aria-live="polite" aria-label="Conversation">
         {messages.length === 0 ? (
           <div className="fedlify-ws-quick">
@@ -546,19 +557,44 @@ export function AssistantPanel({
       </div>
 
       <div className="fedlify-ws-composer">
-        <Segmented
-          size="small"
-          block
-          value={mode}
-          onChange={(value) => setMode(value as "ask" | "propose")}
-          options={[{ label: "Ask", value: "ask" }, { label: "Propose change", value: "propose" }]}
-          aria-label="Assistant mode"
-        />
+        <div className="fedlify-ws-chips" aria-label="Context sent with your next message">
+          <Tooltip title="Protocol fields, your requirement answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
+            <Tag color={context && context.answered < context.total ? "orange" : "purple"}>
+              {context ? `Study context ${context.answered}/${context.total}` : "Study context"}
+            </Tag>
+          </Tooltip>
+          <Tag>{commit ? `commit ${commit.slice(0, 8)}` : "no commit"}</Tag>
+          {attachedPath ? (
+            <Tag closable onClose={(event) => { event.preventDefault(); setIncludeFile(false); setSelection(null); }} title={attachedPath}>
+              {attachedPath}
+            </Tag>
+          ) : focusFile ? (
+            <Tag className="fedlify-ws-chip-off" onClick={() => setIncludeFile(true)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter") setIncludeFile(true); }}>
+              + {focusFile}
+            </Tag>
+          ) : null}
+          {attachedSelection ? (
+            <Tag closable color="blue" onClose={(event) => { event.preventDefault(); setSelection(null); }}>
+              selection ({attachedSelection.length} chars)
+            </Tag>
+          ) : null}
+          {context && context.truncated.length > 0 ? (
+            <Tooltip title={`Cut to fit: ${context.truncated.join("; ")}`}>
+              <Tag color="gold">context trimmed</Tag>
+            </Tooltip>
+          ) : null}
+          {unsavedNote ? (
+            <Tooltip title="The assistant reads the saved commit. Save first if you want it to see your edits.">
+              <Tag color="gold">unsaved edits not included</Tag>
+            </Tooltip>
+          ) : null}
+        </div>
         <Input.TextArea
           ref={inputRef as never}
           value={input}
           maxLength={MAX_MESSAGE_CHARS}
-          autoSize={{ minRows: 2, maxRows: 6 }}
+          variant="borderless"
+          autoSize={{ minRows: 1, maxRows: 8 }}
           placeholder={mode === "propose" ? "Describe the change you want proposed..." : focusFile ? `Ask about ${focusFile} or the project...` : "Ask about the project..."}
           aria-label="Message to the assistant"
           onChange={(event) => setInput(event.target.value)}
@@ -569,14 +605,23 @@ export function AssistantPanel({
           }}
         />
         <div className="fedlify-ws-composer-actions">
+          <Segmented
+            size="small"
+            value={mode}
+            onChange={(value) => setMode(value as "ask" | "propose")}
+            options={[{ label: "Ask", value: "ask" }, { label: "Propose change", value: "propose" }]}
+            aria-label="Assistant mode"
+          />
+          <span className="fedlify-ws-composer-right">
           {lastMessage?.status === "error" ? (
             <Button size="small" icon={<ReloadOutlined />} onClick={retry}>Retry</Button>
-          ) : <span />}
-          {streaming ? (
-            <Button danger icon={<StopOutlined />} onClick={() => abortRef.current?.abort()}>Stop</Button>
-          ) : (
-            <Button type="primary" icon={<SendOutlined />} disabled={!input.trim()} onClick={() => void submit(input)}>{mode === "propose" ? "Propose" : "Send"}</Button>
-          )}
+          ) : null}
+            {streaming ? (
+              <Button shape="circle" danger icon={<StopOutlined />} aria-label="Stop" title="Stop" onClick={() => abortRef.current?.abort()} />
+            ) : (
+              <Button shape="circle" type="primary" icon={<ArrowUpOutlined />} aria-label={mode === "propose" ? "Propose" : "Send"} title={mode === "propose" ? "Propose" : "Send"} disabled={!input.trim()} onClick={() => void submit(input)} />
+            )}
+          </span>
         </div>
       </div>
     </aside>

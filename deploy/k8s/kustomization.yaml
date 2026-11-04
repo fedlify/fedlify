@@ -21,7 +21,7 @@ resources:
 
 images:
   - name: harbor.fedlify.com/fedlify/web
-    newTag: r20261104-3
+    newTag: r20261104-6
   - name: harbor.fedlify.com/fedlify/agent-worker
     newTag: latest
   - name: fedlify/agent-orchestrator
