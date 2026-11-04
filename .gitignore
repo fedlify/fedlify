@@ -26,3 +26,8 @@ services/agent-orchestrator/dist/
 deploy/local-e2e/provisioned/
 deploy/local-e2e/data/
 deploy/local-e2e/work/
+
+# Playwright output: traces record typed passwords and session cookies. Never commit.
+apps/web/output/
+apps/web/playwright-report/
+apps/web/test-results/
