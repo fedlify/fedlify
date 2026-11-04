@@ -265,3 +265,18 @@ export function computeTemplateFit(study: FitStudy, sites: FitSite[], traits: Te
   const fit: FitResult = different ? "different" : mismatchCount > 0 || unknownCount > 0 ? "partial" : "fits";
   return { fit, reasons, unknownCount, mismatchCount };
 }
+
+// ---- short fit text -------------------------------------------------------------------------------------------------
+
+/** Every reason, contradictions first, then unknowns, then matches. The full list belongs in a details panel. */
+export function orderedFitReasons(report: FitReport): string[] {
+  const order = { mismatch: 0, unknown: 1, match: 2 } as const;
+  return [...report.reasons].sort((a, b) => order[a.status] - order[b.status]).map((reason) => reason.message);
+}
+
+/** At most one short reason for a badge: the most important message, cut at `max` characters. */
+export function shortFitReason(report: FitReport, max = 80): string {
+  const first = orderedFitReasons(report)[0];
+  if (!first) return "No evidence to compare.";
+  return first.length <= max ? first : `${first.slice(0, max - 1).trimEnd()}…`;
+}

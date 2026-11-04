@@ -7,7 +7,7 @@
 
 import { isProhibitedDataPath } from "@/lib/data-paths";
 import { checkRepoFiles, fileHasSecret, isDataLikePath } from "@/lib/repo-checks";
-import { profileColumns, type FitResult, type FitSite } from "@/lib/template-fit";
+import { DATA_TYPE_LABELS, TASK_LABELS, profileColumns, type DataType, type FitResult, type FitSite, type TaskKind } from "@/lib/template-fit";
 
 // ---- wizard -------------------------------------------------------------------------------------------------------
 
@@ -179,6 +179,76 @@ export const FIT_LABELS: Record<FitResult, string> = { fits: "fits", partial: "p
 /** Best fit first; ties keep their incoming order (the catalog's own ordering). */
 export function sortByFit<T extends { fit: FitResult }>(items: T[]): T[] {
   return items.map((item, index) => ({ item, index })).sort((a, b) => FIT_ORDER[a.item.fit] - FIT_ORDER[b.item.fit] || a.index - b.index).map(({ item }) => item);
+}
+
+// ---- template browser: search, filter, sort, paginate (pure) ---------------------------------------------------------
+
+export const TEMPLATE_PAGE_SIZE = 10;
+
+/** What the template browser needs to know about one template. */
+export type BrowseFields = {
+  name: string;
+  algorithm: string | null;
+  task: TaskKind | null;
+  dataType: DataType | null;
+  /** False when the template cannot be cloned (no approved version or no reviewable source). */
+  available: boolean;
+  fit: FitResult;
+};
+
+export type BrowseOptions = { query?: string; task?: TaskKind | "all"; dataType?: DataType | "all"; showUnavailable?: boolean };
+
+/** Every word of the query must appear in the name, algorithm, task or data type (keys and labels), ignoring case. */
+export function matchesQuery(item: BrowseFields, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const haystack = [
+    item.name,
+    item.algorithm ?? "",
+    item.task ? `${item.task} ${item.task.replace(/_/g, " ")} ${TASK_LABELS[item.task]}` : "",
+    item.dataType ? `${item.dataType} ${item.dataType.replace(/_/g, " ")} ${DATA_TYPE_LABELS[item.dataType]}` : ""
+  ]
+    .join(" ")
+    .toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
+/** Search and the task / data type filters. Availability is not applied here. */
+export function filterTemplates<T extends BrowseFields>(items: T[], options: BrowseOptions): T[] {
+  const { query = "", task = "all", dataType = "all" } = options;
+  return items.filter((item) => (task === "all" || item.task === task) && (dataType === "all" || item.dataType === dataType) && matchesQuery(item, query));
+}
+
+/** Available templates first, then best fit first; ties keep their incoming order. */
+export function sortTemplates<T extends BrowseFields>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => Number(!a.item.available) - Number(!b.item.available) || FIT_ORDER[a.item.fit] - FIT_ORDER[b.item.fit] || a.index - b.index)
+    .map(({ item }) => item);
+}
+
+/** Search, filter and sort. Unavailable templates are dropped unless asked for; `unavailableCount` is how many matched but were hidden or shown as unavailable. */
+export function browseTemplates<T extends BrowseFields>(items: T[], options: BrowseOptions): { rows: T[]; unavailableCount: number } {
+  const matched = filterTemplates(items, options);
+  const unavailableCount = matched.filter((item) => !item.available).length;
+  return { rows: sortTemplates(options.showUnavailable ? matched : matched.filter((item) => item.available)), unavailableCount };
+}
+
+export type Page<T> = { items: T[]; page: number; pageCount: number; total: number; from: number; to: number };
+
+/** One page of a list. `page` is 1-based and clamped, so a stale page number after a filter change is safe. */
+export function paginate<T>(items: T[], page: number, pageSize = TEMPLATE_PAGE_SIZE): Page<T> {
+  const size = Math.max(1, Math.floor(pageSize));
+  const pageCount = Math.max(1, Math.ceil(items.length / size));
+  const current = Math.min(Math.max(1, Math.floor(page) || 1), pageCount);
+  const start = (current - 1) * size;
+  const slice = items.slice(start, start + size);
+  return { items: slice, page: current, pageCount, total: items.length, from: slice.length ? start + 1 : 0, to: start + slice.length };
+}
+
+/** The recommendation: the first available template whose fit is genuinely "fits", otherwise none. Expects fit-sorted input. */
+export function recommendedMatch<T extends BrowseFields>(items: T[]): T | null {
+  return items.find((item) => item.available && item.fit === "fits") ?? null;
 }
 
 /** Owner and repository of a Gitea repository URL, or null if it does not look like one (also rejects odd characters). */

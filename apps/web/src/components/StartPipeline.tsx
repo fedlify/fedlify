@@ -1,12 +1,14 @@
 "use client";
 
-import { ArrowLeftOutlined, CheckCircleFilled, CloseCircleFilled, ExclamationCircleFilled, QuestionCircleOutlined } from "@ant-design/icons";
-import { Alert, Button, Checkbox, Empty, Input, InputNumber, Radio, Select, Space, Spin, Table, Tag, Tooltip, Typography, Upload } from "antd";
+import { AppstoreOutlined, ArrowLeftOutlined, CheckCircleFilled, CloseCircleFilled, CopyOutlined, ExclamationCircleFilled, MessageOutlined, QuestionCircleOutlined, SearchOutlined, UploadOutlined } from "@ant-design/icons";
+import { Alert, Button, Checkbox, Collapse, Empty, Input, InputNumber, Pagination, Radio, Select, Space, Spin, Table, Tag, Typography, Upload } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DATA_TYPE_LABELS,
   TASK_LABELS,
   computeTemplateFit,
+  orderedFitReasons,
+  shortFitReason,
   templateTraits,
   type DataType,
   type FitReport,
@@ -21,20 +23,22 @@ import {
   IMPORT_LIMITS,
   NAME_MAX,
   PATH_LABELS,
+  TEMPLATE_PAGE_SIZE,
   WIZARD_STEPS,
   alignmentReport,
   applyContractToPipelineJson,
+  browseTemplates,
   contractError,
   contractFromPipelineJson,
   featureAvailability,
   intersectionFeatures,
   nameError,
+  paginate,
   parseRepoUrl,
-  safeImportPath,
+    safeImportPath,
   isZipJunk,
   importableFiles,
   importProposalPrompt,
-  sortByFit,
   stripCommonRoot,
   type AlignmentReport,
   type ContractDraft,
@@ -74,6 +78,8 @@ type TemplateCard = {
   validation: string | null;
   validatedAt: string | null;
   traits: TemplateTraits;
+  /** Name-based traits, never replaced by the lazy source read: the list's fit, sort and filters use these so rows do not move under the user. */
+  listTraits: TemplateTraits;
   /** Text of fedlify-pipeline.json when it could be read; used to prefill step 2. */
   pipelineJson: string | null;
   scope: string;
@@ -108,6 +114,7 @@ function cardFromCatalog(template: CatalogTemplate): TemplateCard {
     validation: approved?.validationStatus ?? null,
     validatedAt: approved?.updatedAt ?? null,
     traits: templateTraits({ name: template.name, description: template.description, pipelineJson: null }),
+    listTraits: templateTraits({ name: template.name, description: template.description, pipelineJson: null }),
     pipelineJson: null,
     scope: template.scope,
     blockedReason: cloneable ? null : approved ? "No reviewable source repository." : "No approved version yet."
@@ -123,34 +130,42 @@ function starterCard(): TemplateCard {
     validation: null,
     validatedAt: null,
     traits: templateTraits({ name: "Fedlify starter", description: STARTER_DESCRIPTION, pipelineJson: null }),
+    listTraits: templateTraits({ name: "Fedlify starter", description: STARTER_DESCRIPTION, pipelineJson: null }),
     pipelineJson: null,
     scope: "PUBLIC_TEMPLATE",
     blockedReason: null
   };
 }
 
-/** Messages worth showing next to the badge: contradictions first, then unknowns, then the matches. */
-function fitReasons(report: FitReport): string[] {
-  const order = { mismatch: 0, unknown: 1, match: 2 } as const;
-  return [...report.reasons].sort((a, b) => order[a.status] - order[b.status]).map((reason) => reason.message);
+function FitBadge({ report, provisional }: { report: FitReport; provisional?: boolean }) {
+  return (
+    <Tag color={FIT_COLOR[report.fit]} data-fit={report.fit} data-testid="fit-badge" style={{ marginInlineEnd: 0 }} title={provisional ? "First guess from the template's name. Select the template to read its source." : undefined}>
+      {FIT_LABELS[report.fit]}
+    </Tag>
+  );
 }
 
-function FitBadge({ report, inferred }: { report: FitReport; inferred: boolean }) {
-  const reasons = fitReasons(report);
-  return (
-    <div className="fedlify-start-fit" data-testid="fit-badge">
-      <Tooltip title={<div>{reasons.map((reason) => <div key={reason}>{reason}</div>)}</div>}>
-        <Tag color={FIT_COLOR[report.fit]} data-fit={report.fit}>
-          {FIT_LABELS[report.fit]}
-        </Tag>
-      </Tooltip>
-      <span className="fedlify-start-fit-reason" data-testid="fit-reason">
-        {reasons[0] ?? "No evidence to compare."}
-        {reasons.length > 1 ? ` (+${reasons.length - 1} more)` : ""}
-        {inferred ? " Traits inferred from the name." : ""}
-      </span>
-    </div>
-  );
+const PATH_CARDS: Array<{ path: StartPath; icon: React.ReactNode; sentence: string }> = [
+  { path: "template", icon: <AppstoreOutlined />, sentence: "Start from an approved template." },
+  { path: "assistant", icon: <MessageOutlined />, sentence: "Describe what you want in your own words." },
+  { path: "import", icon: <UploadOutlined />, sentence: "Upload a zip or point to a Git repository." },
+  { path: "copy", icon: <CopyOutlined />, sentence: "Reuse a pipeline from this study." }
+];
+
+type RankedTemplate = {
+  card: TemplateCard;
+  report: FitReport;
+  fit: FitReport["fit"];
+  name: string;
+  algorithm: string | null;
+  task: TemplateTraits["task"];
+  dataType: TemplateTraits["dataType"];
+  available: boolean;
+};
+
+function rowSummary(card: TemplateCard) {
+  const parts = [card.traits.algorithm, card.traits.task ? TASK_LABELS[card.traits.task] : null].filter(Boolean);
+  return parts.length ? parts.join(" \u00b7 ") : "Details unknown";
 }
 
 function formatDate(value: string | null) {
@@ -190,10 +205,15 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [path, setPath] = useState<StartPath>(initialPath ?? "template");
+  // Step 1 shows only the four choices until one is picked (or a row's Copy button asked for a path).
+  const [picked, setPicked] = useState(Boolean(initialPath));
   const [templateKey, setTemplateKey] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState<TaskKind | "all">("all");
   const [typeFilter, setTypeFilter] = useState<DataType | "all">("all");
-  const [showAll, setShowAll] = useState(false);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [showUnavailable, setShowUnavailable] = useState(false);
+  const [sourceStatus, setSourceStatus] = useState<Record<string, "loading" | "done" | "failed">>({});
   const [description, setDescription] = useState("");
   const [baseKey, setBaseKey] = useState<string | null>(null);
   const [importMode, setImportMode] = useState<"git" | "zip">("zip");
@@ -214,7 +234,10 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const prefillSeq = useRef(0);
+  const requestedSource = useRef(new Set<string>());
 
   // Study protocol and sites' data profiles: the evidence the fit badge and the feature table use.
   useEffect(() => {
@@ -244,41 +267,15 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
     };
   }, [studyId]);
 
-  // Approved templates (public catalog and this study's), then each one's fedlify-pipeline.json for declared traits.
+  // Approved templates (public catalog and this study's): one request. A template's own source is read only when it is selected.
   useEffect(() => {
     let cancelled = false;
     void apiCall<{ templates: CatalogTemplate[] }>(`/api/v1/pipeline-templates?scope=all&studyId=${encodeURIComponent(studyId)}`)
-      .then(async (body) => {
+      .then((body) => {
         if (cancelled) return;
         const fromCatalog = body.templates.map(cardFromCatalog);
         const hasStarter = fromCatalog.some((card) => card.source?.repo === "fedlify-starter");
-        const initial = hasStarter ? fromCatalog : [starterCard(), ...fromCatalog];
-        setCards(initial);
-        const readable = initial.filter((card) => card.source).slice(0, 12);
-        let next = 0;
-        const worker = async () => {
-          while (!cancelled && next < readable.length) {
-            const card = readable[next++];
-            const id = card.key;
-            try {
-              const source = await apiCall<{ files: Array<{ path: string; content: string }> }>(`/api/v1/pipeline-templates/${id}/source`);
-              const file = source.files.find((item) => item.path === "fedlify-pipeline.json");
-              if (!file || cancelled) continue;
-              let parsed: unknown = null;
-              try {
-                parsed = JSON.parse(file.content);
-              } catch {
-                continue;
-              }
-              setCards((current) =>
-                current?.map((item) => (item.key === id ? { ...item, pipelineJson: file.content, traits: templateTraits({ name: item.name, description: item.description, pipelineJson: parsed }) } : item)) ?? current
-              );
-            } catch {
-              // A template whose source cannot be read keeps its inferred traits.
-            }
-          }
-        };
-        await Promise.all([worker(), worker(), worker()]);
+        setCards(hasStarter ? fromCatalog : [starterCard(), ...fromCatalog]);
       })
       .catch((error) => {
         if (cancelled) return;
@@ -290,27 +287,50 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
     };
   }, [studyId]);
 
-  const ranked = useMemo(() => {
-    if (!cards || !context) return [];
-    return sortByFit(
-      cards.map((card) => {
-        const report = computeTemplateFit(context.fitStudy, context.sites, card.traits);
-        return { card, report, fit: report.fit };
+  // Read the selected template's fedlify-pipeline.json once, for its declared traits and to prefill step 2.
+  useEffect(() => {
+    if (!picked || path !== "template" || !templateKey || requestedSource.current.has(templateKey)) return;
+    const card = cards?.find((item) => item.key === templateKey);
+    if (!card?.source || card.key === "starter") return;
+    const id = card.key;
+    requestedSource.current.add(id);
+    setSourceStatus((current) => ({ ...current, [id]: "loading" }));
+    void apiCall<{ files: Array<{ path: string; content: string }> }>(`/api/v1/pipeline-templates/${id}/source`)
+      .then((source) => {
+        const file = source.files.find((item) => item.path === "fedlify-pipeline.json");
+        let parsed: unknown = null;
+        try {
+          parsed = file ? JSON.parse(file.content) : null;
+        } catch {
+          parsed = null;
+        }
+        if (file && parsed) {
+          setCards((current) => current?.map((item) => (item.key === id ? { ...item, pipelineJson: file.content, traits: templateTraits({ name: item.name, description: item.description, pipelineJson: parsed }) } : item)) ?? current);
+        }
+        if (!(file && parsed)) requestedSource.current.delete(id);
+        setSourceStatus((current) => ({ ...current, [id]: file && parsed ? "done" : "failed" }));
       })
-    );
+      .catch(() => {
+        // Forget the request so Retry (or selecting the template again) can read it once more.
+        requestedSource.current.delete(id);
+        setSourceStatus((current) => ({ ...current, [id]: "failed" }));
+      });
+  }, [picked, path, templateKey, cards, retryTick]);
+
+  const ranked = useMemo<RankedTemplate[]>(() => {
+    if (!cards || !context) return [];
+    return cards.map((card) => {
+      const report = computeTemplateFit(context.fitStudy, context.sites, card.listTraits);
+      return { card, report, fit: report.fit, name: card.name, algorithm: card.listTraits.algorithm, task: card.listTraits.task, dataType: card.listTraits.dataType, available: !card.blockedReason };
+    });
   }, [cards, context]);
 
-  const filtered = ranked.filter(({ card }) => (taskFilter === "all" || card.traits.task === taskFilter) && (typeFilter === "all" || card.traits.dataType === typeFilter));
-  const visible = showAll ? filtered : filtered.slice(0, 3);
-
-  // Default selections once the ranking is known: the best-fitting template that can actually be cloned.
-  useEffect(() => {
-    const best = ranked.find(({ card }) => !card.blockedReason);
-    if (best) {
-      setTemplateKey((current) => current ?? best.card.key);
-      setBaseKey((current) => current ?? best.card.key);
-    }
-  }, [ranked]);
+  const browse = useMemo(() => browseTemplates(ranked, { query, task: taskFilter, dataType: typeFilter, showUnavailable }), [ranked, query, taskFilter, typeFilter, showUnavailable]);
+  const pageInfo = paginate(browse.rows, page, TEMPLATE_PAGE_SIZE);
+  const filtersActive = query.trim() !== "" || taskFilter !== "all" || typeFilter !== "all";
+  // The assistant starts from the best available template unless "Advanced" picks another.
+  const bestAvailableKey = useMemo(() => browseTemplates(ranked, {}).rows[0]?.card.key ?? null, [ranked]);
+  const effectiveBaseKey = baseKey ?? bestAvailableKey;
 
   const selectedCard = (key: string | null) => ranked.find(({ card }) => card.key === key)?.card ?? null;
   const copyProject = projects.find((project) => project.id === copyId) ?? null;
@@ -404,7 +424,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
     path === "template"
       ? Boolean(selectedCard(templateKey) && !selectedCard(templateKey)?.blockedReason)
       : path === "assistant"
-        ? description.trim().length >= 20 && Boolean(selectedCard(baseKey))
+        ? description.trim().length >= 20 && Boolean(selectedCard(effectiveBaseKey))
         : path === "import"
           ? importMode === "zip"
             ? Boolean(importFiles && importReport)
@@ -416,13 +436,23 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
   const canContinue = sourceReady && !secretsFound && (!blockingFound || ackBlocking);
 
   async function goToContract() {
+    if (advancing) return;
+    setAdvancing(true);
+    try {
+      await prefillContract();
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
+  async function prefillContract() {
     const seq = ++prefillSeq.current;
     setTouched(false);
     setPrefillNote(null);
     let json: string | null = null;
     let note: string | null = null;
     if (path === "template" || path === "assistant") {
-      const card = selectedCard(path === "template" ? templateKey : baseKey);
+      const card = selectedCard(path === "template" ? templateKey : effectiveBaseKey);
       json = card?.pipelineJson ?? null;
       if (!json && card && card.key !== "starter" && card.source) {
         try {
@@ -508,7 +538,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
         let source: { owner: string; repo: string; ref?: string } | undefined;
         let lineage: { sourceKind: "template" | "assistant" | "copy"; parentProjectId?: string; parentVersion?: string } = { sourceKind: path === "copy" ? "copy" : path === "assistant" ? "assistant" : "template" };
         if (path === "template") source = selectedCard(templateKey)?.source;
-        else if (path === "assistant") source = selectedCard(baseKey)?.source;
+        else if (path === "assistant") source = selectedCard(effectiveBaseKey)?.source;
         else if (copyRepo) {
           const version = copyVersionId === "head" ? null : copyProject?.versions.find((item) => item.id === copyVersionId);
           source = { ...copyRepo, ref: version?.gitCommit ?? undefined };
@@ -565,21 +595,71 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
     path === "template"
       ? (selectedCard(templateKey)?.name ?? "No template")
       : path === "assistant"
-        ? `Assistant, starting from ${selectedCard(baseKey)?.name ?? "the starter"}`
+        ? `Assistant, starting from ${selectedCard(effectiveBaseKey)?.name ?? "the starter"}`
         : path === "import"
           ? importMode === "zip"
             ? `Uploaded zip (${importFiles?.length ?? 0} files)`
             : gitUrl
           : `Copy of ${copyProject?.name ?? "a pipeline"}`;
 
+  // Why Continue is disabled, so the screen never reads as a dead end.
+  const continueHint = canContinue || loading
+    ? null
+    : path === "template"
+      ? "Select a template to continue."
+      : path === "assistant"
+        ? description.trim().length < 20
+          ? "Describe your pipeline in at least 20 characters to continue."
+          : "No template is available to start from."
+        : path === "import"
+          ? secretsFound
+            ? "Remove the credentials the check found, then check again."
+            : blockingFound && !ackBlocking
+              ? "Tick the box above to continue anyway."
+              : importMode === "zip"
+                ? "Upload a zip to continue."
+                : !GIT_URL.test(gitUrl.trim())
+                  ? "Enter an https Git URL, then check it."
+                  : "Check the repository first."
+          : !copyProject
+            ? "Choose a pipeline to copy."
+            : "This pipeline has no readable repository address.";
+
+  const continueButton = (
+    <footer className="fedlify-start-foot is-end">
+      {continueHint ? (
+        <Typography.Text type="secondary" className="fedlify-start-hint" data-testid="continue-hint">
+          {continueHint}
+        </Typography.Text>
+      ) : null}
+      <Button type="primary" loading={advancing} disabled={!canContinue || loading || advancing} onClick={() => void goToContract()}>
+        Continue
+      </Button>
+    </footer>
+  );
+  const chosenCard = selectedCard(templateKey);
+  const chosenStatus = chosenCard ? sourceStatus[chosenCard.key] : undefined;
+  const chosenReport = chosenCard && context ? computeTemplateFit(context.fitStudy, context.sites, chosenCard.traits) : null;
+  const descriptionLength = description.length;
+
+  function pickTemplate(key: string) {
+    setPath("template");
+    setTemplateKey(key);
+  }
+
+  function resetBrowse() {
+    setPage(1);
+  }
+
   return (
     <section className="fedlify-start" aria-label="Start a pipeline" data-testid="start-pipeline">
       <header className="fedlify-start-head">
-        <div>
-          <h2>Start a pipeline</h2>
-          <Typography.Text type="secondary">Four ways in, one wizard. Every path ends in the workspace; nothing is published or run.</Typography.Text>
-        </div>
-        {onCancel ? (
+        <h2>Start a pipeline</h2>
+        {step === 0 && picked ? (
+          <Button icon={<ArrowLeftOutlined />} onClick={() => setPicked(false)}>
+            Back
+          </Button>
+        ) : step === 0 && onCancel ? (
           <Button icon={<ArrowLeftOutlined />} onClick={onCancel}>
             Back to pipelines
           </Button>
@@ -596,227 +676,303 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
 
       {contextError ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Study details unavailable" description={`${contextError} Fit badges and feature availability will say unknown.`} /> : null}
 
-      {step === 0 ? (
-        <>
+      {step === 0 && !picked ? (
+        <div className="fedlify-start-choose" data-testid="start-choose">
+          <h3>How do you want to start?</h3>
+          <div className="fedlify-start-choices">
+            {PATH_CARDS.map((choice) => {
+              const disabled = choice.path === "copy" && projects.length === 0;
+              return (
+                <button
+                  type="button"
+                  key={choice.path}
+                  className="fedlify-start-choice"
+                  data-testid={`path-card-${choice.path}`}
+                  disabled={disabled}
+                  onClick={() => {
+                    setPath(choice.path);
+                    setPicked(true);
+                  }}
+                >
+                  <span className="fedlify-start-choice-icon" aria-hidden="true">{choice.icon}</span>
+                  <span className="fedlify-start-choice-title">{PATH_LABELS[choice.path]}</span>
+                  <span className="fedlify-start-choice-text">{disabled ? "This study has no pipeline yet." : choice.sentence}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {step === 0 && picked && path === "template" ? (
+        <div className="fedlify-start-panel" data-testid="path-template">
+          <h3>Choose a template</h3>
+          {catalogError ? <Alert type="warning" showIcon message="The template catalog could not be loaded; only the starter is offered." description={catalogError} /> : null}
           {loading ? (
-            <div style={{ textAlign: "center", padding: 32 }}>
-              <Spin tip="Loading templates and study context" />
+            <div style={{ textAlign: "center", padding: 24 }}>
+              <Spin tip="Loading templates" />
             </div>
           ) : (
-            <div className="fedlify-start-paths">
-              {/* Path 1: template */}
-              <div className={["fedlify-start-path", path === "template" ? "is-selected" : ""].join(" ")} data-testid="path-template">
-                <div className="fedlify-start-path-head">
-                  <Radio checked={path === "template"} onChange={() => setPath("template")} aria-label={PATH_LABELS.template}>
-                    <b>{PATH_LABELS.template}</b>
-                  </Radio>
-                  <Tag color="purple">recommended</Tag>
-                </div>
-                <p>Approved templates, best fit with this study&apos;s protocol, outcome and the sites&apos; data profiles first.</p>
-                {catalogError ? <Alert type="warning" showIcon message="The template catalog could not be loaded; only the starter is offered." description={catalogError} /> : null}
-                <div className="fedlify-start-filters">
-                  <Select<TaskKind | "all">
-                    size="small"
-                    aria-label="Filter by task"
-                    value={taskFilter}
-                    onChange={setTaskFilter}
-                    options={[{ value: "all", label: "Any task" }, ...Object.entries(TASK_LABELS).map(([value, label]) => ({ value: value as TaskKind, label }))]}
-                  />
-                  <Select<DataType | "all">
-                    size="small"
-                    aria-label="Filter by data type"
-                    value={typeFilter}
-                    onChange={setTypeFilter}
-                    options={[{ value: "all", label: "Any data type" }, ...Object.entries(DATA_TYPE_LABELS).map(([value, label]) => ({ value: value as DataType, label }))]}
-                  />
-                </div>
-                <div className="fedlify-start-cards" role="radiogroup" aria-label="Templates">
-                  {visible.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No template matches these filters." /> : null}
-                  {visible.map(({ card, report }) => {
-                    const contractSummary = card.traits.contract;
-                    const validated = formatDate(card.validatedAt);
-                    return (
-                      <button
-                        type="button"
-                        key={card.key}
-                        role="radio"
-                        aria-checked={templateKey === card.key && path === "template"}
-                        disabled={Boolean(card.blockedReason)}
-                        className={["fedlify-start-card", templateKey === card.key && path === "template" ? "is-on" : ""].join(" ")}
-                        data-testid="template-card"
-                        onClick={() => {
-                          setPath("template");
-                          setTemplateKey(card.key);
-                        }}
-                      >
-                        <span className="fedlify-start-card-title">
-                          <span>{card.name}</span>
-                          {card.scope === "STUDY_TEMPLATE" ? <Tag>this study</Tag> : null}
-                        </span>
-                        <span className="fedlify-start-card-meta">
-                          {[
-                            card.traits.task ? TASK_LABELS[card.traits.task] : "task unknown",
-                            card.traits.algorithm ?? "algorithm unknown",
-                            card.traits.dataType ? DATA_TYPE_LABELS[card.traits.dataType] : "data type unknown",
-                            contractSummary ? `${contractSummary.label ?? "no label"} + ${contractSummary.featureCount} features` : "contract not read",
-                            card.version ? `v${card.version.replace(/^v/, "")}` : null,
-                            card.validation ? `validation ${card.validation.toLowerCase()}${validated ? ` ${validated}` : ""}` : null
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                        <FitBadge report={report} inferred={card.traits.traitSource !== "declared"} />
-                        {card.blockedReason ? <span className="fedlify-start-card-meta">Unavailable: {card.blockedReason}</span> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-                {filtered.length > 3 ? (
-                  <Button size="small" type="link" onClick={() => setShowAll((value) => !value)}>
-                    {showAll ? "Show the best three" : `Browse all ${filtered.length}`}
+            <>
+              <div className="fedlify-start-toolbar">
+                <Input
+                  className="fedlify-start-search"
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  aria-label="Search templates"
+                  placeholder="Search name, algorithm, task or data type"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    resetBrowse();
+                  }}
+                />
+                <Select<TaskKind | "all">
+                  aria-label="Filter by task"
+                  value={taskFilter}
+                  onChange={(value) => {
+                    setTaskFilter(value);
+                    resetBrowse();
+                  }}
+                  options={[{ value: "all", label: "Any task" }, ...Object.entries(TASK_LABELS).map(([value, label]) => ({ value: value as TaskKind, label }))]}
+                />
+                <Select<DataType | "all">
+                  aria-label="Filter by data type"
+                  value={typeFilter}
+                  onChange={(value) => {
+                    setTypeFilter(value);
+                    resetBrowse();
+                  }}
+                  options={[{ value: "all", label: "Any data type" }, ...Object.entries(DATA_TYPE_LABELS).map(([value, label]) => ({ value: value as DataType, label }))]}
+                />
+              </div>
+              <div className="fedlify-start-count-row">
+                <span aria-live="polite" data-testid="template-count">
+                  {pageInfo.total === 0 ? "No templates" : `Showing ${pageInfo.from}–${pageInfo.to} of ${pageInfo.total} template${pageInfo.total === 1 ? "" : "s"}`}
+                </span>
+                {chosenCard && path === "template" ? (
+                  <Tag color="blue" data-testid="selected-chip" style={{ marginInlineEnd: 0 }}>
+                    Selected: {chosenCard.name}
+                    {pageInfo.items.some(({ card }) => card.key === chosenCard.key) ? "" : " (not in this view)"}
+                  </Tag>
+                ) : null}
+                {browse.unavailableCount > 0 ? (
+                  <Button size="small" type="link" onClick={() => { setShowUnavailable((value) => !value); resetBrowse(); }}>
+                    {showUnavailable ? `Hide unavailable (${browse.unavailableCount})` : `Show unavailable (${browse.unavailableCount})`}
                   </Button>
                 ) : null}
               </div>
-
-              {/* Path 2: assistant */}
-              <div className={["fedlify-start-path", path === "assistant" ? "is-selected" : ""].join(" ")} data-testid="path-assistant">
-                <div className="fedlify-start-path-head">
-                  <Radio checked={path === "assistant"} onChange={() => setPath("assistant")} aria-label={PATH_LABELS.assistant}>
-                    <b>{PATH_LABELS.assistant}</b>
-                  </Radio>
-                </div>
-                <p>Say what you want. The pipeline starts from the closest template; the workspace assistant then proposes the first changes for your request as a diff you review.</p>
-                <Input.TextArea
-                  aria-label="What should the pipeline do"
-                  rows={3}
-                  maxLength={2000}
-                  showCount
-                  placeholder="e.g. Predict in-hospital mortality from admission labs and vitals, using only features both hospitals record."
-                  value={description}
-                  onFocus={() => setPath("assistant")}
-                  onChange={(event) => setDescription(event.target.value)}
-                />
-                <Select
-                  size="small"
-                  aria-label="Closest template"
-                  value={baseKey ?? undefined}
-                  onChange={(value) => {
-                    setPath("assistant");
-                    setBaseKey(value);
-                  }}
-                  options={ranked.filter(({ card }) => !card.blockedReason).map(({ card, fit }) => ({ value: card.key, label: `${card.name} (${FIT_LABELS[fit]})` }))}
-                />
-                <Typography.Text type="secondary" className="fedlify-start-note">
-                  At least 20 characters. The pipeline is created from the closest template and your request is sent to the assistant as a proposal. You review the diff and accept or reject it; nothing is saved by the assistant on its own.
-                </Typography.Text>
-              </div>
-
-              {/* Path 3: import */}
-              <div className={["fedlify-start-path", path === "import" ? "is-selected" : ""].join(" ")} data-testid="path-import">
-                <div className="fedlify-start-path-head">
-                  <Radio checked={path === "import"} onChange={() => setPath("import")} aria-label={PATH_LABELS.import}>
-                    <b>{PATH_LABELS.import}</b>
-                  </Radio>
-                </div>
-                <p>Upload a zip or give a Git URL. It is checked against the Fedlify contract before anything is created.</p>
-                <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-                <Radio.Group
-                  size="small"
-                  value={importMode}
-                  onChange={(event) => {
-                    setPath("import");
-                    setImportMode(event.target.value);
-                    setImportReport(null);
-                    setImportError(null);
-                  }}
-                  options={[
-                    { value: "zip", label: "Upload zip" },
-                    { value: "git", label: "Git URL" }
-                  ]}
-                  optionType="button"
-                />
-                {importMode === "zip" ? (
-                  <Upload.Dragger accept=".zip" maxCount={1} multiple={false} showUploadList={{ showRemoveIcon: false }} beforeUpload={(file) => { setPath("import"); return readZip(file); }} disabled={importBusy}>
-                    <span>Drop a .zip here or click to choose (max {IMPORT_LIMITS.maxZipBytes / 1024 / 1024} MB, text files only)</span>
-                  </Upload.Dragger>
-                ) : (
-                  <Space.Compact style={{ width: "100%" }}>
-                    <Input aria-label="Git URL" placeholder="https://git.example.com/org/repo" value={gitUrl} onFocus={() => setPath("import")} onChange={(event) => { setGitUrl(event.target.value); setImportReport(null); }} />
-                    <Input aria-label="Git ref" style={{ maxWidth: 110 }} placeholder="ref (main)" value={gitRef} onChange={(event) => setGitRef(event.target.value)} />
-                    <Button loading={importBusy} disabled={!GIT_URL.test(gitUrl.trim())} onClick={() => void checkGit()}>
-                      Check
+              <Typography.Text type="secondary" className="fedlify-start-note" data-testid="provisional-note">
+                Fit, search and filters use what each template&apos;s name suggests. Select one to read its source and see its declared details.
+              </Typography.Text>
+              {pageInfo.total === 0 ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={filtersActive ? "No template matches your search or filters." : "No templates are available."}
+                >
+                  {filtersActive ? (
+                    <Button size="small" onClick={() => { setQuery(""); setTaskFilter("all"); setTypeFilter("all"); resetBrowse(); }}>
+                      Clear search and filters
                     </Button>
-                  </Space.Compact>
-                )}
-                {importBusy && importMode === "zip" ? <Spin size="small" /> : null}
-                {importError ? <Alert type={importReport ? "info" : "warning"} showIcon message={importError} /> : null}
-                {importReport ? <AlignmentView report={importReport} /> : null}
-                {blockingFound ? (
-                  <Checkbox checked={ackBlocking} onChange={(event) => setAckBlocking(event.target.checked)}>
-                    Create it anyway and fix the blocking items in the workspace (publish will refuse them until fixed).
-                  </Checkbox>
-                ) : null}
-                </fieldset>
-              </div>
-
-              {/* Path 4: copy */}
-              <div className={["fedlify-start-path", path === "copy" ? "is-selected" : ""].join(" ")} data-testid="path-copy">
-                <div className="fedlify-start-path-head">
-                  <Radio checked={path === "copy"} onChange={() => setPath("copy")} aria-label={PATH_LABELS.copy} disabled={projects.length === 0}>
-                    <b>{PATH_LABELS.copy}</b>
-                  </Radio>
+                  ) : null}
+                </Empty>
+              ) : (
+                <div className="fedlify-start-rows" role="group" aria-label="Templates">
+                  {pageInfo.items.map(({ card, report }) => (
+                    <button
+                      type="button"
+                      key={card.key}
+                      aria-pressed={templateKey === card.key}
+                      disabled={Boolean(card.blockedReason)}
+                      title={[card.name, rowSummary(card), card.blockedReason].filter(Boolean).join(" \u2014 ")}
+                      className={["fedlify-start-row", templateKey === card.key ? "is-on" : ""].join(" ")}
+                      data-testid="template-row"
+                      onClick={() => pickTemplate(card.key)}
+                    >
+                      <span className="fedlify-start-row-name">{card.name}</span>
+                      <span className="fedlify-start-row-summary">{rowSummary(card)}</span>
+                      {card.blockedReason ? <Tag style={{ marginInlineEnd: 0 }}>unavailable</Tag> : <FitBadge report={report} provisional />}
+                    </button>
+                  ))}
                 </div>
-                <p>For a v2 or an ablation. The copy starts from this pipeline&apos;s code at the version you choose.</p>
-                {projects.length === 0 ? (
-                  <Typography.Text type="secondary">This study has no pipeline to copy yet.</Typography.Text>
-                ) : (
-                  <>
-                    <Select
-                      size="small"
-                      aria-label="Pipeline to copy"
-                      value={copyId ?? undefined}
-                      onChange={(value) => {
-                        setPath("copy");
-                        setCopyId(value);
-                        setCopyVersionId("head");
-                      }}
-                      options={projects.map((project) => ({ value: project.id, label: project.name }))}
-                    />
-                    <Select
-                      size="small"
-                      aria-label="Version to copy"
-                      value={copyVersionId}
-                      onChange={(value) => {
-                        setPath("copy");
-                        setCopyVersionId(value);
-                      }}
-                      options={[
-                        { value: "head", label: "Saved head (latest commit)" },
-                        ...(copyProject?.versions.filter((version) => version.gitCommit).map((version) => ({ value: version.id, label: `${version.version}${version.id === liveVersionId ? " (live)" : ""}` })) ?? [])
-                      ]}
-                    />
-                    {copyProject && !copyRepo ? <Alert type="warning" showIcon message="This pipeline has no readable repository address, so it cannot be copied." /> : null}
-                    {copyProject ? (
-                      <Typography.Text type="secondary" className="fedlify-start-note">
-                        {jobs.some((job) => job.pipelineVersion && copyProject.versions.some((version) => version.id === job.pipelineVersion?.id))
-                          ? "It has runs; the copy starts with none."
-                          : "It has no runs yet."}
-                      </Typography.Text>
+              )}
+              {pageInfo.pageCount > 1 ? (
+                <Pagination size="small" current={pageInfo.page} pageSize={TEMPLATE_PAGE_SIZE} total={pageInfo.total} showSizeChanger={false} onChange={setPage} />
+              ) : null}
+              {chosenCard && chosenReport ? (
+                <div className="fedlify-start-details" data-testid="template-details" role="region" aria-label={`Details of ${chosenCard.name}`}>
+                  <div className="fedlify-start-details-head">
+                    <b>{chosenCard.name}</b>
+                    {chosenCard.scope === "STUDY_TEMPLATE" ? <Tag style={{ marginInlineEnd: 0 }}>this study</Tag> : null}
+                    <FitBadge report={chosenReport} />
+                    <span className="fedlify-start-best-reason">{shortFitReason(chosenReport)}</span>
+                  </div>
+                  {chosenCard.description ? <p className="fedlify-start-details-text">{chosenCard.description}</p> : null}
+                  <dl className="fedlify-start-summary">
+                    <dt>Version</dt>
+                    <dd>{chosenCard.version ? `v${chosenCard.version.replace(/^v/, "")}` : "Not versioned"}</dd>
+                    <dt>Validation</dt>
+                    <dd>{chosenCard.validation ? `${chosenCard.validation.toLowerCase()}${formatDate(chosenCard.validatedAt) ? `, ${formatDate(chosenCard.validatedAt)}` : ""}` : "Not recorded"}</dd>
+                    <dt>Traits</dt>
+                    <dd>
+                      {chosenStatus === "failed" ? (
+                        <Button size="small" type="link" style={{ padding: 0, marginInlineEnd: 8 }} onClick={() => setRetryTick((tick) => tick + 1)}>
+                          Retry
+                        </Button>
+                      ) : null}
+                      {chosenStatus === "loading"
+                        ? "Reading the template…"
+                        : chosenCard.traits.traitSource === "declared"
+                          ? "Declared by the template"
+                          : chosenStatus === "failed"
+                            ? "Source could not be read; traits are inferred from the name"
+                            : "Inferred from the name"}
+                    </dd>
+                    {chosenCard.traits.contract ? (
+                      <>
+                        <dt>Contract</dt>
+                        <dd>{`${chosenCard.traits.contract.label ?? "no label"} + ${chosenCard.traits.contract.featureCount} features`}</dd>
+                      </>
                     ) : null}
-                  </>
-                )}
-              </div>
-            </div>
+                  </dl>
+                  <div>
+                    <strong>Why this fit</strong>
+                    <ul className="fedlify-start-reasons" data-testid="fit-reasons">
+                      {orderedFitReasons(chosenReport).map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                      {chosenReport.reasons.length === 0 ? <li>No evidence to compare.</li> : null}
+                    </ul>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
-          <footer className="fedlify-start-foot">
-            <Typography.Text type="secondary">
-              {sourceReady ? `Source: ${sourceSummary}.` : "Choose a source to continue."}
-            </Typography.Text>
-            <Button type="primary" disabled={!canContinue || loading} onClick={() => void goToContract()}>
-              Continue
-            </Button>
-          </footer>
-        </>
+          {continueButton}
+        </div>
+      ) : null}
+
+      {step === 0 && picked && path === "assistant" ? (
+        <div className="fedlify-start-panel" data-testid="path-assistant">
+          <h3>Describe your pipeline</h3>
+          <Input.TextArea
+            className="fedlify-start-describe"
+            aria-label="What should the pipeline do"
+            rows={7}
+            maxLength={2000}
+            autoSize={{ minRows: 7, maxRows: 14 }}
+            placeholder="e.g. Predict in-hospital mortality from admission labs and vitals, using only features both hospitals record."
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+          <div className="fedlify-start-counter" data-testid="char-count">
+            {descriptionLength < 20 ? `${descriptionLength} / 2000 · at least 20 characters` : `${descriptionLength} / 2000`}
+          </div>
+          <Collapse
+            ghost
+            items={[
+              {
+                key: "advanced",
+                label: "Advanced",
+                children: (
+                  <label className="fedlify-start-name">
+                    Start from template
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      aria-label="Closest template"
+                      value={effectiveBaseKey ?? undefined}
+                      onChange={setBaseKey}
+                      options={browseTemplates(ranked, {}).rows.map(({ card, fit }) => ({ value: card.key, label: `${card.name} (${FIT_LABELS[fit]})` }))}
+                    />
+                  </label>
+                )
+              }
+            ]}
+          />
+          {continueButton}
+        </div>
+      ) : null}
+
+      {step === 0 && picked && path === "import" ? (
+        <div className="fedlify-start-panel" data-testid="path-import">
+          <h3>Bring your own code</h3>
+          <Radio.Group
+            value={importMode}
+            onChange={(event) => {
+              setImportMode(event.target.value);
+              setImportReport(null);
+              setImportFiles(null);
+              setImportError(null);
+              setAckBlocking(false);
+            }}
+            options={[
+              { value: "zip", label: "Upload zip" },
+              { value: "git", label: "Git URL" }
+            ]}
+            optionType="button"
+          />
+          {importMode === "zip" ? (
+            <Upload.Dragger accept=".zip" maxCount={1} multiple={false} showUploadList={{ showRemoveIcon: false }} beforeUpload={(file) => readZip(file)} disabled={importBusy}>
+              <span>Drop a .zip here or click to choose (max {IMPORT_LIMITS.maxZipBytes / 1024 / 1024} MB, text files only)</span>
+            </Upload.Dragger>
+          ) : (
+            <Space.Compact style={{ width: "100%" }}>
+              <Input aria-label="Git URL" placeholder="https://git.example.com/org/repo" value={gitUrl} onChange={(event) => { setGitUrl(event.target.value); setImportReport(null); setAckBlocking(false); }} />
+              <Input aria-label="Git ref" style={{ maxWidth: 110 }} placeholder="ref (main)" value={gitRef} onChange={(event) => { setGitRef(event.target.value); setImportReport(null); setAckBlocking(false); }} />
+              <Button loading={importBusy} disabled={!GIT_URL.test(gitUrl.trim())} onClick={() => void checkGit()}>
+                Check
+              </Button>
+            </Space.Compact>
+          )}
+          {importBusy && importMode === "zip" ? <Spin size="small" /> : null}
+          {importError ? <Alert type={importReport ? "info" : "warning"} showIcon message={importError} /> : null}
+          {importReport ? <AlignmentView report={importReport} /> : null}
+          {blockingFound ? (
+            <Checkbox checked={ackBlocking} onChange={(event) => setAckBlocking(event.target.checked)}>
+              Create it anyway and fix the blocking items in the workspace (publish will refuse them until fixed).
+            </Checkbox>
+          ) : null}
+          {continueButton}
+        </div>
+      ) : null}
+
+      {step === 0 && picked && path === "copy" ? (
+        <div className="fedlify-start-panel" data-testid="path-copy">
+          <h3>Copy a pipeline</h3>
+          {projects.length === 0 ? (
+            <Typography.Text type="secondary">This study has no pipeline to copy yet.</Typography.Text>
+          ) : (
+            <>
+              <label className="fedlify-start-name">
+                Pipeline
+                <Select
+                  aria-label="Pipeline to copy"
+                  value={copyId ?? undefined}
+                  onChange={(value) => {
+                    setCopyId(value);
+                    setCopyVersionId("head");
+                  }}
+                  options={projects.map((project) => ({ value: project.id, label: project.name }))}
+                />
+              </label>
+              <label className="fedlify-start-name">
+                Version
+                <Select
+                  aria-label="Version to copy"
+                  value={copyVersionId}
+                  onChange={setCopyVersionId}
+                  options={[
+                    { value: "head", label: "Saved head (latest commit)" },
+                    ...(copyProject?.versions.filter((version) => version.gitCommit).map((version) => ({ value: version.id, label: `${version.version}${version.id === liveVersionId ? " (live)" : ""}` })) ?? [])
+                  ]}
+                />
+              </label>
+              {copyProject && !copyRepo ? <Alert type="warning" showIcon message="This pipeline has no readable repository address, so it cannot be copied." /> : null}
+            </>
+          )}
+          {continueButton}
+        </div>
       ) : null}
 
       {step === 1 ? (
