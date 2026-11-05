@@ -76,6 +76,26 @@ spec:
               valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: username } }
             - name: FEDLIFY_STUDY_PULL_PASSWORD
               valueFrom: { secretKeyRef: { name: harbor-studies-pull, key: password } }
+            # Registry model (docs/site-runner-and-ux-design.md section 15). `legacy` publishes to fedlify-studies as before;
+            # `per-study` gives each study its own Harbor project and each site kit its own pull robot. Flip only after the
+            # live checks in 15.9 passed and the base image carries fedlify_runtime.harbor. Kit creation for a study already
+            # in its own project mints robots whatever this flag says (it follows the image path).
+            - name: FEDLIFY_REGISTRY_MODE
+              value: legacy
+            - name: FEDLIFY_STUDY_PROJECT_QUOTA_GIB
+              value: "20"
+            - name: FEDLIFY_STUDY_RETENTION_KEEP
+              value: "10"
+            - name: FEDLIFY_SITE_ROBOT_DAYS
+              value: "90"
+            # The limited provisioner robot (Terraform: harbor-provisioner). optional: the web app starts without it and
+            # legacy mode never reads it. Mounted here and in the publish workflow only.
+            - name: FEDLIFY_HARBOR_URL
+              valueFrom: { secretKeyRef: { name: harbor-provisioner, key: url, optional: true } }
+            - name: FEDLIFY_HARBOR_PROVISIONER_USERNAME
+              valueFrom: { secretKeyRef: { name: harbor-provisioner, key: username, optional: true } }
+            - name: FEDLIFY_HARBOR_PROVISIONER_PASSWORD
+              valueFrom: { secretKeyRef: { name: harbor-provisioner, key: password, optional: true } }
           command: ["pnpm", "--filter", "@fedlify/web", "start"]
           readinessProbe:
             httpGet:

@@ -123,6 +123,11 @@ export async function adapterJobResultZip(target: AdapterTarget, nvflareJobId: s
   return Buffer.from(await (await adapterFetch(target, `/jobs/${encodeURIComponent(nvflareJobId)}/result.zip`)).arrayBuffer());
 }
 
+/** The aggregator's server log for a job (live workspace first, then the downloaded result). Needs the adapter that has `/log`; an older one answers 404. */
+export async function adapterJobLog(target: AdapterTarget, nvflareJobId: string): Promise<string> {
+  return (await adapterFetch(target, `/jobs/${encodeURIComponent(nvflareJobId)}/log`)).text();
+}
+
 export async function adapterAbortJob(target: AdapterTarget, nvflareJobId: string): Promise<void> {
   await adapterFetch(target, `/jobs/${encodeURIComponent(nvflareJobId)}/abort`, { method: "POST", body: "{}" });
 }

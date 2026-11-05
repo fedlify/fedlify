@@ -51,8 +51,11 @@ spec:
       hostAliases:
         - ip: "127.0.0.1"
           hostnames: ["${HOSTNAME}"]
+      # harbor-registry: legacy global pull robot (fedlify-studies). harbor-registry-study: this study's own robot (fedlify-s-<slug>).
+      # kubelet tries every secret for the registry host; a missing one is only a warning.
       imagePullSecrets:
         - name: harbor-registry
+        - name: harbor-registry-study
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001

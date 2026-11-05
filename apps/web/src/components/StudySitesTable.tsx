@@ -1,7 +1,7 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, Button } from "antd";
+import { Alert, Button, Popover, Tag } from "antd";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { RecordTable } from "@/components/RecordTable";
@@ -57,6 +57,23 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
           { title: "Institution", dataIndex: "institutionName" },
           { title: "Readiness", dataIndex: "readiness", render: (value: string) => <StatusTag value={value} /> },
           { title: "Kit state", dataIndex: "kitState", render: (value: string) => <StatusTag value={value} /> },
+          {
+            title: "Study image",
+            dataIndex: "imageState",
+            render: (value: string, row) => {
+              if (value === "OUTDATED" || value === "NOT_REPORTED") {
+                return (
+                  <Popover
+                    title="How to bring this site up to date"
+                    content={<ol style={{ margin: 0, paddingLeft: 18, maxWidth: 360 }}>{row.imageFix.map((step) => <li key={step}>{step}</li>)}</ol>}
+                  >
+                    <Tag color="orange" style={{ cursor: "help" }}>{value === "OUTDATED" ? "Outdated: update needed" : "Image not reported"}</Tag>
+                  </Popover>
+                );
+              }
+              return value === "CURRENT" ? <Tag color="green">Current</Tag> : <span className="fedlify-muted">-</span>;
+            }
+          },
           { title: "Connection", dataIndex: "connection", render: (value: string) => <StatusTag value={value} /> },
           {
             title: "Last heartbeat",

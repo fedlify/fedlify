@@ -1267,6 +1267,15 @@ model NvflareJob {
   metricsJsonl      String?
   metricsChecksum   String?
   metricsCapturedAt DateTime?
+  // Server log captured (redacted, size-capped) when the run ended, so FAILED, ABORTED and unsaved runs keep it. logChecksum is SHA-256 of logText as stored.
+  logText           String?
+  logChecksum       String?
+  logTruncated      Boolean?
+  logCapturedAt     DateTime?
+  // Site-lost episode: set when a selected site is first seen down, cleared when all recover. siteLostSeenAt is the last evaluation that still saw it down.
+  siteLostSince     DateTime?
+  siteLostSeenAt    DateTime?
+  siteLostSites     Json?
   study             Study              @relation(fields: [studyId], references: [id], onDelete: Cascade)
   deployment        NvflareDeployment? @relation(fields: [deploymentId], references: [id])
   pipelineVersion   PipelineVersion    @relation(fields: [pipelineVersionId], references: [id])
@@ -1827,4 +1836,57 @@ model CaseStudyMetric {
 
   @@unique([runId, hospitalId, split, metric])
   @@index([metric, split])
+}
+
+// --- Registry model (docs/site-runner-and-ux-design.md section 15) -----------------------------------------------
+// One private Harbor project per study, and one pull-only Harbor robot per site kit. No column here can hold a robot
+// secret: the secret goes into the encrypted kit and nowhere else. studyId and studySiteId are plain indexed strings,
+// not foreign keys, on purpose: a deleted study or site must not delete the record that tells the sweeper which Harbor
+// robots still need removing.
+enum RegistryProjectStatus {
+  ACTIVE
+  RETIRED
+}
+
+enum RegistryRobotPurpose {
+  SITE_PULL
+}
+
+enum RegistryRobotStatus {
+  PENDING
+  ACTIVE
+  REVOKING
+  DELETED
+}
+
+model RegistryProject {
+  id         String                @id @default(cuid())
+  studyId    String                @unique
+  name       String                @unique
+  status     RegistryProjectStatus @default(ACTIVE)
+  quotaBytes BigInt?
+  robots     RegistryRobot[]
+  createdAt  DateTime              @default(now())
+  retiredAt  DateTime?
+}
+
+model RegistryRobot {
+  id                String               @id @default(cuid())
+  registryProjectId String
+  studySiteId       String?
+  siteJoinPackageId String?
+  purpose           RegistryRobotPurpose @default(SITE_PULL)
+  harborRobotId     Int?
+  harborName        String
+  status            RegistryRobotStatus  @default(PENDING)
+  expiresAt         DateTime
+  // Sanitized (at most 200 characters), never a Harbor response body.
+  lastError         String?
+  registryProject   RegistryProject      @relation(fields: [registryProjectId], references: [id], onDelete: Cascade)
+  createdAt         DateTime             @default(now())
+  deletedAt         DateTime?
+
+  @@index([studySiteId, status])
+  @@index([status, createdAt])
+  @@index([registryProjectId])
 }

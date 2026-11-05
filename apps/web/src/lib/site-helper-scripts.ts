@@ -84,7 +84,7 @@ map_cmd() { # fixed list: the only things a browser can cause to run
     status) echo "status --json" ;;
     start) echo "start" ;;
     stop) echo "stop" ;;
-    update) echo "update" ;;
+    update) echo "update --show" ;; # plan only: a confirmed update needs a typed digest and version, so it is run from a terminal
     logout) echo "logout" ;;
     support-bundle) echo "support-bundle" ;;
     support-bundle-logs) echo "support-bundle --include-logs" ;;
@@ -415,6 +415,25 @@ switch ($Command) {
     Write-Host 'Connected. Keep this window open: heartbeats stop when it closes (the client container keeps running). Press Ctrl+C to stop the heartbeat.'
     & wsl.exe --cd "$PSScriptRoot" -e bash ./fedlify-runner.sh agent
     exit $LASTEXITCODE
+  }
+  'update' {
+    # Confirmation of the digest and the pipeline version happens here, in the console, because the runner inside WSL has no terminal.
+    # Scripts can pass --confirm-version and --confirm-digest themselves; the runner re-checks both against the server.
+    if (($Rest -contains '--confirm-digest') -or ($Rest -contains '--confirm-version') -or ($Rest -contains '--show')) { Invoke-Runner (@('update') + $Rest); exit $script:RunnerExit }
+    # Native stderr merged with 2>&1 becomes a terminating error under 'Stop' in PowerShell 5.1, so relax it for this one call.
+    $ErrorActionPreference = 'Continue'
+    $plan = @(& wsl.exe --cd "$PSScriptRoot" -e bash ./fedlify-runner.sh update --show 2>&1 | ForEach-Object { "$_" })
+    $planExit = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    $plan | Where-Object { $_ -notmatch '^desired(Digest|Version)=' } | Out-Host
+    if ($planExit -ne 0) { exit $planExit }
+    $digestLine = $plan | Where-Object { $_ -match '^desiredDigest=' } | Select-Object -First 1
+    $versionLine = $plan | Where-Object { $_ -match '^desiredVersion=' } | Select-Object -First 1
+    if (-not $digestLine -or -not $versionLine) { exit 0 }
+    $answerVersion = Read-Host 'Type the pipeline version shown above to confirm'
+    $answerDigest = Read-Host 'Type the first 12 characters of the new digest'
+    Invoke-Runner @('update', '--confirm-version', $answerVersion, '--confirm-digest', $answerDigest)
+    exit $script:RunnerExit
   }
   default { Invoke-Runner (@($Command) + $Rest); exit $script:RunnerExit }
 }

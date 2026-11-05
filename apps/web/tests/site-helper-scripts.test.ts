@@ -181,7 +181,7 @@ esac
     it("maps each allowed word to exactly one runner command", () => {
       stageKit();
       bridge();
-      const map: Record<string, string> = { preflight: "preflight --json", status: "status --json", start: "start", stop: "stop", update: "update", logout: "logout", "support-bundle": "support-bundle", "support-bundle-logs": "support-bundle --include-logs" };
+      const map: Record<string, string> = { preflight: "preflight --json", status: "status --json", start: "start", stop: "stop", update: "update --show", logout: "logout", "support-bundle": "support-bundle", "support-bundle-logs": "support-bundle --include-logs" };
       let n = 1;
       for (const [word, args] of Object.entries(map)) {
         request(ID(n), `${word}\n`);

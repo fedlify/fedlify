@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { directoryToArchiveMap, unzipToArchiveMap, zipFiles, type ArchiveFileMap } from "@/lib/archive";
 import { audit } from "@/lib/audit";
+import { HarborError, harborConfig, studyProjectFromImage } from "@/lib/harbor-registry";
+import { activateRobotInTransaction, deleteRobotRows, discardMintedRobot, mintSiteRobot, type MintedSiteRobot } from "@/lib/registry-access";
 import { randomToken, sha256 } from "@/lib/crypto";
 import { KIT_VALID_MS, publicPackage } from "@/lib/kit-download";
 import { encryptKit, generateKitPassphrase } from "@/lib/kit-crypto";
@@ -60,6 +62,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     orderBy: { updatedAt: "desc" }
   });
   const publishedRuntime = activeDeployment?.runtimeMode === "k8s";
+  // Which registry model a kit uses is decided by where the deployed image lives, not by the publish-mode flag: a study
+  // published to its own project always gets a per-site robot, and a legacy study keeps the global pull credential.
+  const studyProject = publishedRuntime ? studyProjectFromImage(activeDeployment.imageDigest) : null;
   const clientName = publishedRuntime
     ? nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site.nvflareClientName })
     : studySite.site.nvflareClientName;
@@ -73,7 +78,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     if (!provisioned) {
       return problem(409, "This site joined after the last publish. Republish the study to issue its certificate.", "site_not_provisioned");
     }
-    if (!process.env.FEDLIFY_STUDY_PULL_USERNAME || !process.env.FEDLIFY_STUDY_PULL_PASSWORD) {
+    if (studyProject) {
+      if (!harborConfig()) {
+        return problem(503, "The registry provisioner credentials (FEDLIFY_HARBOR_PROVISIONER_USERNAME/PASSWORD) are not configured.", "registry_not_configured");
+      }
+    } else if (!process.env.FEDLIFY_STUDY_PULL_USERNAME || !process.env.FEDLIFY_STUDY_PULL_PASSWORD) {
       return problem(503, "Study image pull credentials (FEDLIFY_STUDY_PULL_USERNAME/PASSWORD) are not configured.", "registry_not_configured");
     }
   }
@@ -90,58 +99,93 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     expiresAt
   });
   const manifest = publishedRuntime ? publishedKitManifest(baseManifest) : baseManifest;
-  let startupFiles: ArchiveFileMap;
-  let realNvflareFiles: ArchiveFileMap;
-  let clientStartupPath: string | undefined;
-  if (publishedRuntime) {
-    try {
-      realNvflareFiles = await unzipToArchiveMap(await readObject(clientKitStorageKey(activeDeployment.clientKitPrefix!, clientName)));
-    } catch (error) {
-      return problem(
-        503,
-        `The client startup kit for ${clientName} could not be read from storage: ${error instanceof Error ? error.message : "unknown error"}`,
-        "client_kit_unavailable"
-      );
-    }
-    startupFiles = buildPublishedSiteKitFiles({
-      manifest,
-      hostname: activeDeployment.hostname!,
-      imageDigest: activeDeployment.imageDigest!,
-      registry: {
-        server: process.env.FEDLIFY_STUDY_REGISTRY ?? activeDeployment.imageDigest!.split("/")[0],
-        username: process.env.FEDLIFY_STUDY_PULL_USERNAME!,
-        password: process.env.FEDLIFY_STUDY_PULL_PASSWORD!
-      },
-      // Set only after `deploy/images/build-multiarch.sh verify` passed for the published image; the default is amd64 only.
-      imageArches: process.env.FEDLIFY_STUDY_IMAGE_ARCHES?.split(",").map((a) => a.trim()).filter(Boolean)
-    });
-  } else {
-    startupFiles = buildStartupKitFiles(manifest);
-    const clientStartupPaths = activeDeployment?.clientStartupPaths as Record<string, string> | null | undefined;
-    clientStartupPath = clientStartupPaths?.[studySite.id];
-    realNvflareFiles = clientStartupPath ? await directoryToArchiveMap(clientStartupPath, "nvflare").catch(() => ({})) : {};
-  }
   const isStorageConfigured = storageConfigured();
   // The passphrase lives in this function only: it goes into the response and nowhere else (not the database, not the
   // audit log, not storage, not a log line). Without object storage no file is produced, so there is nothing to protect.
   const passphrase = isStorageConfigured ? generateKitPassphrase() : null;
+  // scrypt (work factor 18) is synchronous pure JS: about a second of CPU and 256 MB per call. Cap concurrent encryptions
+  // per process so a burst of creates cannot starve the event loop or exhaust memory. The slot is taken before any
+  // registry robot exists, so a "busy" answer never leaves a credential behind.
+  const releaseSlot = passphrase ? acquireSlot("kit-encrypt", MAX_CONCURRENT_ENCRYPTIONS) : null;
+  if (passphrase && !releaseSlot) {
+    return problem(503, "Other startup kits are being encrypted right now. Wait a few seconds and try again; nothing was changed.", "kit_encryption_busy");
+  }
+  let minted: MintedSiteRobot | null = null;
+  let registryRevoked: "revoked" | "pending" | "not_applicable" = "not_applicable";
+  const auditContext = { actorUserId: authResult.userId, orgId: studySite.organizationId, studyId: studySite.studyId };
+  let startupFiles: ArchiveFileMap;
+  let realNvflareFiles: ArchiveFileMap;
+  let clientStartupPath: string | undefined;
   let manifestBody: Buffer = Buffer.alloc(0);
-  if (passphrase) {
-    // scrypt (work factor 18) is synchronous pure JS: about a second of CPU and 256 MB per call. Cap concurrent encryptions
-    // per process so a burst of creates cannot starve the event loop or exhaust memory.
-    const release = acquireSlot("kit-encrypt", MAX_CONCURRENT_ENCRYPTIONS);
-    if (!release) {
-      return problem(503, "Other startup kits are being encrypted right now. Wait a few seconds and try again; nothing was changed.", "kit_encryption_busy");
+  try {
+    if (publishedRuntime) {
+      try {
+        realNvflareFiles = await unzipToArchiveMap(await readObject(clientKitStorageKey(activeDeployment.clientKitPrefix!, clientName)));
+      } catch (error) {
+        return problem(
+          503,
+          `The client startup kit for ${clientName} could not be read from storage: ${error instanceof Error ? error.message : "unknown error"}`,
+          "client_kit_unavailable"
+        );
+      }
+      // Per-study project: a pull-only robot for this site, minted only when a file will actually be produced. A Harbor
+      // failure stops here with nothing changed, and never falls back to the shared credential.
+      if (studyProject && passphrase) {
+        try {
+          minted = await mintSiteRobot({ project: studyProject, studySiteId: studySite.id, siteCode: studySite.code, ...auditContext });
+        } catch (error) {
+          await audit({
+            ...auditContext,
+            action: "site.join_package.create_failed",
+            targetType: "StudySite",
+            targetId: studySite.id,
+            metadata: { reason: "registry_unavailable", detail: error instanceof HarborError ? error.message.slice(0, 200) : "unknown" },
+            request
+          });
+          return problem(
+            502,
+            "The registry could not issue this site's image credential. Nothing was changed: the previous kit, credential and site token remain valid. Try again.",
+            "registry_unavailable"
+          );
+        }
+      }
+      startupFiles = buildPublishedSiteKitFiles({
+        manifest,
+        hostname: activeDeployment.hostname!,
+        imageDigest: activeDeployment.imageDigest!,
+        registry: minted
+          ? { server: process.env.FEDLIFY_STUDY_REGISTRY ?? activeDeployment.imageDigest!.split("/")[0], username: minted.username, password: minted.password }
+          : studyProject
+            ? // No file is produced without storage, so no credential was minted and none must be written.
+              { server: activeDeployment.imageDigest!.split("/")[0], username: "not-issued", password: "not-issued" }
+            : {
+                server: process.env.FEDLIFY_STUDY_REGISTRY ?? activeDeployment.imageDigest!.split("/")[0],
+                username: process.env.FEDLIFY_STUDY_PULL_USERNAME!,
+                password: process.env.FEDLIFY_STUDY_PULL_PASSWORD!
+              },
+        // Set only after `deploy/images/build-multiarch.sh verify` passed for the published image; the default is amd64 only.
+        imageArches: process.env.FEDLIFY_STUDY_IMAGE_ARCHES?.split(",").map((a) => a.trim()).filter(Boolean)
+      });
+    } else {
+      startupFiles = buildStartupKitFiles(manifest);
+      const clientStartupPaths = activeDeployment?.clientStartupPaths as Record<string, string> | null | undefined;
+      clientStartupPath = clientStartupPaths?.[studySite.id];
+      realNvflareFiles = clientStartupPath ? await directoryToArchiveMap(clientStartupPath, "nvflare").catch(() => ({})) : {};
     }
-    let encryptedKit: Buffer;
-    try {
-      const innerKit = await zipFiles({ ...startupFiles, ...realNvflareFiles });
-      encryptedKit = await encryptKit(innerKit, passphrase);
-    } finally {
-      release();
+    if (passphrase) {
+      let encryptedKit: Buffer;
+      try {
+        const innerKit = await zipFiles({ ...startupFiles, ...realNvflareFiles });
+        encryptedKit = await encryptKit(innerKit, passphrase);
+      } catch (error) {
+        if (minted) await discardMintedRobot(minted.rowId, "kit_build_failed", auditContext);
+        throw error;
+      }
+      const outerFiles = buildOuterKitFiles({ siteName: studySite.name, studyTitle: studySite.study.title, encryptedKit, helperImage: process.env.FEDLIFY_HELPER_IMAGE, kitFiles: startupFiles });
+      manifestBody = await zipFiles(outerFiles, outerKitModes(outerFiles));
     }
-    const outerFiles = buildOuterKitFiles({ siteName: studySite.name, studyTitle: studySite.study.title, encryptedKit, helperImage: process.env.FEDLIFY_HELPER_IMAGE, kitFiles: startupFiles });
-    manifestBody = await zipFiles(outerFiles, outerKitModes(outerFiles));
+  } finally {
+    releaseSlot?.();
   }
   const checksum = startupPackageChecksum(manifest);
   let sizeBytes = BigInt(0);
@@ -154,6 +198,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       sizeBytes = BigInt(manifestBody.byteLength);
       storageUploaded = true;
     } catch (error) {
+      if (minted) await discardMintedRobot(minted.rowId, "upload_failed", auditContext);
       await audit({
         actorUserId: authResult.userId,
         orgId: studySite.organizationId,
@@ -177,45 +222,57 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     ? await prisma.siteJoinPackage.findMany({ where: { studySiteId: studySite.id, status: "ACTIVE" }, select: { storageKey: true } })
     : [];
 
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.siteJoinPackage.updateMany({
-      where: { studySiteId: studySite.id, status: "ACTIVE" },
-      data: { status: "REVOKED" }
-    });
+  let supersededRobotIds: string[] = [];
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      await tx.siteJoinPackage.updateMany({
+        where: { studySiteId: studySite.id, status: "ACTIVE" },
+        data: { status: "REVOKED" }
+      });
 
-    await tx.site.update({
-      where: { id: studySite.site!.id },
-      data: {
-        apiTokenHash: sha256(enrollmentToken),
-        status: "KIT_RELEASED"
-      }
-    });
+      await tx.site.update({
+        where: { id: studySite.site!.id },
+        data: {
+          apiTokenHash: sha256(enrollmentToken),
+          status: "KIT_RELEASED"
+        }
+      });
 
-    await tx.studySite.update({
-      where: { id: studySite.id },
-      data: { participationStatus: "KIT_RELEASED" }
-    });
+      await tx.studySite.update({
+        where: { id: studySite.id },
+        data: { participationStatus: "KIT_RELEASED" }
+      });
 
-    const siteJoinPackage = await tx.siteJoinPackage.create({
-      data: {
-        studySiteId: studySite.id,
-        generatedById: authResult.userId,
-        kind: "STARTUP_KIT",
-        filename,
-        contentType: "application/zip",
-        storageKey,
-        checksum,
-        sizeBytes,
-        // The create response hands out one presigned URL right after the password check, so that counts as a download.
-        downloadCount: storageUploaded ? 1 : 0,
-        expiresAt,
-        deploymentId: activeDeployment?.id,
-        imageDigest: publishedRuntime ? activeDeployment.imageDigest : null
-      }
-    });
+      const siteJoinPackage = await tx.siteJoinPackage.create({
+        data: {
+          studySiteId: studySite.id,
+          generatedById: authResult.userId,
+          kind: "STARTUP_KIT",
+          filename,
+          contentType: "application/zip",
+          storageKey,
+          checksum,
+          sizeBytes,
+          // The create response hands out one presigned URL right after the password check, so that counts as a download.
+          downloadCount: storageUploaded ? 1 : 0,
+          expiresAt,
+          deploymentId: activeDeployment?.id,
+          imageDigest: publishedRuntime ? activeDeployment.imageDigest : null
+        }
+      });
 
-    return siteJoinPackage;
-  });
+      if (minted) supersededRobotIds = await activateRobotInTransaction(tx, { rowId: minted.rowId, studySiteId: studySite.id, packageId: siteJoinPackage.id });
+      return siteJoinPackage;
+    });
+  } catch (error) {
+    // The kit was never committed, so the credential minted for it must not outlive this request.
+    if (minted) await discardMintedRobot(minted.rowId, "commit_failed", auditContext);
+    throw error;
+  }
+  // Robots of the kits this one replaces: deleted after the commit. A Harbor failure leaves them REVOKING for the sweeper.
+  if (supersededRobotIds.length > 0) registryRevoked = await deleteRobotRows(supersededRobotIds, "kit_rotation", auditContext);
+  else if (minted) registryRevoked = "revoked";
 
   await audit({
     actorUserId: authResult.userId,
@@ -236,6 +293,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       serverAddress: activeDeployment?.serverAddress,
       runtimeMode: activeDeployment?.runtimeMode,
       imageDigest: publishedRuntime ? activeDeployment.imageDigest : undefined,
+      registryRobot: minted ? { rowId: minted.rowId, project: studyProject, expiresAt: minted.expiresAt.toISOString() } : studyProject ? "not_issued" : "shared_legacy",
+      registryRevocation: registryRevoked,
       realNvflareStartupIncluded: Object.keys(realNvflareFiles).some((path) => path.endsWith("startup/fed_client.json"))
     },
     request
@@ -256,7 +315,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       enrollmentToken,
       // Shown once. Fedlify keeps no copy, so a lost passphrase means creating a new kit.
       passphrase: storageUploaded ? passphrase : null,
+      // "partial" stays until the NVFLARE certificate is re-issued; revocationDetail says exactly what was revoked.
       revocation: "partial",
+      revocationDetail: { token: "revoked", registry: registryRevoked, certificate: "not_reissued" },
       kitKind: publishedRuntime ? "published" : "local",
       manifest,
       downloadUrl,

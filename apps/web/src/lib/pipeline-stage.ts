@@ -1,3 +1,4 @@
+import { updateNeedsNewKit } from "@/lib/site-image";
 /**
  * Derives the four-stage pipeline rail (Code, Publish, Sites, Run) from the project overview.
  * Each stage has live status text and at most one human action; only the "current" stage's action is primary.
@@ -18,7 +19,7 @@ export type StageInput = {
   sourceStatus?: "loading" | "ready" | "error";
   versions: Array<{ id: string; version: string; gitCommit: string | null; publish: { status: string; step?: string | null } | null }>;
   aggregator: { status: string; pipelineVersionId: string | null; imageDigest: string | null; lastError?: string | null; error?: string | null } | null;
-  sites: Array<{ kitReleased: boolean; kitImageDigest: string | null; connected: boolean | null }>;
+  sites: Array<{ kitReleased: boolean; kitImageDigest: string | null; connected: boolean | null; imageState?: string; needsNewKit?: boolean }>;
   jobs: Array<{ id: string; status: string; result: { id: string } | null }>;
   busy: { saving: boolean; publishing: boolean; starting: boolean };
   activeStage: StageKey;
@@ -95,7 +96,10 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
   // Sites
   const aggregatorActive = aggregator?.status === "ACTIVE";
   const firstNoKit = sites.find((site) => !site.kitReleased);
-  const outdatedKit = sites.some((site) => site.kitReleased && site.kitImageDigest && aggregator?.imageDigest && site.kitImageDigest !== aggregator.imageDigest);
+  // A kit needs replacing only when the image moved to another registry location. A code-only publish keeps the path: the site runs `update`.
+  const outdatedKit = sites.some((site) => site.kitReleased && (site.needsNewKit || updateNeedsNewKit(site.kitImageDigest, aggregator?.imageDigest)));
+  // A site whose runner reports another image than the aggregator's cannot take part in a run (the server refuses it).
+  const outdatedImage = sites.some((site) => site.imageState === "OUTDATED" || (site.imageState === "NOT_REPORTED" && site.connected === true));
   let siteStage: StageSummary;
   const aggregatorProblem = aggregator && !aggregatorActive ? (aggregator.error ?? aggregator.lastError ?? (aggregator.status === "FAILED" ? "The aggregator failed to start." : null)) : null;
   if (aggregator && !aggregatorActive && (aggregator.status === "FAILED" || aggregator.error))
@@ -105,7 +109,9 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
   else if (firstNoKit)
     siteStage = { key: "sites", title: "Sites", status: `${connected}/${sites.length} connected`, detail: "A site still needs its kit.", tone: "warn", action: { key: "release_kit", label: "Release kit" } };
   else if (outdatedKit)
-    siteStage = { key: "sites", title: "Sites", status: `${connected}/${sites.length} connected`, detail: "A kit is older than the live image.", tone: "warn", action: { key: "release_kit", label: "Update kit" } };
+    siteStage = { key: "sites", title: "Sites", status: `${connected}/${sites.length} connected`, detail: "The live image moved to a new registry location; a site needs a new kit.", tone: "warn", action: { key: "release_kit", label: "Update kit" } };
+  else if (outdatedImage)
+    siteStage = { key: "sites", title: "Sites", status: `${connected}/${sites.length} connected`, detail: "A site runs an older image than the live one. It must run ./fedlify-runner.sh update before a run can start.", tone: "warn" };
   else if (connected === 0) siteStage = { key: "sites", title: "Sites", status: `0/${sites.length} connected`, detail: "Waiting for sites to run their kit.", tone: "active" };
   else siteStage = { key: "sites", title: "Sites", status: `${connected}/${sites.length} connected`, tone: connected === sites.length ? "ok" : "warn" };
 
@@ -130,7 +136,7 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
   if (!input.hasProject || dirty) current = "code";
   else if (sourceStatus !== "ready" && !sourceCommit) current = "publish";
   else if (inFlight || lastFailed || !liveCurrent) current = "publish";
-  else if (!aggregatorActive || sites.length === 0 || firstNoKit || outdatedKit || connected === 0) current = "sites";
+  else if (!aggregatorActive || sites.length === 0 || firstNoKit || outdatedKit || outdatedImage || connected === 0) current = "sites";
   else if (activeJob) current = "run";
   return { current, stages };
 }

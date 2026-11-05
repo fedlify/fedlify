@@ -78,6 +78,10 @@ Separation. Researcher area is the sidebar above. Operator area is `/sites/{id}`
 ### 5.2 Engine commands (headless contract)
 `unlock`, `logout`, `preflight [--json]`, `start`, `stop`, `status [--json]`, `update` (requires confirmation of digest and pipeline version), `logs`, `support-bundle`. Passphrase and registry credential can come from a file or environment variable for scripts and systemd. Every helper action maps to one of these commands, so headless and UI share one code path.
 
+**`update` in detail (kit 6).** The server never pushes an image to a site. `update` posts one heartbeat and reads `desiredImageDigest` and `desiredPipelineVersion` from the response (the full digest reference and a plain pipeline-version label), so the new digest comes from Fedlify and not from a file on the machine. It refuses to continue until the operator confirms both: interactively by typing the version and the first 12 characters of the digest, or in scripts with `--confirm-version V --confirm-digest HEX` (12 or more hex characters; `--show` prints the plan and changes nothing). The Windows wrapper does the prompting in PowerShell and passes the two flags to the runner. Nothing is changed before the confirmation matches; `.env` is rewritten only after the pull succeeds, and only with the digest (never a credential). If `docker compose up -d` then fails, `.env` is restored to the previous digest and a restart of the old image is attempted, so a rerun never reports a site as current when nothing runs. The helper's `update` button, if any, only shows the plan (`update --show`); the confirmed update is run from a terminal. Registry login: when the new image is in the same registry project the kit's own credential file still applies, so `update` logs in again from `.fedlify/registry-credential` (password on stdin, idempotent; covers a prior `docker logout` only. The runner's own `logout` deletes the credential file, and after it `update` stops with "no registry credential" before changing anything, so unlock a fresh kit first); no new kit is needed for a code-only publish. If the image moved to another host or project (the per-study registry move) the per-site pull robot cannot read it, and `update` stops before changing anything and tells the operator to download a new kit. An expired or revoked credential shows up as a failed pull with the same advice. Runs: `POST .../nvflare/jobs` refuses with `site_image_mismatch` (409) when a selected site reports a different sha256 than the aggregator or none at all (path is ignored), naming the sites and the steps; the Sites table and the project Sites panel show "Outdated" with the same steps.
+
+**Lost sites during a run.** Run reconcile (on every run page view and every list view, and once a minute from the `run-sweeper` CronJob through `POST /api/webhooks/run-sweep`) classifies each selected site of a RUNNING run from its latest stored heartbeat and the aggregator's client list: `down` (the runner reported OFFLINE, or heartbeats stopped and the aggregator no longer lists it), `silent` (heartbeats stopped but the aggregator still lists it, which is usually a dead heartbeat agent on a live client) or `not_connected`. Every state shows a warning and writes a run event; only `down` runs the abort clock (`FEDLIFY_SITE_LOST_TIMEOUT_MS`, default 10 minutes, minimum 1 minute). The clock needs continuous observation (`FEDLIFY_SITE_LOST_MAX_GAP_MS`, default 5 minutes between evaluations, otherwise it restarts), and an unreadable aggregator skips the evaluation entirely. At the timeout the run goes through the same abort path as the abort route (log and metrics captured first) and ends FAILED with the lost sites in its reason. Without the sweeper nothing runs when nobody views the page.
+
 Engine fixes (all verified gaps): real heartbeat from `docker inspect` health, FLARE registration, data directory, CSV count, disk, GPU; server marks OFFLINE after 3 missed beats; compose healthcheck and log rotation; manifest lists only shipped files; token rotation and revocation commit only after upload succeeds; heartbeat rate limit and `timingSafeEqual`; site token in a 0600 file, not `.env`.
 
 Important gate: the runner only starts the FLARE client and keeps it connected. Training is started by the study owner after readiness and approval. A site's "Start" never starts a study.
@@ -224,3 +228,262 @@ What was added:
 Deploy and image needs (none done): build and publish the helper image to a registry that needs no login, then set `FEDLIFY_HELPER_IMAGE` (digest-pinned) on the web deployment; pin the `node:22-alpine` base by digest when building. Build the CUDA base if any study wants a GPU. Publish workflow multi-arch change is in `deploy/k8s` and was not edited. No migration, no schema change.
 
 Not done: native Windows runner; re-wrap at first unlock; per-site Harbor robot accounts; signing of the plaintext launcher scripts; a usability check with a real site operator; Playwright for the helper UI itself (only a read-only spec for the public page, `e2e/phase5-get-ready.spec.ts`, not run); GPU smoke on a GPU host.
+
+## 15. Registry model: one private Harbor project per study, scoped robots (design, 2026-11-05)
+
+Status: implemented in the working tree on 2026-11-05 (see 15.15 for what exists and where it differs from this design). Nothing is committed, applied, deployed or run against Harbor, the cluster or Terraform. Everything labelled Memory below is still unconfirmed until the live checks in 15.9 run. It replaces the "per-site Harbor robot accounts" item in sections 5.3 and 13 ("Not done") and sections 11 and 14 (helper image location).
+
+Evidence labels. **Read** means I read the file in this tree. **Provider** means I found the attribute name as a string in the installed provider binary (`goharbor/harbor` 3.11.3, `IaC/day1/cicd/.terraform`), which proves only that the attribute exists. **Memory** means it comes from my recollection of the Harbor API and is **not confirmed** for Harbor v2.15.2. No provider docs or Harbor API docs are in the tree and I had no network access, so every Memory item is listed again in 15.9 as a live check.
+
+### 15.1 Requirements
+
+1. A hospital site must be able to pull only the image of the study it belongs to. One site's kit passphrase must never expose another study's image.
+2. Revoking a kit, removing a site or retiring a study must also remove that site's registry access, and the UI must say honestly what was and was not revoked.
+3. Fedlify must stop using Harbor's admin account. The Harbor is shared with hivelab, arclab and lab-sites, so a Fedlify credential must not be able to damage their projects.
+4. Every study and site is handled by the same code path, with no per-run manual step.
+5. Existing studies, kits and aggregators keep working until a study is republished. Cutover and rollback must be reversible by configuration.
+6. Harbor being down must never leave a site with a half-rotated kit.
+7. No robot secret is stored by Fedlify (database, audit log, logs, S3 outside the encrypted kit). Audit events record robot lifecycle without secrets.
+8. The helper image must be pullable without a login, from a project that holds nothing else.
+9. Cost control: each study project has a storage quota and a tag retention policy, as configuration.
+10. Terraform changes must be targetable, because day1 has known drift (cert-manager, Harbor upgrade) that must not be applied.
+
+### 15.2 Facts about today (Read)
+
+- Every study pushes to the private project `fedlify-studies` (`publish-workflow-template.yaml`, parameter `study-image-repo`, repo `fedlify-studies/<slug>`), using `harbor-registry-credentials` in namespace `fedlify`. That secret holds Harbor's admin account (the day2 `github-fedlify` module creates it from `var.harbor_admin`; the hivelab and lab-sites modules use the same secret name in their own setups).
+- One read-only robot `studies-pull` (`IaC/day1/cicd/fedlify.tf`, project level, `fedlify-studies`, pull on repository) feeds secret `harbor-studies-pull`. The web app puts it into every kit (`join-package/route.ts` reads `FEDLIFY_STUDY_PULL_USERNAME/PASSWORD`; `site-kit.ts` writes `.fedlify/registry-credential`). The publish workflow's `prepare-namespace` step copies it into each study namespace as `harbor-registry` for the aggregator. So any site that opens its kit can pull every study's image, and so can every aggregator namespace.
+- `fedlify-mirror` is public and only holds mirrored helper images. `harbor_project.fedlify_mirror` exists in the file but its comment says it was not applied through Terraform yet.
+- The web app makes no Harbor API call today. The kit route is ordered upload-first: the encrypted kit is uploaded, then one DB transaction revokes the old package, rotates the site token and creates the new package. The response says `revocation: "partial"` because the NVFLARE certificate is not re-issued.
+- Admin credentials are used by: the kaniko push step in `publish-workflow-template.yaml`; `platform-build-workflow-template.yaml` (push to `fedlify`); `pipeline-workflow-template.yaml` (four `secretKeyRef`s to the same secret); `scripts/mirror-helper-images.sh` and `build-web-in-cluster.sh` (optional `HARBOR_USERNAME/PASSWORD`); and Terraform in `day2/github-fedlify` (`harbor_admin` for the provider).
+
+### 15.3 What Harbor can and cannot scope
+
+Believed (Memory, unconfirmed on v2.15.2):
+- A robot's permissions are a list of (project namespace, resource, action). Pull and push are granted on the resource `repository` of a whole project. There is no repository-name pattern, no tag pattern and no "only this repository" selector. So **repository-level scoping is impossible and a project per study is the smallest isolation unit**. Section 5.3 item 5 says "scoped to the study repository"; that wording cannot be implemented and is superseded by this section.
+- A project robot has one project. A system robot may list several projects or the wildcard `*` (all projects, including ones created later).
+- Robot attributes `duration` (days; `-1` means never expires), `disable`, `level`, `permissions { kind, namespace, access { action, resource, effect } }` and the computed `full_name` and `secret` exist in the provider (Provider: `duration`, `effect`, `full_name`, `namespace` found in the 3.11.3 binary). `harbor_project` has `force_destroy` and `storage_quota` (Provider schema, read with `terraform providers schema -json`; an earlier note here said `storage_limit`, which is the Harbor REST field name, not the Terraform attribute). The web app sends `storage_limit` in the REST project body (Memory). The robot name in Harbor is `robot$<prefix><name>`; the `$` needs quoting in shells and the runner must pass it through a file or stdin, not interpolate it.
+- The secret is returned once, in the create response.
+- Project creation and quota update appear to be system-level permissions a system robot can hold (Memory).
+
+Cannot confirm from this tree: all of the above semantically, and especially (a) whether a robot may create a project-scoped robot with permissions it does not itself hold, (b) whether `storage_limit` can be set at project creation by a non-admin robot, (c) whether a system robot can delete projects. 15.9 lists the throwaway-project test that settles them.
+
+### 15.4 Model
+
+**Projects.** One private project per study, named `fedlify-s-<slug>` (study slug is already validated and unique, and `<slug>` already names the hostname). Created idempotently at publish. A 409 from Harbor is accepted only if our database already records that project for this study; an unknown existing project with that name fails closed (it belongs to someone else on the shared Harbor). Auto scanning on, quota and retention set at creation (15.7). `fedlify-studies` stays as the legacy project.
+
+**Robots.** All names carry the study and purpose so they can be reconciled by listing.
+
+| Robot | Created by | Harbor level and scope | Permission | Expiry | Created | Deleted | Secret goes to |
+|---|---|---|---|---|---|---|---|
+| Site pull | web app, kit route | project `fedlify-s-<slug>` only | repository pull | `FEDLIFY_SITE_ROBOT_DAYS`, default 90 | at kit creation, name `site-<siteCode>-<packageId8>` | kit rotation, site removal, study retirement, sweeper | encrypted inner kit only |
+| Aggregator pull | publish workflow | same project | repository pull | 365 days, replaced at every publish | `prepare-namespace` | next publish (old one), retirement | `harbor-registry` secret in the study namespace |
+| Push (per publish run) | publish workflow | same project | repository push and pull | 1 day | before kaniko, name `push-<ciRunId>` | workflow exit handler, expiry as backstop | a 0600 docker config file on the workflow volume, deleted with the workflow |
+| Provisioner | Terraform day1 | system robot, project namespace `*` plus system create | see the provisioner permissions table below | never (rotated by Terraform) | day1 apply | never | `harbor-provisioner` secret, mounted in web and in the publish workflow only |
+| Helper push | Terraform day1 | project `fedlify-public` only | push, pull | never | day1 apply | never | not in the cluster; read from a sensitive Terraform output by whoever runs the release script |
+
+**Provisioner permissions.**
+
+| Scope | Resource | Actions | Why |
+|---|---|---|---|
+| system | project | create, list | create `fedlify-s-*` |
+| system | quota | read, update | set study quota if Harbor refuses `storage_limit` at create (Memory) |
+| namespace `*` | project | read | existence check |
+| namespace `*` | robot | create, read, list, delete | all robot lifecycle |
+| namespace `*` | tag-retention | create, read, update, list | retention policy |
+| none | repository, artifact, tag | none | the provisioner never reads or writes images |
+
+**Honest limit.** A robot permission on namespace `*` covers every project on this Harbor, including hivelab, arclab and lab-sites projects. Harbor has no name-prefix selector, so **Harbor cannot restrict this robot to `fedlify-s-*`.** The robot cannot read or push images (no repository permission), but robot create/delete on `*` means a stolen provisioner credential could delete other teams' robots (breaking their CI) and, depending on 15.3(a), could mint robots with pull/push on their projects. Mitigations, in order:
+1. Provisioner secret exists only in the web pod and the publish workflow namespace; never in aggregator, agent or study namespaces; never in an environment variable of a user-code pod.
+2. All Harbor calls go through one module (`lib/harbor-registry.ts`, and a Python twin in the runtime image for the workflow). The module refuses any project not matching `^fedlify-s-[a-z0-9-]+$`, `fedlify-public`, or the configured legacy project, and only ever sends the permission templates in the table above. Unit tests assert this. This protects against bugs and injection, not against a stolen credential.
+3. If the live test shows Harbor lets the robot escalate (15.3(a)), or that robot create needs permissions it cannot have, use the fallback in 15.8: a non-admin Harbor user as project creator, which becomes admin of only the projects it creates. That needs `project_creation_restriction` set to everyone, a shared-Harbor change that affects other teams, so it needs the owner's decision.
+4. Alert on any robot created outside `fedlify-s-*` (the sweeper lists robots and records anything unexpected as an audit event `registry.robot.unexpected`).
+
+**Remaining admin uses after this design** (each is a human-run or break-glass path, none runs in the web pod):
+1. Terraform `harbor` provider in day1 and day2 (apply time, by an operator).
+2. Platform image pushes to project `fedlify`: `platform-build-workflow-template.yaml`, `pipeline-workflow-template.yaml`, `build-web-in-cluster.sh`. They still use `harbor-registry-credentials`. Follow-up (not in this design's targets): a TF robot `fedlify-platform-push`, push and pull on `fedlify` and `fedlify-mirror`, swapped in.
+3. `mirror-helper-images.sh` (manual, uses an existing `docker login` or env credentials).
+4. Study project deletion at retirement and quota update, only if the live test shows the provisioner cannot do them. Then a CronJob with admin credentials in its own namespace does only those two calls.
+5. The existing `harbor-registry-credentials` in namespace `fedlify` stays until items 2 and the legacy path are gone. After cutover only the platform workflows reference it; the publish workflow stops referencing it.
+
+**Public project.** `fedlify-public`, public, scanning on, holds only `fedlify-helper`. Pinned by digest in `FEDLIFY_HELPER_IMAGE`. Section 14 already requires the helper to be pullable without login. Retention keeps the last 5 tags. Release script (to be written, `fedlify/scripts/release-helper-image.sh`): `docker buildx build --platform linux/amd64,linux/arm64 --push --metadata-file`, log in with the helper-push robot, read the digest from the metadata, verify with an anonymous manifest request, and print `FEDLIFY_HELPER_IMAGE=harbor.fedlify.com/fedlify-public/fedlify-helper@sha256:...`. It never prints credentials.
+
+### 15.5 Data model (additive Prisma migration, to be written)
+
+- `RegistryProject`: `id`, `studyId` (unique), `name` (unique), `status` (`ACTIVE` | `RETIRED`), `quotaBytes`, `createdAt`, `retiredAt`.
+- `RegistryRobot`: `id`, `registryProjectId`, `studySiteId?`, `siteJoinPackageId?`, `purpose` (`SITE_PULL`), `harborRobotId Int?`, `harborName`, `status` (`PENDING` | `ACTIVE` | `REVOKING` | `DELETED`), `expiresAt`, `createdAt`, `deletedAt?`, `lastError String?` (sanitized, 200 chars, never a Harbor response body). **No secret column.** Indexes on `(studySiteId, status)` and `(status, createdAt)`.
+- Workflow-made robots (push, aggregator) are not in the database; they are found by name when listing the project.
+- No existing column changes, so rollback needs no migration revert. The `migrate` initContainer applies it on web start.
+
+### 15.6 Lifecycle
+
+**Publish** (publish workflow):
+1. `ensure-project`: if `FEDLIFY_REGISTRY_MODE=per-study`, create or confirm `fedlify-s-<slug>` with quota and retention; otherwise use `fedlify-studies`.
+2. `mint-push-robot`: 1-day push robot, docker config written 0600 to the workflow volume. Kaniko reads that, not `harbor-registry-credentials`.
+3. build and push by digest. After success the `update-gitops` step also tags the digest `active`, which retention excludes, so a long-running study image is never expired by later failed publishes.
+4. `mint-aggregator-robot` then `prepare-namespace` writes the `harbor-registry` secret from it, then deletes the previous aggregator robot.
+5. Exit handler `delete-push-robot` runs on success and failure. The robot's 1-day expiry covers a killed workflow.
+6. The workflow reports the project to the web callback; the database upserts `RegistryProject`. The image reference is `harbor.fedlify.com/fedlify-s-<slug>/<slug>@sha256:...`, so the kit can read the project from the digest.
+
+**Kit creation** (web, `join-package/route.ts`). Order matters:
+1. Step-up, preconditions, and the encryption slot are unchanged and come first. A "busy" return must happen before any robot exists.
+2. Only if storage is configured (otherwise no file is produced and no credential must be minted) and the deployment's image is in a per-study project: insert `RegistryRobot` `PENDING`, call Harbor to create the site pull robot, keep the secret in memory, update the row with the Harbor id.
+3. Build kit files with that secret, encrypt, upload (the existing upload-first step).
+4. One DB transaction (existing): revoke packages, rotate token, create the package, mark the new robot `ACTIVE` with the package id, mark the site's earlier `ACTIVE` robots `REVOKING`.
+5. After commit: delete each `REVOKING` robot in Harbor (best effort), set `DELETED`, audit. Failure leaves `REVOKING` for the sweeper.
+6. If Harbor create fails (step 2): return 502 `registry_unavailable`, `PENDING` row marked `DELETED` with the sanitized error. Nothing else changed, so the previous kit, previous robot and token remain valid, exactly as with a storage failure today.
+7. If upload fails (step 3) or the transaction fails (step 4): delete the new robot immediately, best effort; a failed delete leaves the row for the sweeper.
+8. For a deployment still in `fedlify-studies` (legacy), no robot is minted and the global `studies-pull` credential is used as today.
+9. Per-study mode never falls back silently to the global credential when Harbor is down. Falling back would put the shared credential back inside a kit. Only deployments that have no per-study project use the global one.
+
+**Rotation, removal, retirement.** The same function `revokeRegistryAccess({siteId|studyId})` marks robots `REVOKING`, deletes them, audits. Called from: kit creation (previous robots), site removal and site status change to removed, study retirement or archive. Study retirement also deletes the aggregator robot, marks `RegistryProject` `RETIRED`, and sets the project to be removed after `FEDLIFY_RETIRED_PROJECT_GRACE_DAYS` (default 30) by the sweeper, so audit and rollback are possible.
+
+**Sweeper.** CronJob every 15 minutes calls an internal route authenticated like the Argo callback. It (a) deletes `PENDING` rows older than 15 minutes and their Harbor robots (orphans from a crashed request), (b) retries `REVOKING`, (c) lists robots per project and deletes any named `site-*` with no `ACTIVE` row, plus any `push-*` older than 1 day, (d) records `registry.robot.unexpected` for anything else not matching our naming. An opportunistic sweep for the site also runs at each kit creation. Harbor expiry bounds the exposure window for anything the sweeper misses.
+
+**Audit.** `registry.project.ensure`, `registry.robot.create`, `registry.robot.delete`, `registry.robot.delete_failed`, `registry.robot.orphan_swept`, `registry.robot.unexpected`. Metadata: project, harborName, harborRobotId, purpose, expiresAt, packageId, reason. Never the secret, never a Harbor response body. Tests assert the serialised audit metadata contains neither the secret nor a `Basic` header.
+
+**UI revocation label.** Today `revocation: "partial"` means the token is revoked but the NVFLARE certificate is not. The response becomes `{ token: "revoked", registry: "revoked" | "pending" | "not_applicable", certificate: "not_reissued" }`. The label stays "partial" while `certificate` is not re-issued, even when registry revocation completed. It changes only if certificate re-issue is built. `registry: "pending"` is shown when a Harbor delete failed and the sweeper is retrying.
+
+**Robot expiry versus operations.** A running container keeps working after its robot expires or is deleted; only the next `docker pull` fails (update or a fresh start on a machine without the image). Default 90 days is a guess. The kit and runner should state the date. A "refresh registry credential" action that mints a new robot without rotating the site token is a sensible follow-up and is not in scope here.
+
+### 15.7 Retention and quota (configuration)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `FEDLIFY_REGISTRY_MODE` | `legacy` | `legacy` publishes to `fedlify-studies`; `per-study` publishes to `fedlify-s-<slug>` |
+| `FEDLIFY_STUDY_PROJECT_QUOTA_GIB` | 20 | storage quota per study project |
+| `FEDLIFY_STUDY_RETENTION_KEEP` | 10 | keep the most recent N pushed tags; tag `active` always kept |
+| `FEDLIFY_SITE_ROBOT_DAYS` | 90 | site pull robot expiry |
+| `FEDLIFY_RETIRED_PROJECT_GRACE_DAYS` | 30 | wait before deleting a retired project |
+| `FEDLIFY_HARBOR_URL` | `https://harbor.fedlify.com` | provisioner API base; in-cluster service URL is cheaper if reachable |
+
+The 20 GiB default is a guess. Layers of the shared base image count against each project's quota and I did not measure the base image size; measure it first and set the quota to at least three times the base plus one study layer. Harbor garbage collection is shared with other teams and runs on Harbor's own schedule; retention only untags, space returns after GC.
+
+### 15.8 Migration, cutover and rollback
+
+Phase A, additive and inert: apply Terraform (15.10), apply the Prisma migration, deploy web and workflow code with `FEDLIFY_REGISTRY_MODE=legacy`. Behaviour is unchanged; the provisioner exists but is unused for publishing. Smoke the live checks in 15.9 with a throwaway project before anything else.
+
+Phase B, cutover per study: set `FEDLIFY_REGISTRY_MODE=per-study`. Studies already published keep `fedlify-studies`, their aggregator keeps the global pull secret, and their kits keep working (their kit route sees a legacy digest and mints no robot). A study moves when it is republished: the new image lands in `fedlify-s-<slug>`, the aggregator gets its own robot, and new kits get per-site robots. Old kits still pull the old digest from `fedlify-studies`; a site that wants the new image needs a new kit (a kit pins the digest it was built for).
+
+Phase C, retire the global credential: when `SELECT count(*) FROM "SiteJoinPackage" WHERE status='ACTIVE' AND "imageDigest" LIKE '%/fedlify-studies/%'` is 0 and no aggregator still uses the global secret, remove `harbor_robot_account.fedlify_studies_pull` and the `harbor-studies-pull` secret, and empty `fedlify-studies`. Until then it stays. Removing it earlier breaks every old kit.
+
+Rollback:
+- Flip `FEDLIFY_REGISTRY_MODE` back to `legacy`: new publishes go to `fedlify-studies` again. Studies already published per-study keep working, because the kit route chooses by the deployment's image path, not by the flag. They need the provisioner for new kits.
+- If the provisioner or Harbor misbehaves: per-study kit creation returns 502 and changes nothing; existing kits and aggregators are unaffected. The documented emergency path is to republish that study in legacy mode.
+- Schema: additive only; no revert needed. Drop nothing.
+- Terraform: new resources can be destroyed with the same `-target` list in reverse (`terraform destroy -target=...`, not run here). Destroying the public project requires `force_destroy` or an empty project.
+
+### 15.9 Live checks (unverified until run)
+
+Run once, against a throwaway project named `fedlify-s-zz-test`, with a human present. None was run.
+1. Provisioner robot can create the project, set `storage_limit`, create a retention policy, create and delete a project robot. If quota or delete fails, use admin-credentialed CronJob for just those calls (15.4 item 4).
+2. Provisioner robot cannot read or push images in any project, and cannot see hivelab/lab-sites repositories.
+3. **Escalation test:** with the provisioner, try to create a robot with pull on a project the provisioner has no repository permission on. If it succeeds, treat the credential as able to read all projects and apply fallback 15.4 item 3. If it fails with "permission" it means Harbor enforces subset and the provisioner needs repository pull and push on `*`, which is worse (it could read other teams' images); then use the non-admin-user fallback instead.
+4. A site robot with pull only: `docker pull` works, `docker push` and pulls from `fedlify-studies` fail.
+5. Robot with `duration` expires and then fails to pull.
+6. The `robot$name` string works through the runner's `docker login --password-stdin`.
+7. Anonymous pull from `fedlify-public` works and anonymous pull from a study project fails.
+8. Robot create response is the only place the secret appears; the list API does not return it.
+9. Whether `harbor_robot_account` with namespace `*` and the system-level project permission is accepted by Harbor v2.15.2 and by provider 3.11.3 (schema and API both).
+
+### 15.10 Terraform (to be written in `IaC/day1/cicd/fedlify.tf`; nothing applied)
+
+Resources to add: `harbor_project.fedlify_public` (public), `harbor_robot_account.fedlify_provisioner` (system level, permissions per the provisioner table in 15.4), `harbor_robot_account.fedlify_helper_push` (project level on `fedlify-public`), a standalone `kubernetes_secret_v1.harbor_provisioner` (keys registry, url, username, password; its own resource, not an entry of `local.fedlify_secrets`, so a targeted apply does not depend on the Gitea token, the studies-pull robot or the random passwords), and a sensitive output for the helper-push secret. Variables get a `public_harbor_project` default `fedlify-public`.
+
+Exact target list, so that cert-manager and Harbor upgrade drift is not touched:
+```
+terraform apply \
+  -target=harbor_project.fedlify_public \
+  -target=harbor_robot_account.fedlify_provisioner \
+  -target=harbor_robot_account.fedlify_helper_push \
+  -target=kubernetes_secret_v1.harbor_provisioner
+```
+Always run `terraform plan` with the same targets first and read it: the plan must show exactly 4 creates (public project, helper-push robot, provisioner robot, `kubernetes_secret_v1.harbor_provisioner`; the namespace is only refreshed) and nothing to change or replace. `terraform graph` shows the Secret depends only on the provisioner robot and the namespace. Targeting pulls in resources these depend on (the provider config, `kubernetes_namespace_v1.fedlify`); if the plan lists anything else, stop. The robot secrets will exist in Terraform state, as `studies-pull` already does. `fedlify-mirror` is not in the list; if it is not yet in state, import it separately.
+
+### 15.11 Failure modes
+
+| Failure | Result |
+|---|---|
+| Harbor down at kit creation | 502 `registry_unavailable`, nothing changed, previous kit, token and robot valid |
+| Harbor create succeeds, encryption busy or upload fails or transaction fails | new robot deleted at once; if delete fails, row stays `PENDING`/`REVOKING` and the sweeper deletes it; robot expiry bounds it |
+| Harbor down after commit | new kit works; old robot stays valid until retry; response says `registry: "pending"`; audit `delete_failed` |
+| Web pod dies between robot create and DB update | `PENDING` row exists first, so the sweeper finds it by name even without a Harbor id |
+| Two kit creations race for one site | last commit wins, as for packages; the other robot becomes `REVOKING` |
+| Project name already exists, not ours | publish fails closed with a clear error |
+| Push robot leak | 1-day expiry, push on one project, deleted at workflow exit |
+| Provisioner credential stolen | see the honest limit in 15.4; rotate through Terraform, review `registry.robot.*` audit events and Harbor's robot list |
+| Quota full | publish push fails with a Harbor error; retention frees tags after the next policy run; raise the variable for that study |
+| Provisioner missing in `per-study` mode | publish fails at `ensure-project` before building; legacy mode still works |
+
+### 15.12 Rejected alternatives
+
+- **Per-repository robots in one project.** Impossible in Harbor (15.3).
+- **Per-site-and-study project.** One robot per StudySite is already isolated; a project per pair multiplies projects, quotas and retention policies for no gain.
+- **Global pull robot with rotation.** Shrinks the exposure window only; every kit still holds a credential good for every study.
+- **Harbor admin or admin-like user inside the web pod.** One web bug would delete any team's projects.
+- **Pre-creating projects with Terraform.** Studies are created at runtime; this would put application data into infrastructure state.
+- **Kit-embedded image tarball (`docker save`).** No credential at all, but kits become gigabytes and cannot update. Rejected for size; worth keeping for air-gapped sites.
+- **A Fedlify token service in front of the registry** (Distribution token auth with per-repo, per-hour tokens). True repository scoping, but a new internet-facing component to build and run. Upgrade path if per-study projects prove too coarse; not now.
+- **No expiry on site robots.** A forgotten kit would be a permanent credential.
+- **Falling back to the global credential when Harbor is down.** Would silently reintroduce the shared secret.
+
+### 15.13 Tests that must fail if behaviour breaks (to be written with the code)
+
+- Harbor client: project-name guard rejects `hivelab-*` and `fedlify-studies` in per-study mode; permission template sent is exactly pull for site robots and push+pull for push robots; expiry is set; the request body never includes a repository pattern.
+- Kit route: Harbor create failure returns 502 and leaves token hash, packages and robots unchanged; upload failure deletes the new robot; transaction failure deletes the new robot; busy encryption mints no robot; no storage mints no robot; legacy digest mints no robot and uses the global credential; per-study digest with Harbor down never uses the global credential; the secret appears only inside the encrypted inner kit input and in no audit row, log call, DB write or response field.
+- Lifecycle: rotation marks old robots `REVOKING` and deletes after commit; delete failure keeps `REVOKING` and reports `registry: "pending"`; site removal and study retirement revoke; sweeper deletes stale `PENDING`, retries `REVOKING`, flags unknown robot names.
+- Revocation label: remains partial while the certificate is not re-issued.
+- Publish template (static YAML test): no `harbor-registry-credentials` reference in the publish workflow; push robot step precedes build; exit handler deletes the push robot.
+- Terraform (static): the robot resources exist with the expected permissions, no `repository` access on the provisioner, `fedlify_public` is public.
+- Migration test: SQL only adds tables and enum types.
+
+### 15.14 Open risks
+
+1. 15.3(a) escalation is unknown and decides whether the provisioner design is acceptable. Until tested, assume the credential is powerful on the whole Harbor.
+2. The shared Harbor means a Terraform or Harbor admin mistake by another team can still affect Fedlify; the Harbor upgrade drift in day1 may change robot API behaviour.
+3. 90-day robot expiry is a guess and can strand a site that never updates its kit.
+4. 20 GiB quota and retention of 10 are guesses; the base image size is unmeasured.
+5. Two Harbor clients (TypeScript and Python) must stay in step; the contract tests above are the control.
+6. The orphan sweeper depends on a CronJob that does not exist yet.
+7. Old kits remain valid for their old digest until phase C, so the shared credential persists for existing studies for the whole migration.
+8. Certificate revocation is still not done, so the "partial" label stays.
+9. Operators must be told robot names contain `$`; a runner or script that interpolates it unquoted will fail to log in.
+
+### 15.15 Implementation notes (2026-11-05, working tree only)
+
+**What exists.** `apps/web/src/lib/harbor-registry.ts` (the only Harbor client, name guard, permission templates), `lib/registry-access.ts` (project ensure, robot mint, rotation, revoke, sweeper), additive migration `20261109090000_registry_projects`, kit route, publish route, `agent.ts` workflow parameters, study archive and site-disable hooks, `POST /api/webhooks/registry-sweep` plus `deploy/k8s/registry-sweeper.yaml`, `fedlify_runtime/harbor.py` (Python twin for the workflow), the publish workflow template, Terraform in `IaC/day1/cicd/fedlify.tf`, and `scripts/release-helper-image.sh`.
+
+**Where it differs from the design above, and why.**
+1. **Project creation is in the web app, not the workflow.** The publish route calls `ensureStudyRegistryProject` before it records a version or submits Argo. It writes the `RegistryProject` row first and then calls Harbor, so a crash cannot leave a project that Fedlify does not recognise as its own; a 409 for a project with no record fails closed and removes the row it just wrote. The workflow only mints and deletes robots. Result: the workflow no longer needs project-create logic and a conflict stops the publish before anything is built.
+2. **Revocation response keeps `revocation: "partial"` and adds `revocationDetail: { token, registry, certificate }`** instead of replacing the string, so nothing that reads the old field breaks. The label stays "partial" because `certificate` is `not_reissued`; `registry` is `revoked`, `pending` (Harbor delete failed, sweeper retries) or `not_applicable` (legacy study).
+3. **The `active` tag moves at build time**, as a second kaniko destination. Harbor tagging after success needs a tag permission the provisioner deliberately lacks. Consequence: a publish that fails after the push leaves `active` on an unpublished image. The last N pushed tags are still kept, so a running image is not lost unless more than N builds fail in a row.
+4. **The provisioner has no `quota` permission.** Add it only if live check 1 shows Harbor refuses `storage_limit` at project creation. Project deletion is not granted either: retired projects are marked `RETIRED`, never deleted, and the 30-day deletion grace is not implemented.
+5. **Site removal** has no route in this tree. The hooks are: an administrator setting a site to `DISABLED` (heartbeat route), study archive, kit rotation, and the sweeper. If a removal route is added it must call `revokeSiteRegistryAccess`.
+6. **The legacy path keeps one admin reference**, in the template `legacy-push-credential` only, so a flag flip back to `legacy` still works. It is removed at phase C. The per-study templates reference only `harbor-provisioner`.
+7. **The sweeper's `registry.robot.unexpected` audit repeats every run** for a robot nobody removes. Delete or rename the robot to stop it.
+8. **Workflow-made robots are named `push-<ciRunId>` and `agg-<ciRunId>`.** The mint steps delete a same-named robot first, so a retried run does not hit a duplicate-name error.
+
+**Configuration (web deployment).** `FEDLIFY_REGISTRY_MODE` (ships as `legacy`), `FEDLIFY_STUDY_PROJECT_QUOTA_GIB` 20, `FEDLIFY_STUDY_RETENTION_KEEP` 10, `FEDLIFY_SITE_ROBOT_DAYS` 90, and `FEDLIFY_HARBOR_URL`, `FEDLIFY_HARBOR_PROVISIONER_USERNAME`, `FEDLIFY_HARBOR_PROVISIONER_PASSWORD` from secret `harbor-provisioner` with `optional: true`, so web starts before Terraform is applied.
+
+**Deploy order.** Each step is safe to stop after.
+1. Terraform, targeted (15.10): plan with the same `-target` list first and stop if it lists anything beyond the four new resources and their already-applied dependencies. Then apply the same list.
+2. Run the live checks in 15.9 against a throwaway project `fedlify-s-zz-test`, by hand. Do not continue if the escalation check (3) shows the credential can mint robots for projects it cannot read.
+3. Build and push a new base image that contains `fedlify_runtime/harbor.py` (the CronJob and per-study workflow use it), then set the template's `base-image` and the CronJob `image` to that tag. Until then keep the mode `legacy`.
+4. Build and deploy the web image (the `migrate` initContainer applies the additive migration), apply `deploy/k8s` (workflow template, web deployment, sweeper). Behaviour is unchanged in `legacy` mode.
+5. Publish a throwaway study with `FEDLIFY_REGISTRY_MODE=per-study`, create a kit, pull with the robot, check anonymous pull fails and that a kit rotation deletes the old robot.
+6. Run `scripts/release-helper-image.sh`, put the printed reference in `FEDLIFY_HELPER_IMAGE`, redeploy web.
+7. Phase B and C as in 15.8.
+
+**Rollback.** Set `FEDLIFY_REGISTRY_MODE=legacy` (new publishes return to `fedlify-studies`); studies already in their own project keep minting robots for new kits because the kit route follows the image path. Suspend the sweeper with `kubectl -n fedlify patch cronjob registry-sweeper -p '{"spec":{"suspend":true}}'`. Terraform resources can be removed with the same targets under `terraform destroy`. The migration is additive and needs no revert.
+
+**Tests.** `tests/harbor-registry.test.ts`, `registry-access.test.ts`, `join-package-registry.test.ts`, `publish-registry.test.ts`, `registry-sweep-route.test.ts`, `registry-model-static.test.ts` (workflow, Terraform, migration, deployment and release-script checks), and `deploy/images/tests/test_harbor.py`. Harbor itself is faked in all of them: they prove our request shapes, ordering and failure handling, not Harbor's behaviour.
+
+
+### 15.13 Review follow-ups (what changed and what is still open)
+
+Fixed: robot lists follow pages (TS and Python); the sweeper deletes expired robots and, for a RETIRED project, every leftover `agg-`/`push-`/`site-` robot; the sweeper reads live rows after the Harbor list (closes the just-minted race); project creation keeps its record on a timeout or 5xx and survives a concurrent first publish; archive then reactivate re-activates the project (kit creation works again; the study still needs a republish for a new aggregator robot); the aggregator pull secret is written to `harbor-registry-study`, so the existing `harbor-registry` secret is never replaced and a failed publish does not break a running legacy aggregator; workflow `when` values are quoted; the kaniko push config is removed by a shell trap even when the build fails.
+
+Open, not fixable from this tree:
+- The provisioner's project permissions are on namespace `*` (every project on the shared Harbor). Escalation behaviour is unconfirmed until 15.9 item 3.
+- Retention keeps the newest K pushed tags per repository. A kit pins a digest; a site that keeps an old kit while the study is republished K or more times can lose its image. Raise `FEDLIFY_STUDY_RETENTION_KEEP` for long-lived sites, or issue the site a new kit. Quota and retention are applied at project creation only; changing the variables does not reach existing projects.
+- Expiry: site robots last 90 days, aggregator robots 365. Nothing warns or renews. The sweeper only cleans up expired robots; a site must download a new kit.
+- A study's `<Dockerfile>` build can read the push config while the build runs (limited to one project, 1-day expiry, deleted at exit).

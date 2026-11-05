@@ -12,6 +12,8 @@ import { submitStudyPublishWorkflow } from "@/lib/agent";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
 import { ensureGiteaTag, getGiteaBranch, GiteaApiError, isRuntimeConfigurationError } from "@/lib/gitea";
+import { HarborError } from "@/lib/harbor-registry";
+import { ensureStudyRegistryProject, registryMode } from "@/lib/registry-access";
 import { ethicsCleared, latestEthicsStatus, requirementsGate } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
@@ -139,6 +141,21 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   }
   const runtimeSlug = target.namespace!.replace(/^study-/, "");
+
+  // Per-study registry mode: the study's private Harbor project must exist (and be ours) before anything is built. A
+  // failure stops here, before a version or run is recorded, and never falls back to the shared project.
+  let registryProject: string | null = null;
+  if (registryMode() === "per-study") {
+    try {
+      registryProject = (await ensureStudyRegistryProject({ studyId, runtimeSlug, actorUserId: authResult.userId, orgId: study.orgId })).name;
+    } catch (error) {
+      if (error instanceof HarborError) {
+        const status = error.code === "not_configured" ? 503 : error.code === "conflict" ? 409 : 502;
+        return problem(status, error.message, error.code === "not_configured" ? "registry_not_configured" : error.code === "conflict" ? "registry_project_conflict" : "registry_unavailable");
+      }
+      throw error;
+    }
+  }
   const provision = target.kitGeneration === 0 || !sameSites(target.provisionedSites, sites);
   const kitGeneration = provision ? target.kitGeneration + 1 : target.kitGeneration;
 
@@ -195,7 +212,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       versionTag,
       sites,
       provision,
-      kitGeneration
+      kitGeneration,
+      registryProject
     });
     await prisma.$transaction([
       prisma.cIValidationRun.update({ where: { id: ciRun.id }, data: { workflowId: submitted.workflowId, status: "RUNNING" } }),
@@ -218,7 +236,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     action: "pipeline_project.publish",
     targetType: "PipelineVersion",
     targetId: version.id,
-    metadata: { versionTag, gitCommit: version.gitCommit, hostname: target.hostname, provision, kitGeneration, sites: sites.map((site) => site.name) },
+    metadata: { versionTag, gitCommit: version.gitCommit, hostname: target.hostname, registryProject, provision, kitGeneration, sites: sites.map((site) => site.name) },
     request
   });
 

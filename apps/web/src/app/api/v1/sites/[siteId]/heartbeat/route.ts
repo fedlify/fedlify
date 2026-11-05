@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
 import { hashIp, safeEqual, sha256 } from "@/lib/crypto";
 import { json, problem } from "@/lib/json";
+import { revokeSiteRegistryAccess } from "@/lib/registry-access";
 import { prisma } from "@/lib/prisma";
 import { clientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/lib/rate-limit";
@@ -99,6 +100,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     });
   });
 
+  // An administrator disabling a site also removes its image-pull credential (best effort; the sweeper retries).
+  if (!tokenAuthenticated && parsed.data.status === "DISABLED" && site.studySite) {
+    await revokeSiteRegistryAccess({ studySiteId: site.studySite.id, reason: "site_disabled", actorUserId, orgId: site.study.orgId, studyId: site.studyId }).catch(() => undefined);
+  }
+
   // Routine beats are not audited (about 2,880 a day per site would bury governance events). Audit transitions only.
   if (site.status !== parsed.data.status) await audit({
     actorUserId,
@@ -111,14 +117,20 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     request
   });
 
-  // Published studies: tell the site runner which study image it should run (`fedlify-runner.sh update`).
+  // Published studies: tell the site runner which study image it should run (`fedlify-runner.sh update`), and which
+  // pipeline version that image is, so the operator confirms both. The digest is the full reference; sites compare sha256 only.
   const publishedDeployment = await prisma.nvflareDeployment.findFirst({
     where: { studyId: site.studyId, active: true, runtimeMode: "k8s" },
-    select: { imageDigest: true, hostname: true }
+    select: { imageDigest: true, hostname: true, pipelineVersionId: true }
   });
+  const desiredVersion = publishedDeployment?.pipelineVersionId
+    ? await prisma.pipelineVersion.findUnique({ where: { id: publishedDeployment.pipelineVersionId }, select: { version: true, gitTag: true } }).catch(() => null)
+    : null;
+  // The runner prints this and compares what the operator types, so it is limited to a plain label.
+  const desiredPipelineVersion = desiredVersion ? (desiredVersion.gitTag ?? desiredVersion.version).replace(/[^A-Za-z0-9._+-]/g, "_").slice(0, 64) : null;
 
   return json(
-    { heartbeat, desiredImageDigest: publishedDeployment?.imageDigest ?? null, aggregator: publishedDeployment?.hostname ?? null },
+    { heartbeat, desiredImageDigest: publishedDeployment?.imageDigest ?? null, desiredPipelineVersion, aggregator: publishedDeployment?.hostname ?? null },
     { status: 201 }
   );
 }

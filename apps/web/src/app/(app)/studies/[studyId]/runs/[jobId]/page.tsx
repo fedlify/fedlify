@@ -23,12 +23,14 @@ type Detail = {
     submittedAt: string | null;
     completedAt: string | null;
     submittedBy: string | null;
+    endReason?: string | null;
     sites: Array<{ code?: string; clientName: string | null }>;
     siteCount: number;
     parameters: { minClients?: number; numRounds?: number } | null;
     pipeline: { version: string; project: string; approvalStatus: string; validationStatus: string };
     snapshot: { gitCommit: string | null; imageDigest: string | null; siteDigests: Array<{ site: string; imageDigest: string | null; reportedAt: string | null }> | null; recorded: boolean };
   };
+  siteLost?: { since: string; timeoutMs: number; sites: Array<{ code: string; clientName: string; state: string; reason: string; since: string; abortAt: string | null }> } | null;
   metrics: MetricsPayload;
   model: {
     saved: boolean;
@@ -244,6 +246,26 @@ export default function RunDetailPage() {
       {error && !detail ? <Alert type={error.status === 403 || error.status === 404 ? "warning" : "error"} showIcon message="Run could not be loaded" description={error.message} /> : null}
       {error && detail ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Could not refresh this run" description={`${error.message} The values below are from the last successful load.`} /> : null}
       {!detail && !error ? <Spin tip="Loading run..."><div style={{ minHeight: 120 }} /></Spin> : null}
+      {detail?.siteLost ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="A participating site is not responding"
+          description={
+            <div>
+              {detail.siteLost.sites.map((site) => (
+                <div key={site.code}>
+                  <strong>{site.clientName}</strong>: {site.reason} (since {new Date(site.since).toLocaleTimeString()}).
+                  {site.abortAt ? ` If it stays down, Fedlify ends this run as FAILED at about ${new Date(site.abortAt).toLocaleTimeString()}.` : " This alone does not end the run."}
+                </div>
+              ))}
+              <div>Restart the site with ./fedlify-runner.sh start, or abort the run from the Results page.</div>
+            </div>
+          }
+        />
+      ) : null}
+      {detail?.run.endReason ? <Alert type="error" showIcon style={{ marginBottom: 12 }} message={`Run ${detail.run.status.toLowerCase()}`} description={detail.run.endReason} /> : null}
       {detail ? <Tabs activeKey={active} items={items} onChange={(key) => router.replace(`/studies/${studyId}/runs/${jobId}?tab=${key}`)} /> : null}
     </AppPage>
   );

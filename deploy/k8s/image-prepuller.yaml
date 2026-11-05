@@ -32,7 +32,7 @@ spec:
       terminationGracePeriodSeconds: 0
       initContainers:
         - name: nvflare-base
-          image: harbor.fedlify.com/fedlify/nvflare-base:r20261105-5
+          image: harbor.fedlify.com/fedlify/nvflare-base:r20261105-6
           command: ["/bin/sh", "-c", "exit 0"]
           imagePullPolicy: IfNotPresent
           resources: &tiny

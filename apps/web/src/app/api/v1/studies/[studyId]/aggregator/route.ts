@@ -8,6 +8,7 @@
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { isSitePresent } from "@/lib/site-presence";
+import { checkSiteImages, isImageMismatch, siteImageFixSteps } from "@/lib/site-image";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
@@ -55,7 +56,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" } }),
     prisma.studySite.findMany({
       where: { studyId, participationStatus: { not: "DISABLED" } },
-      include: { site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } } } }, joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1 } },
+      include: { site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, metadata: true } } } }, joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1 } },
       orderBy: { code: "asc" }
     }),
     prisma.pipelineProject.findMany({
@@ -94,9 +95,21 @@ export async function GET(_request: NextRequest, { params }: Params) {
   const provisioned = new Set(
     Array.isArray(deployment?.provisionedSites) ? (deployment.provisionedSites as Array<{ name?: string }>).map((site) => String(site.name)) : []
   );
+  const imageChecks = new Map(
+    checkSiteImages(
+      studySites.map((studySite) => ({
+        code: studySite.code,
+        clientName: nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName }),
+        heartbeatMetadata: studySite.site?.heartbeats[0]?.metadata ?? null,
+        kitImageRef: studySite.joinPackages[0]?.imageDigest ?? null
+      })),
+      deployment?.status === "ACTIVE" ? deployment.imageDigest : null
+    ).map((check) => [check.code, check] as const)
+  );
   const sites = studySites.map((studySite) => {
     const name = nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName });
     const kit = studySite.joinPackages[0];
+    const imageCheck = imageChecks.get(studySite.code);
     return {
       studySiteId: studySite.id,
       code: studySite.code,
@@ -106,6 +119,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
       provisioned: provisioned.has(name),
       kitReleased: Boolean(kit),
       kitImageDigest: kit?.imageDigest ?? null,
+      // What the site's runner last reported against the published image. Sites compare by sha256; the kit digest above is only what was released.
+      imageState: imageCheck?.state ?? "UNKNOWN",
+      needsNewKit: imageCheck?.needsNewKit ?? false,
+      imageFix: imageCheck && isImageMismatch(imageCheck.state) ? siteImageFixSteps(imageCheck) : [],
       connected: connected ? isSitePresent(connected.includes(name), studySite.site?.heartbeats[0]?.createdAt) : null
     };
   });

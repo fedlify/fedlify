@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { isSitePresent } from "@/lib/site-presence";
+import { checkSiteImages, describeImageMismatch, isImageMismatch, siteImageFixSteps } from "@/lib/site-image";
 import { audit } from "@/lib/audit";
 import { describeUnreadySites, executionGateMessage, latestEthicsStatus, pipelineExecutionGate } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
@@ -151,6 +152,33 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       .map((site) => nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }));
     if (offline.length > 0) {
       return problem(409, `These sites are not connected to the aggregator yet: ${offline.join(", ")}.`, "sites_not_connected");
+    }
+  }
+
+  if (publishedRuntime) {
+    // Every selected site must run the aggregator's image. The aggregator can move to a new digest (a publish) while a
+    // site still runs the old one; submitting then trains on mismatched code. Compared by sha256 only; missing counts as a mismatch.
+    const checks = checkSiteImages(
+      studySites.map((site) => ({
+        code: site.code,
+        clientName: nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }),
+        heartbeatMetadata: site.site?.heartbeats[0]?.metadata ?? null
+      })),
+      deployment.imageDigest
+    );
+    const outdated = checks.filter((check) => isImageMismatch(check.state));
+    if (outdated.length > 0) {
+      return json(
+        {
+          error: {
+            code: "site_image_mismatch",
+            message: describeImageMismatch(checks, deployment.imageDigest),
+            sites: outdated.map((check) => ({ code: check.code, clientName: check.clientName, state: check.state, reportedDigest: check.reportedDigest, needsNewKit: check.needsNewKit, fix: siteImageFixSteps(check) })),
+            desiredImageDigest: deployment.imageDigest
+          }
+        },
+        { status: 409 }
+      );
     }
   }
 

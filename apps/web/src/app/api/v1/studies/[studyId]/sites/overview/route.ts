@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { markStaleSitesOffline } from "@/lib/site-presence";
 import { kitState, type SiteOverviewRow } from "@/lib/site-overview";
+import { checkSiteImages, isImageMismatch, siteImageFixSteps } from "@/lib/site-image";
+import { nvflareClientName } from "@/lib/study-runtime";
 
 type Params = { params: Promise<{ studyId: string }> };
 
@@ -23,7 +25,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   await markStaleSitesOffline(studyId);
   const [deployment, studySites] = await Promise.all([
-    prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" }, select: { imageDigest: true } }),
+    prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" }, select: { imageDigest: true }, orderBy: { updatedAt: "desc" } }),
     prisma.studySite.findMany({
       where: { studyId },
       select: {
@@ -35,12 +37,23 @@ export async function GET(_request: NextRequest, { params }: Params) {
         readinessChecks: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
         nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 1, select: { status: true } },
         joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1, select: { imageDigest: true } },
-        site: { select: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } } } }
+        site: { select: { nvflareClientName: true, heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, metadata: true } } } }
       },
       orderBy: { code: "asc" }
     })
   ]);
 
+  const checks = new Map(
+    checkSiteImages(
+      studySites.map((site) => ({
+        code: site.code,
+        clientName: nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }),
+        heartbeatMetadata: site.site?.heartbeats[0]?.metadata ?? null,
+        kitImageRef: site.joinPackages[0]?.imageDigest ?? null
+      })),
+      deployment?.imageDigest
+    ).map((check) => [check.code, check] as const)
+  );
   const sites: SiteOverviewRow[] = studySites.map((site) => ({
     studySiteId: site.id,
     code: site.code,
@@ -48,6 +61,8 @@ export async function GET(_request: NextRequest, { params }: Params) {
     institutionName: site.institutionName,
     readiness: site.readinessChecks[0]?.status ?? "PENDING",
     kitState: kitState(site.joinPackages[0], deployment?.imageDigest),
+    imageState: checks.get(site.code)?.state ?? "UNKNOWN",
+    imageFix: checks.get(site.code) && isImageMismatch(checks.get(site.code)!.state) ? siteImageFixSteps(checks.get(site.code)!) : [],
     connection: site.nvflareStatuses[0]?.status ?? site.participationStatus,
     lastHeartbeatAt: site.site?.heartbeats[0]?.createdAt.toISOString() ?? null
   }));

@@ -4,8 +4,16 @@
 # Secrets expected in namespace fedlify:
 #   gitea-credentials           baseUrl, username, token          (clone study repo)
 #   gitops-write                repoUrl, branch, username, token, authorName, authorEmail
-#   harbor-registry-credentials registry, username, password      (push to fedlify-studies)
-#   harbor-studies-pull         registry, username, password      (read-only robot: aggregator + sites pull)
+#   harbor-provisioner          registry, url, username, password (limited system robot: creates project robots only;
+#                                                                  per-study mode. docs/site-runner-and-ux-design.md 15)
+#   harbor-registry-credentials registry, username, password      (LEGACY mode only, template legacy-push-credential:
+#                                                                  Harbor admin. Delete this reference at phase C.)
+#   harbor-studies-pull         registry, username, password      (LEGACY mode: read-only robot for aggregator + sites)
+#
+# Registry mode (parameter registry-mode, set by the web app from FEDLIFY_REGISTRY_MODE):
+#   per-study  image goes to harbor.fedlify.com/fedlify-s-<slug>/<slug>, pushed with a 1-day push robot for that project,
+#              aggregator pulls with its own robot; needs a base image that contains fedlify_runtime.harbor.
+#   legacy     image goes to fedlify-studies with the shared credentials, exactly as before.
 #   fedlify-adapter-signing     secret                            (adapter token = HMAC(secret, "adapter:"+studyId))
 #   fedlify-artifacts-s3        endpoint, region, bucket, accessKeyId, secretAccessKey
 #   argo-webhook-secret         secret                            (HMAC for callbacks)
@@ -43,11 +51,15 @@ spec:
       - name: kit-generation        # bumps the aggregator rollout when kits change
       - name: callback-url
       - name: base-image
-        value: harbor.fedlify.com/fedlify/nvflare-base:r20261105-5
+        value: harbor.fedlify.com/fedlify/nvflare-base:r20261105-6
       - name: study-image-repo
         value: harbor.fedlify.com/fedlify-studies
       - name: ingress-target
         value: 206.12.103.4
+      - name: registry-mode          # legacy | per-study
+        value: legacy
+      - name: registry-project       # fedlify-s-<slug> in per-study mode, else empty
+        value: ""
   volumeClaimTemplates:
     - metadata:
         name: work
@@ -62,13 +74,25 @@ spec:
       steps:
         - - name: clone-validate
             template: clone-validate
+        - - name: mint-push-robot
+            template: mint-push-robot
+            when: "'{{workflow.parameters.registry-mode}}' == 'per-study'"
+          - name: legacy-push-credential
+            template: legacy-push-credential
+            when: "'{{workflow.parameters.registry-mode}}' != 'per-study'"
         - - name: build-image
             template: build-image
         - - name: provision-kits
             template: provision-kits
             when: "{{workflow.parameters.provision}} == true"
+        - - name: mint-aggregator-robot
+            template: mint-aggregator-robot
+            when: "'{{workflow.parameters.registry-mode}}' == 'per-study'"
         - - name: prepare-namespace
             template: prepare-namespace
+        - - name: prune-aggregator-robots
+            template: prune-aggregator-robots
+            when: "'{{workflow.parameters.registry-mode}}' == 'per-study'"
         - - name: upload-client-kits
             template: upload-client-kits
             when: "{{workflow.parameters.provision}} == true"
@@ -95,6 +119,12 @@ spec:
 
     - name: report-exit
       steps:
+        # The push robot must not outlive the run, success or failure (its 1-day expiry is only the backstop). A failure
+        # here must not stop the callback.
+        - - name: delete-push-robot
+            template: delete-push-robot
+            when: "'{{workflow.parameters.registry-mode}}' == 'per-study'"
+            continueOn: { failed: true, error: true }
         - - name: callback
             template: callback
             when: "{{workflow.status}} != Succeeded"
@@ -141,7 +171,61 @@ spec:
         volumeMounts:
           - { name: work, mountPath: /work }
 
-    # 2. Unprivileged kaniko build: base image + study code at /opt/fedlify/code, pushed by digest.
+    # 2a. Per-study mode: a 1-day push robot for this study's project only, written to a 0600 docker config on the work volume.
+    #     Idempotent for a retried run (the old robot of the same name is removed first).
+    - name: mint-push-robot
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            cd /opt/fedlify/runtime
+            umask 077
+            python3 -m fedlify_runtime.harbor delete --project "{{workflow.parameters.registry-project}}" --name "push-{{workflow.parameters.ci-run-id}}"
+            python3 -m fedlify_runtime.harbor mint --project "{{workflow.parameters.registry-project}}" --name "push-{{workflow.parameters.ci-run-id}}" \
+              --push --days 1 --registry "$HARBOR_REGISTRY" --docker-config /work/push-docker-config.json
+        env:
+          - name: HARBOR_URL
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: url } }
+          - name: HARBOR_REGISTRY
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: registry } }
+          - name: HARBOR_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: username } }
+          - name: HARBOR_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: password } }
+        securityContext: { runAsUser: 0 }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 2b. Legacy mode: the shared admin credential writes the same docker config. This is the only template in this file that
+    #     references harbor-registry-credentials; it goes away with the legacy path (design section 15.8, phase C).
+    - name: legacy-push-credential
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["python3", "-c"]
+        args:
+          - |
+            import base64, json, os
+            auth = base64.b64encode((os.environ["REGISTRY_USERNAME"] + ":" + os.environ["REGISTRY_PASSWORD"]).encode()).decode()
+            fd = os.open("/work/push-docker-config.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(json.dumps({"auths": {os.environ["HARBOR_REGISTRY"]: {"auth": auth}}}))
+        env:
+          - name: HARBOR_REGISTRY
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: registry } }
+          - name: REGISTRY_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: username } }
+          - name: REGISTRY_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: password } }
+        securityContext: { runAsUser: 0 }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    # 2c. Unprivileged kaniko build: base image + study code at /opt/fedlify/code, pushed by digest. It holds no Harbor
+    #     secret of its own: it reads the docker config the previous step wrote. Per-study mode also moves the tag `active`
+    #     (retention never expires it). Caveat: it moves at build time, so a publish that fails later leaves `active` on an
+    #     unpublished image; the last N pushed tags are still kept.
     - name: build-image
       outputs:
         parameters:
@@ -153,9 +237,12 @@ spec:
         args:
           - |
             set -eu
-            auth="$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_PASSWORD" | base64 | tr -d '\n')"
-            printf '{"auths":{"%s":{"auth":"%s"}}}' "$HARBOR_REGISTRY" "$auth" > /kaniko/.docker/config.json
+            # The config must go even when the build fails (set -eu would skip a plain rm after the executor).
+            trap 'rm -f /kaniko/.docker/config.json /work/push-docker-config.json' EXIT
+            cp /work/push-docker-config.json /kaniko/.docker/config.json
             repo="{{workflow.parameters.study-image-repo}}/{{workflow.parameters.study-slug}}"
+            active=""
+            if [ "{{workflow.parameters.registry-mode}}" = "per-study" ]; then active="--destination=${repo}:active"; fi
             /kaniko/executor \
               --context=dir:///work/repo \
               --dockerfile=/work/Dockerfile \
@@ -164,16 +251,11 @@ spec:
               --build-arg=STUDY_SLUG={{workflow.parameters.study-slug}} \
               --build-arg=PIPELINE_VERSION={{workflow.parameters.version-tag}} \
               --destination="${repo}:{{workflow.parameters.version-tag}}" \
+              $active \
               --digest-file=/work/digest-only
+            rm -f /kaniko/.docker/config.json /work/push-docker-config.json
             printf '%s@%s' "$repo" "$(cat /work/digest-only)" > /work/image-digest
             echo "Published $(cat /work/image-digest)"
-        env:
-          - name: HARBOR_REGISTRY
-            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: registry } }
-          - name: REGISTRY_USERNAME
-            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: username } }
-          - name: REGISTRY_PASSWORD
-            valueFrom: { secretKeyRef: { name: harbor-registry-credentials, key: password } }
         volumeMounts:
           - { name: work, mountPath: /work }
 
@@ -194,6 +276,57 @@ spec:
         volumeMounts:
           - { name: work, mountPath: /work }
 
+    # 3b. Per-study mode: the aggregator's own pull-only robot (one year; replaced at every publish).
+    - name: mint-aggregator-robot
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -euo pipefail
+            cd /opt/fedlify/runtime
+            umask 077
+            python3 -m fedlify_runtime.harbor delete --project "{{workflow.parameters.registry-project}}" --name "agg-{{workflow.parameters.ci-run-id}}"
+            python3 -m fedlify_runtime.harbor mint --project "{{workflow.parameters.registry-project}}" --name "agg-{{workflow.parameters.ci-run-id}}" \
+              --days 365 --credential-file /work/aggregator-robot.json
+        env:
+          - name: HARBOR_URL
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: url } }
+          - name: HARBOR_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: username } }
+          - name: HARBOR_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: password } }
+        securityContext: { runAsUser: 0 }
+        volumeMounts:
+          - { name: work, mountPath: /work }
+
+    - name: prune-aggregator-robots
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["python3", "-m", "fedlify_runtime.harbor", "prune", "--project", "{{workflow.parameters.registry-project}}", "--prefix", "agg-", "--keep", "agg-{{workflow.parameters.ci-run-id}}"]
+        workingDir: /opt/fedlify/runtime
+        env:
+          - name: HARBOR_URL
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: url } }
+          - name: HARBOR_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: username } }
+          - name: HARBOR_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: password } }
+
+    - name: delete-push-robot
+      activeDeadlineSeconds: 300
+      container:
+        image: "{{workflow.parameters.base-image}}"
+        command: ["python3", "-m", "fedlify_runtime.harbor", "delete", "--project", "{{workflow.parameters.registry-project}}", "--name", "push-{{workflow.parameters.ci-run-id}}"]
+        workingDir: /opt/fedlify/runtime
+        env:
+          - name: HARBOR_URL
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: url } }
+          - name: HARBOR_USERNAME
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: username } }
+          - name: HARBOR_PASSWORD
+            valueFrom: { secretKeyRef: { name: harbor-provisioner, key: password } }
+
     # 4. Study namespace with the kits Secret, the adapter token, and the read-only pull secret.
     - name: prepare-namespace
       container:
@@ -208,7 +341,19 @@ spec:
               | kubectl label --local -f - fedlify.com/study-id="{{workflow.parameters.study-id}}" app.kubernetes.io/managed-by=fedlify -o yaml \
               | kubectl apply -f -
             kubectl -n "$ns" create secret generic fedlify-adapter --from-file=token=/work/adapter-token --dry-run=client -o yaml | kubectl apply -f -
-            kubectl -n "$ns" create secret docker-registry harbor-registry \
+            if [ "{{workflow.parameters.registry-mode}}" = "per-study" ]; then
+              # The aggregator pulls with its own per-study robot, not the shared credential. Read through files: robot names contain "$".
+              # Written to a SEPARATE secret (harbor-registry-study). The existing harbor-registry secret is not touched, so the
+              # running aggregator of a study still on fedlify-studies keeps pulling even if this publish fails later: its pod
+              # spec only changes in update-gitops, and the template lists both secrets.
+              PULL_USERNAME="$(sed -n 's/.*"username": *"\([^"]*\)".*/\1/p' /work/aggregator-robot.json)"
+              PULL_PASSWORD="$(sed -n 's/.*"password": *"\([^"]*\)".*/\1/p' /work/aggregator-robot.json)"
+              rm -f /work/aggregator-robot.json
+              pull_secret=harbor-registry-study
+            else
+              pull_secret=harbor-registry
+            fi
+            kubectl -n "$ns" create secret docker-registry "$pull_secret" \
               --docker-server="$PULL_REGISTRY" --docker-username="$PULL_USERNAME" --docker-password="$PULL_PASSWORD" \
               --dry-run=client -o yaml | kubectl apply -f -
             if [ -f /work/kits/server-kit.tgz ]; then

@@ -29,6 +29,8 @@ from urllib.parse import urlparse
 from nvflare.fuel.flare_api import flare_api
 
 METRICS_FILE = "fedlify_metrics.jsonl"
+LOG_FILE = "log.txt"
+LOG_TAIL_BYTES = 1_000_000  # the web app caps and redacts again; this only bounds the transfer
 _kit_lock = threading.Lock()
 _kit_location = None
 
@@ -141,6 +143,20 @@ def live_metrics_path(job_id):
     return candidate if candidate.exists() else None
 
 
+def live_log_path(job_id):
+    workspace = pathlib.Path(os.environ.get("FEDLIFY_SERVER_WORKSPACE", "/workspace/participant"))
+    candidate = workspace / job_id / LOG_FILE
+    return candidate if candidate.exists() else None
+
+
+def read_tail(path, limit=LOG_TAIL_BYTES):
+    with open(path, "rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - limit))
+        return handle.read()
+
+
 def result_dir(session, job_id):
     return pathlib.Path(session.download_job_result(job_id))
 
@@ -206,6 +222,15 @@ class Handler(BaseHTTPRequestHandler):
                 found = call_session(lambda s: next(result_dir(s, job_id).rglob(METRICS_FILE), None))
                 records = read_metrics(found) if found else []
                 return self._send(200, {"nvflareJobId": job_id, "source": "result", "records": records})
+            if method == "GET" and action == "log":
+                # Read the live workspace first: it exists while the job runs and right after an abort, before cleanup.
+                live = live_log_path(job_id)
+                if live:
+                    return self._send(200, read_tail(live), "text/plain; charset=utf-8")
+                found = call_session(lambda s: next(result_dir(s, job_id).rglob(LOG_FILE), None))
+                if not found:
+                    return self._send(404, {"error": "no_log"})
+                return self._send(200, read_tail(found), "text/plain; charset=utf-8")
             if method == "GET" and action == "result.zip":
                 root = call_session(lambda s: result_dir(s, job_id))
                 return self._send(200, zip_directory(root), "application/zip")

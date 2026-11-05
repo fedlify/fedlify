@@ -139,13 +139,4 @@ export async function buildCardForJob(jobId: string, input: { modelVersion: stri
 
 export { MODEL_CARD_FILENAME };
 
-const LOG_SECRET = /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|Bearer\s+[A-Za-z0-9._~+/=-]{8,}|X-Amz-(?:Signature|Credential)=[^&\s]+|:\/\/[^/\s:@]+:[^/\s@]+@|(?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S+)/gi;
-export const LOG_MAX_BYTES = 200_000;
-
-/** Masks secret-looking text, then caps the size in bytes. Redaction runs first so a secret cut by the cap is still matched. */
-export function redactLogText(text: string): { text: string; truncated: boolean } {
-  const redacted = text.replace(LOG_SECRET, "[redacted]");
-  const bytes = Buffer.from(redacted, "utf8");
-  if (bytes.byteLength <= LOG_MAX_BYTES) return { text: redacted, truncated: false };
-  return { text: bytes.subarray(bytes.byteLength - LOG_MAX_BYTES).toString("utf8").replace(/^\uFFFD+/, ""), truncated: true };
-}
+export { LOG_MAX_BYTES, redactLogText } from "@/lib/log-redact";

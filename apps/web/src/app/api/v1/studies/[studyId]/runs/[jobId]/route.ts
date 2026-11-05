@@ -76,7 +76,12 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   // Status and metrics must not depend on someone having the projects page open: sync with NVFLARE and capture metrics here.
   const reconciled = await reconcileRun(job);
-  if (reconciled.status !== job.status || reconciled.metricsCaptured) job = (await prisma.nvflareJob.findFirst(lookup)) ?? job;
+  if (reconciled.status !== job.status || reconciled.metricsCaptured || reconciled.logCaptured) job = (await prisma.nvflareJob.findFirst(lookup)) ?? job;
+
+  // A lost-site warning belongs to the run page; a site operator sees only their own sites in it.
+  const siteLost = reconciled.siteLost
+    ? { ...reconciled.siteLost, sites: reconciled.siteLost.sites.filter((site) => viewer.scope === "full" || viewer.ownSiteCodes.includes(site.code)) }
+    : null;
 
   const own = viewer.scope === "site" ? ownClientNames(job.selectedSites, viewer.ownSiteCodes) : null;
   if (own && own.size === 0) return problem(403, "This run does not include one of your sites.", "forbidden");
@@ -119,6 +124,8 @@ export async function GET(_request: NextRequest, { params }: Params) {
         createdAt: job.createdAt,
         submittedAt: job.submittedAt,
         completedAt: job.completedAt,
+        // Why a FAILED or ABORTED run ended (for example the lost sites), for people who see the whole run.
+        endReason: viewer.scope === "full" && (job.status === "FAILED" || job.status === "ABORTED") ? (job.commandSummary ?? null) : null,
         submittedBy: viewer.scope === "full" ? (job.submittedBy.name ?? null) : null,
         sites: visibleSites.map((s) => ({ code: s.code, clientName: s.nvflareClientName ?? null })),
         siteCount: selected.length,
@@ -137,6 +144,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
           recorded: Boolean(job.gitCommit || job.imageDigest || job.runParameters)
         }
       },
+      siteLost: siteLost && siteLost.sites.length > 0 ? siteLost : null,
       metrics,
       listSummary: own ? null : readMetricsSummary(job.metricsSummary),
       model: {

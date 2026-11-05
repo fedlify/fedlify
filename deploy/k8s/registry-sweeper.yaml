@@ -1,0 +1,45 @@
+# Every 15 minutes: delete expired-pending and orphaned Harbor robots, retry failed revocations (design section 15.6).
+# It only asks the web app to sweep (HMAC-signed like the Argo callback); it holds no Harbor credential itself.
+# Idempotent. Safe to suspend (`kubectl -n fedlify patch cronjob registry-sweeper -p '{"spec":{"suspend":true}}'`):
+# robots then live until their own Harbor expiry.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: registry-sweeper
+  labels:
+    app.kubernetes.io/name: registry-sweeper
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: harbor-registry
+          containers:
+            - name: sweep
+              image: harbor.fedlify.com/fedlify/nvflare-base:r20261105-6
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import hashlib, hmac, os, urllib.request
+                  body = b"{}"
+                  signature = hmac.new(os.environ["ARGO_WEBHOOK_SECRET"].encode(), body, hashlib.sha256).hexdigest()
+                  request = urllib.request.Request(
+                    "http://fedlify-web.fedlify.svc.cluster.local/api/webhooks/registry-sweep", data=body, method="POST",
+                    headers={"Content-Type": "application/json", "X-Fedlify-Signature": "sha256=" + signature,
+                             "User-Agent": "fedlify-registry-sweeper/1"})
+                  with urllib.request.urlopen(request, timeout=120) as response:
+                    print(response.status, response.read().decode()[:500])
+              env:
+                - name: ARGO_WEBHOOK_SECRET
+                  valueFrom: { secretKeyRef: { name: argo-webhook-secret, key: secret } }
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { cpu: 100m, memory: 128Mi }

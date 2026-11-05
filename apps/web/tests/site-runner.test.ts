@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PUBLISHED_RUNNER_SCRIPT } from "@/lib/site-runner-script";
 
 // Runs the generated runner under real bash (macOS /bin/bash is 3.2) against fake docker/curl/nc, never the real ones.
@@ -35,8 +35,9 @@ function setupDocker() {
   "compose version") echo "2.29.1"; exit 0;;
   "compose ps") echo cid123; exit 0;;
   "compose logs") printf 'INFO fine\\nERROR failed to read "patient_77.csv" row {"age": 71} at /data/x.csv user a@b.org token=abcdefghijklmnopqrstuvwxyz0123 id 1234567\\n'; exit 0;;
-  "compose up") [ -n "$FAKE_COMPOSE_LOG" ] && echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$FAKE_COMPOSE_LOG"; exit 0;;
-  "compose down"|"compose pull") exit 0;;
+  "compose up") [ -n "$FAKE_COMPOSE_LOG" ] && echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$FAKE_COMPOSE_LOG"; [ -n "$FAKE_UP_LOG" ] && echo "UP IMAGE=$FEDLIFY_STUDY_IMAGE" >> "$FAKE_UP_LOG"; case "$FEDLIFY_STUDY_IMAGE" in *"$FAKE_UP_FAIL_HEX"*) [ -n "$FAKE_UP_FAIL_HEX" ] && exit 1;; esac; exit 0;;
+  "compose pull") [ -n "$FAKE_PULL_LOG" ] && echo "IMAGE=$FEDLIFY_STUDY_IMAGE" >> "$FAKE_PULL_LOG"; [ -n "$FAKE_PULL_FAIL" ] && exit 1; exit 0;;
+  "compose down") exit 0;;
   "info --format") case "$3" in *Runtimes*) if [ -n "$FAKE_NVIDIA_RUNTIME" ]; then echo '{"runc":{},"nvidia":{}}'; else echo '{"runc":{}}'; fi;; *) echo 8589934592;; esac; exit 0;;
 esac
 [ "$1" = "info" ] && exit 0
@@ -47,7 +48,7 @@ if [ "$1" = "inspect" ]; then
     *State.Status*) echo "$FAKE_STATE";;
     *Health*) echo "$FAKE_HEALTH";;
     *RestartCount*) echo 2;;
-    *Config.Image*) echo "harbor.example/study@sha256:abc";;
+    *Config.Image*) echo "\${FAKE_IMAGE:-harbor.example/study@sha256:abc}";;
   esac
   exit 0
 fi
@@ -57,7 +58,7 @@ exit 0`
   fake("nc", `[ -n "$FAKE_NC_LOG" ] && echo "$@" >> "$FAKE_NC_LOG"; [ "$FAKE_NC" = "fail" ] && exit 1; exit 0`);
   fake("getent", `exit 0`);
   fake("nvidia-smi", `[ -n "$FAKE_GPUS" ] && { echo "GPU 0: Fake GPU (UUID: GPU-x)"; exit 0; }; exit 9`);
-  fake("curl", `echo "$@" >> "$FAKE_CURL_ARGS"; cat > "$FAKE_CURL_STDIN"; printf '{"desiredImageDigest":null}\\n201'`);
+  fake("curl", `echo "$@" >> "$FAKE_CURL_ARGS"; cat > "$FAKE_CURL_STDIN"; B="$FAKE_BEAT_BODY"; [ -n "$B" ] || B='{"desiredImageDigest":null}'; printf '%s\\n201' "$B"`);
 }
 
 beforeAll(() => {
@@ -359,5 +360,125 @@ describe.skipIf(!hasBash)("site runner script", { timeout: 30_000 }, () => {
       expect(existsSync(path.join(kit, ".fedlify/agent.pid"))).toBe(false);
       run(["stop"], { ...startEnv(), FAKE_STATE: "exited" });
     });
+  });
+});
+
+describe.skipIf(!hasBash)("site runner update command", { timeout: 30_000 }, () => {
+  const NEW_HEX = "b".repeat(64);
+  const SAME_PROJECT = `harbor.example/study@sha256:${NEW_HEX}`;
+  let originalEnv: string;
+  const beat = (image: string | null, version: string | null = "v7") =>
+    JSON.stringify({ heartbeat: { id: "h" }, desiredImageDigest: image, desiredPipelineVersion: version, aggregator: "agg.example" });
+  const base = () => ({
+    FAKE_CURL_ARGS: path.join(root, "u-curl-args"),
+    FAKE_CURL_STDIN: path.join(root, "u-curl-stdin"),
+    FAKE_PULL_LOG: path.join(root, "u-pull"),
+    FAKE_UP_LOG: path.join(root, "u-up"),
+    FEDLIFY_SITE_TOKEN: SECRET_TOKEN
+  });
+  beforeEach(() => {
+    originalEnv = readFileSync(path.join(kit, ".env"), "utf8");
+    for (const f of ["u-pull", "u-up", "u-login-stdin"]) rmSync(path.join(root, f), { force: true });
+  });
+  afterEach(() => writeFileSync(path.join(kit, ".env"), originalEnv));
+
+  it("refuses without confirmation, changes nothing, and tells the operator what to pass", () => {
+    const result = run(["update"], { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT) });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("--confirm-version v7");
+    expect(result.stderr).toContain(`--confirm-digest ${NEW_HEX.slice(0, 12)}`);
+    expect(readFileSync(path.join(kit, ".env"), "utf8")).toBe(originalEnv);
+    expect(existsSync(path.join(root, "u-pull"))).toBe(false);
+  });
+
+  it("refuses a wrong version or a wrong digest, and a digest that is too short", () => {
+    const body = { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT) };
+    expect(run(["update", "--confirm-version", "v6", "--confirm-digest", NEW_HEX.slice(0, 12)], body).status).not.toBe(0);
+    expect(run(["update", "--confirm-version", "v7", "--confirm-digest", "c".repeat(12)], body).status).not.toBe(0);
+    expect(run(["update", "--confirm-version", "v7", "--confirm-digest", "bbbb"], body).status).not.toBe(0);
+    expect(readFileSync(path.join(kit, ".env"), "utf8")).toBe(originalEnv);
+    expect(existsSync(path.join(root, "u-pull"))).toBe(false);
+  });
+
+  it("with both confirmations pulls the server's digest, logs in again from the credential file, and keeps secrets out of .env", () => {
+    const stdin = path.join(root, "u-login-stdin");
+    const result = run(["update", "--confirm-version", "v7", "--confirm-digest", `sha256:${NEW_HEX.slice(0, 16)}`], { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT), FAKE_LOGIN_STDIN: stdin });
+    expect(result.status).toBe(0);
+    expect(readFileSync(path.join(root, "u-pull"), "utf8")).toContain(`IMAGE=${SAME_PROJECT}`);
+    expect(readFileSync(path.join(root, "u-up"), "utf8")).toContain(`UP IMAGE=${SAME_PROJECT}`);
+    expect(readFileSync(stdin, "utf8")).toBe(SECRET_PASSWORD);
+    const env = readFileSync(path.join(kit, ".env"), "utf8");
+    expect(env).toContain(`FEDLIFY_STUDY_IMAGE=${SAME_PROJECT}`);
+    expect(env).not.toContain(SECRET_PASSWORD);
+    expect(env).not.toContain(SECRET_TOKEN);
+    expect(result.stdout).toContain("Updated to");
+  });
+
+  it("--show prints the plan and changes nothing", () => {
+    const result = run(["update", "--show"], { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT) });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`desiredDigest=${SAME_PROJECT}`);
+    expect(result.stdout).toContain("desiredVersion=v7");
+    expect(readFileSync(path.join(kit, ".env"), "utf8")).toBe(originalEnv);
+    expect(existsSync(path.join(root, "u-pull"))).toBe(false);
+  });
+
+  it("does nothing when the running image already has the published sha256, whatever its repository path", () => {
+    const result = run(["update"], { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT), FAKE_IMAGE: `harbor.example/older-path/study@sha256:${NEW_HEX}` });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Already on the published version");
+    expect(existsSync(path.join(root, "u-pull"))).toBe(false);
+  });
+
+  it("refuses when the study image moved to another registry project, before changing anything", () => {
+    const moved = `harbor.example/fedlify-s-other/study@sha256:${NEW_HEX}`;
+    const result = run(["update", "--confirm-version", "v7", "--confirm-digest", NEW_HEX.slice(0, 12)], { ...base(), FAKE_BEAT_BODY: beat(moved) });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/new site kit/);
+    expect(readFileSync(path.join(kit, ".env"), "utf8")).toBe(originalEnv);
+    expect(existsSync(path.join(root, "u-pull"))).toBe(false);
+  });
+
+  it("does not touch .env when the pull fails", () => {
+    const result = run(["update", "--confirm-version", "v7", "--confirm-digest", NEW_HEX.slice(0, 12)], { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT), FAKE_PULL_FAIL: "1" });
+    expect(result.status).not.toBe(0);
+    expect(readFileSync(path.join(kit, ".env"), "utf8")).toBe(originalEnv);
+    expect(existsSync(path.join(root, "u-up"))).toBe(false);
+  });
+
+  it("rolls .env back to the previous digest when compose up fails, so a rerun is not told the site is current", () => {
+    const result = run(["update", "--confirm-version", "v7", "--confirm-digest", NEW_HEX.slice(0, 12)], { ...base(), FAKE_BEAT_BODY: beat(SAME_PROJECT), FAKE_UP_FAIL_HEX: NEW_HEX });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("restored");
+    const after = readFileSync(path.join(kit, ".env"), "utf8");
+    expect(after).toContain("FEDLIFY_STUDY_IMAGE=harbor.example/study@sha256:abc");
+    expect(after).not.toContain(NEW_HEX);
+    expect(readFileSync(path.join(root, "u-up"), "utf8")).toContain(`sha256:${NEW_HEX}`); // the new image was tried first
+  });
+
+  it("the helper bridge maps update to the plan only, and the PowerShell wrapper passes partial flags straight through", () => {
+    const text = readFileSync(path.join(process.cwd(), "src/lib/site-helper-scripts.ts"), "utf8");
+    expect(text).toContain('update) echo "update --show"');
+    expect(text).toContain("-contains '--confirm-version'");
+    expect(text).toContain("-contains '--show'");
+    expect(text).toContain("$ErrorActionPreference = 'Continue'");
+  });
+
+  it("the heartbeat agent re-reads .env each beat so it never reports a stale image after an update", () => {
+    const text = readFileSync(path.join(process.cwd(), "src/lib/site-runner-script.ts"), "utf8");
+    expect(text).toMatch(/while true; do\n\s+load_env/);
+  });
+
+  it("refuses an image reference from the server that is not a digest reference", () => {
+    const result = run(["update", "--confirm-version", "v7", "--confirm-digest", "abcdef123456"], { ...base(), FAKE_BEAT_BODY: beat("harbor.example/study:latest; rm -rf /") });
+    expect(result.status).not.toBe(0);
+    expect(existsSync(path.join(root, "u-pull"))).toBe(false);
+  });
+
+  it("the Windows wrapper confirms in the console and hands the runner explicit confirmations", () => {
+    // static check only (never run on Windows): the plan is read with --show, two prompts, then --confirm-* flags
+    const text = readFileSync(path.join(process.cwd(), "src/lib/site-helper-scripts.ts"), "utf8");
+    expect(text).toContain("update --show");
+    expect(text).toContain("'--confirm-version', $answerVersion, '--confirm-digest', $answerDigest");
   });
 });

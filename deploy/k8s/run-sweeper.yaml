@@ -1,0 +1,45 @@
+# Every minute: reconcile active published runs (NVFLARE status, evidence capture, lost-site warning and timeout abort).
+# It only asks the web app to sweep (HMAC-signed like the Argo callback); it holds no other credential.
+# Idempotent. Safe to suspend (`kubectl -n fedlify patch cronjob run-sweeper -p '{"spec":{"suspend":true}}'`):
+# runs are then reconciled only when someone views them, so a dead site goes unnoticed until the page is opened.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: run-sweeper
+  labels:
+    app.kubernetes.io/name: run-sweeper
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 55
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: harbor-registry
+          containers:
+            - name: sweep
+              image: harbor.fedlify.com/fedlify/nvflare-base:r20261105-6
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import hashlib, hmac, os, urllib.request
+                  body = b"{}"
+                  signature = hmac.new(os.environ["ARGO_WEBHOOK_SECRET"].encode(), body, hashlib.sha256).hexdigest()
+                  request = urllib.request.Request(
+                    "http://fedlify-web.fedlify.svc.cluster.local/api/webhooks/run-sweep", data=body, method="POST",
+                    headers={"Content-Type": "application/json", "X-Fedlify-Signature": "sha256=" + signature,
+                             "User-Agent": "fedlify-run-sweeper/1"})
+                  with urllib.request.urlopen(request, timeout=50) as response:
+                    print(response.status, response.read().decode()[:500])
+              env:
+                - name: ARGO_WEBHOOK_SECRET
+                  valueFrom: { secretKeyRef: { name: argo-webhook-secret, key: secret } }
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { cpu: 100m, memory: 128Mi }

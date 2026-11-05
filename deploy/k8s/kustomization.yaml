@@ -15,13 +15,15 @@ resources:
   - publish-workflow-template.yaml
   - image-prepuller.yaml
   - platform-build-workflow-template.yaml
+  - registry-sweeper.yaml
+  - run-sweeper.yaml
   - agent-orchestrator-config.yaml
   - agent-orchestrator-deployment.yaml
   - agent-orchestrator-service.yaml
 
 images:
   - name: harbor.fedlify.com/fedlify/web
-    newTag: r20261105-10
+    newTag: r20261105-11
   - name: harbor.fedlify.com/fedlify/agent-worker
     newTag: latest
   - name: fedlify/agent-orchestrator

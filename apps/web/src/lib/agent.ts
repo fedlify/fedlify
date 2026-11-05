@@ -193,6 +193,8 @@ export async function submitStudyPublishWorkflow(input: {
   sites: Array<{ name: string }>;
   provision: boolean;
   kitGeneration: number;
+  /** Per-study Harbor project (`fedlify-s-<slug>`) when the registry mode is per-study; null keeps the legacy shared project. */
+  registryProject?: string | null;
 }): Promise<{ workflowId: string }> {
   if (!process.env.KUBERNETES_SERVICE_HOST) {
     const error = new Error("Publishing needs the Kubernetes runtime (Argo Workflows). Use deploy/local-e2e for local runs.");
@@ -223,7 +225,11 @@ export async function submitStudyPublishWorkflow(input: {
       "sites-json": JSON.stringify(input.sites),
       provision: String(input.provision),
       "kit-generation": String(input.kitGeneration),
-      "callback-url": callbackUrl()
+      "callback-url": callbackUrl(),
+      "registry-mode": input.registryProject ? "per-study" : "legacy",
+      "registry-project": input.registryProject ?? "",
+      // Only overridden for a per-study project; legacy publishes keep the template default (fedlify-studies).
+      ...(input.registryProject ? { "study-image-repo": `${process.env.FEDLIFY_STUDY_REGISTRY?.trim() || "harbor.fedlify.com"}/${input.registryProject}` } : {})
     }
   });
   return { workflowId };

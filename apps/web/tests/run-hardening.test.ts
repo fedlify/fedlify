@@ -73,6 +73,20 @@ describe("redactLogText", () => {
     expect(out.truncated).toBe(true);
     expect(Buffer.byteLength(out.text)).toBeLessThanOrEqual(LOG_MAX_BYTES);
   });
+  it("masks JSON-quoted keys, prefixed key names, Basic auth and quoted values with spaces", () => {
+    const cases = ['{"password": "hunter2"}', "AWS_SECRET_ACCESS_KEY=abcd1234", "HARBOR_PASSWORD=xyz", "Authorization: Basic dXNlcjpwYXNz", 'password = "a b c"', "'api_key': 'k-123456'"];
+    for (const line of cases) {
+      const out = redactLogText(`before ${line} after`).text;
+      expect(out, line).toContain("[redacted]");
+      for (const leak of ["hunter2", "abcd1234", "xyz", "dXNlcjpwYXNz", "b c", "k-123456"]) expect(out, line).not.toContain(leak);
+    }
+    expect(redactLogText("round 3 loss 0.12 site-A ok").text).toBe("round 3 loss 0.12 site-A ok");
+  });
+  it("stays fast on a large hostile log", () => {
+    const started = Date.now();
+    redactLogText("token".repeat(40_000) + " " + "a_".repeat(50_000));
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
   it("passes short text through, masking secrets", () => {
     expect(redactLogText("ok password=hunter2")).toEqual({ text: "ok [redacted]", truncated: false });
   });

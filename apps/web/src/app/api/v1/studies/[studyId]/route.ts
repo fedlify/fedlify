@@ -6,6 +6,7 @@ import { activationGate } from "@/lib/governance";
 import { normalizeNullableMultiSelectValue } from "@/lib/governance-options";
 import { json, problem } from "@/lib/json";
 import { Prisma } from "@prisma/client";
+import { reactivateStudyRegistryAccess, revokeStudyRegistryAccess } from "@/lib/registry-access";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { markStaleSitesOffline } from "@/lib/site-presence";
@@ -302,5 +303,25 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
     request
   });
 
-  return json({ study });
+  // An archived study keeps no registry access: every site pull robot is deleted and the study's Harbor project is marked
+  // retired (not deleted). Harbor trouble must not undo the archive; the sweeper retries what is left.
+  let registry: "revoked" | "pending" | "not_applicable" | undefined;
+  if (parsed.data.action === "archive") {
+    try {
+      registry = await revokeStudyRegistryAccess({ studyId, reason: "study_archived", actorUserId: authResult.userId, orgId: current.orgId });
+    } catch {
+      registry = "pending";
+    }
+  }
+
+  // Un-archiving must let kit creation work again; a study whose aggregator robot was deleted at archive needs a republish.
+  if (parsed.data.action === "reactivate") {
+    try {
+      await reactivateStudyRegistryAccess({ studyId, actorUserId: authResult.userId, orgId: current.orgId });
+    } catch {
+      // The project stays RETIRED; the next publish re-activates it.
+    }
+  }
+
+  return json({ study, ...(registry ? { registry } : {}) });
 }

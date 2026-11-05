@@ -2,7 +2,7 @@
 
 import type { Key } from "react";
 import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined, UnorderedListOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Popover, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -50,6 +50,10 @@ type Site = {
   provisioned: boolean;
   kitReleased: boolean;
   kitImageDigest: string | null;
+  /** Runner-reported image against the published one. */
+  imageState?: "CURRENT" | "OUTDATED" | "NOT_REPORTED" | "UNKNOWN";
+  needsNewKit?: boolean;
+  imageFix?: string[];
   connected: boolean | null;
 };
 type Aggregator = {
@@ -560,11 +564,10 @@ export default function StudyProjectsPage() {
         setActiveStage("publish");
         return requestPublish();
       case "release_kit": {
-        // Same predicate as computeStages: a kit is outdated only when both digests are known and differ.
-        const liveDigest = overview?.aggregator?.imageDigest;
+        // Same predicate as computeStages: a kit must be replaced only when the image moved to another registry location.
         const target =
           overview?.sites.find((site) => !site.kitReleased) ??
-          overview?.sites.find((site) => site.kitReleased && site.kitImageDigest && liveDigest && site.kitImageDigest !== liveDigest);
+          overview?.sites.find((site) => site.kitReleased && site.needsNewKit);
         if (target) leaveTo(`/sites/${target.studySiteId}`);
         return;
       }
@@ -700,14 +703,21 @@ export default function StudyProjectsPage() {
             title: "Kit",
             render: (_, row) =>
               row.kitReleased ? (
-                <Tag color={row.kitImageDigest && row.kitImageDigest !== overview?.aggregator?.imageDigest ? "orange" : "green"}>
-                  {row.kitImageDigest && row.kitImageDigest !== overview?.aggregator?.imageDigest ? "update available" : "released"}
-                </Tag>
+                <Tag color={row.needsNewKit ? "orange" : "green"}>{row.needsNewKit ? "new kit needed" : "released"}</Tag>
               ) : (
                 <Button size="small" type="link" onClick={() => leaveTo(`/sites/${row.studySiteId}`)}>
                   Release kit
                 </Button>
               )
+          },
+          {
+            title: "Study image",
+            render: (_, row) =>
+              row.imageState === "OUTDATED" || row.imageState === "NOT_REPORTED" ? (
+                <Popover title="How to bring this site up to date" content={<ol style={{ margin: 0, paddingLeft: 18, maxWidth: 360 }}>{(row.imageFix ?? []).map((step) => <li key={step}>{step}</li>)}</ol>}>
+                  <Tag color="orange" style={{ cursor: "help" }}>{row.imageState === "OUTDATED" ? "outdated: run update" : "image not reported"}</Tag>
+                </Popover>
+              ) : row.imageState === "CURRENT" ? <Tag color="green">current</Tag> : <Tag>unknown</Tag>
           },
           {
             title: "Connected",

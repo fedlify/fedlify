@@ -2,11 +2,11 @@ import { z } from "zod";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
-import { abortNvflareJob } from "@/lib/nvflare";
+import { abortRunOnAggregator } from "@/lib/run-abort";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { adapterAbortJob, StudyRuntimeError } from "@/lib/study-runtime";
+import { StudyRuntimeError } from "@/lib/study-runtime";
 
 const abortSchema = z.object({
   reason: z.string().trim().max(1000).optional()
@@ -34,20 +34,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
     return problem(409, `Job ${job.status} cannot be aborted.`, "invalid_state");
   }
 
-  let result: Awaited<ReturnType<typeof abortNvflareJob>>;
-  if (job.deployment?.runtimeMode === "k8s") {
-    try {
-      if (job.nvflareJobId) await adapterAbortJob({ studyId: job.studyId, adapterUrl: job.deployment.adapterUrl }, job.nvflareJobId);
-    } catch (error) {
-      if (error instanceof StudyRuntimeError) return problem(error.status, error.message, "aggregator_unreachable");
-      throw error;
-    }
-    result = {
-      status: "ABORTED",
-      summary: `Abort requested on ${job.deployment.hostname} for ${job.nvflareJobId ?? "unsubmitted job"}${parsed.data.reason ? `: ${parsed.data.reason}` : "."}`
-    };
-  } else {
-    result = await abortNvflareJob({ nvflareJobId: job.nvflareJobId, reason: parsed.data.reason });
+  let result: Awaited<ReturnType<typeof abortRunOnAggregator>>;
+  try {
+    // Captures the server log and round metrics before the aggregator aborts the job, then aborts it.
+    result = await abortRunOnAggregator(job, parsed.data.reason);
+  } catch (error) {
+    if (error instanceof StudyRuntimeError) return problem(error.status, error.message, "aggregator_unreachable");
+    throw error;
   }
   const updated = await prisma.$transaction(async (tx) => {
     const next = await tx.nvflareJob.update({

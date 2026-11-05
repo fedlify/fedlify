@@ -43,13 +43,15 @@ const METADATA_KEYS = new Set([
   "agent"
 ]);
 const MAX_METADATA_STRING = 200;
+/** An image reference ends with its 64-hex digest, so cutting it would hide the digest. Keep it whole up to a hard bound. */
+const MAX_IMAGE_REF = 400;
 
 export function sanitizeHeartbeatMetadata(metadata: Record<string, unknown> | undefined): Prisma.InputJsonObject | undefined {
   if (!metadata) return undefined;
   const clean: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (!METADATA_KEYS.has(key)) continue;
-    if (typeof value === "string") clean[key] = value.slice(0, MAX_METADATA_STRING);
+    if (typeof value === "string") clean[key] = value.slice(0, key === "imageDigest" ? MAX_IMAGE_REF : MAX_METADATA_STRING);
     else if (typeof value === "boolean") clean[key] = value;
     else if (typeof value === "number" && Number.isFinite(value)) clean[key] = value;
   }

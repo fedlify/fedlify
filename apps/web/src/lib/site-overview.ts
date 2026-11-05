@@ -1,9 +1,15 @@
+import { type SiteImageState, updateNeedsNewKit } from "@/lib/site-image";
+
 export type KitState = "NOT_RELEASED" | "RELEASED" | "OUTDATED";
 
-/** Kit state for the Sites table: no active kit, a kit built from the aggregator's current image, or one whose digest differs. */
+/**
+ * Kit state for the Sites table: no active kit, a usable kit, or one that must be replaced. A kit is OUTDATED only when
+ * the study image moved to a registry location its credential cannot reach. A code-only publish keeps the path and needs
+ * no new kit (the site runs `update`); whether the site runs the current image is the separate imageState.
+ */
 export function kitState(kit: { imageDigest: string | null } | null | undefined, aggregatorDigest: string | null | undefined): KitState {
   if (!kit) return "NOT_RELEASED";
-  if (kit.imageDigest && aggregatorDigest && kit.imageDigest !== aggregatorDigest) return "OUTDATED";
+  if (updateNeedsNewKit(kit.imageDigest, aggregatorDigest)) return "OUTDATED";
   return "RELEASED";
 }
 
@@ -14,6 +20,10 @@ export type SiteOverviewRow = {
   institutionName: string;
   readiness: string;
   kitState: KitState;
+  /** What the site's runner last reported against the published image. UNKNOWN = nothing published to compare with. */
+  imageState: SiteImageState;
+  /** Steps to fix an OUTDATED or NOT_REPORTED site; empty otherwise. */
+  imageFix: string[];
   connection: string;
   lastHeartbeatAt: string | null;
 };

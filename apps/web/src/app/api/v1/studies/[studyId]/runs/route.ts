@@ -38,6 +38,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
       studyId: true,
       selectedSites: true,
       metricsSummary: true,
+      logChecksum: true,
+      siteLostSince: true,
+      siteLostSeenAt: true,
+      siteLostSites: true,
       deployment: { select: { runtimeMode: true, adapterUrl: true } },
       pipelineVersion: { select: { version: true, gitCommit: true } },
       result: { select: { id: true, modelRelease: { select: { id: true, version: true, status: true } } } }

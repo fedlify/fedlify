@@ -4,11 +4,11 @@ export const PUBLISHED_RUNNER_SCRIPT = `#!/usr/bin/env bash
 # Fedlify site runner (bash 3.2+ on macOS and Linux).
 # Secrets: .env holds no secret. The registry credential is .fedlify/registry-credential (0600) and the site token is
 # .fedlify/site-token (0600); both are read by this script only, and passwords reach docker/curl on stdin.
-# usage: ./fedlify-runner.sh preflight [--json] | start | stop | status [--json] | logs | update | logout | support-bundle [--include-logs]
+# usage: ./fedlify-runner.sh preflight [--json] | start | stop | status [--json] | logs | update [--show] [--confirm-version V --confirm-digest HEX] | logout | support-bundle [--include-logs]
 set -euo pipefail
 cd "$(dirname "$0")"
 SELF="$PWD/$(basename "$0")"
-RUNNER_VERSION="fedlify-site-kit-5"
+RUNNER_VERSION="fedlify-site-kit-6"
 STATE_DIR=".fedlify"
 TOKEN_FILE="$STATE_DIR/site-token"
 CRED_FILE="$STATE_DIR/registry-credential"
@@ -159,6 +159,14 @@ post_beat() { # post_beat STATUS ; sets BEAT_HTTP and BEAT_RESPONSE ; returns 0 
   printf '%s HTTP %s\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BEAT_HTTP" > "$LAST_BEAT"
   [ "$BEAT_HTTP" = "201" ]
 }
+beat_field() { # beat_field NAME: a top-level string field of the last heartbeat response ("" when absent or null)
+  printf '%s' "$BEAT_RESPONSE" | sed -n 's/.*"'"$1"'":"\\([^"]*\\)".*/\\1/p' | head -n 1
+}
+repo_path() { # host/project/repo of an image reference, digest and tag removed (used to see whether the pull credential still reaches it)
+  local r="\${1%%@*}"
+  case "\${r##*/}" in *:*) r="\${r%:*}";; esac
+  printf '%s' "$r"
+}
 agent_running() { [ -f "$AGENT_PID" ] && kill -0 "$(cat "$AGENT_PID" 2>/dev/null)" 2>/dev/null; }
 agent_loop() { # foreground heartbeat loop; used by start (in the background) and by a systemd unit
   load_env
@@ -169,6 +177,7 @@ agent_loop() { # foreground heartbeat loop; used by start (in the background) an
   trap 'rm -f "$AGENT_PID"; exit 0' TERM INT
   local previous="" st
   while true; do
+    load_env # an update rewrites FEDLIFY_STUDY_IMAGE in .env; re-read it so this long-running agent never reports a stale image
     observe
     st="$(derive_status)"
     post_beat "$st" || true
@@ -425,19 +434,69 @@ case "\${1:-}" in
     printf 'WorkingDirectory=%s\\nEnvironment="FEDLIFY_SITE_TOKEN_FILE=%s/%s/site-token"\\nExecStart="%s" agent\\nRestart=always\\nRestartSec=15\\n\\n' "$UNIT_PWD" "$UNIT_PWD" "$STATE_DIR" "$UNIT_SELF"
     printf '[Install]\\nWantedBy=multi-user.target\\n' ;;
   support-bundle) shift; support_bundle "$@" ;;
-  update)
+  update) # move this site to the image the study published; confirmation of digest AND pipeline version is required
+    shift
+    CONFIRM_DIGEST=""; CONFIRM_VERSION=""; SHOW_ONLY=0
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --show) SHOW_ONLY=1; shift ;;
+        --confirm-digest) [ $# -ge 2 ] || die "--confirm-digest needs a value"; CONFIRM_DIGEST="$2"; shift 2 ;;
+        --confirm-version) [ $# -ge 2 ] || die "--confirm-version needs a value"; CONFIRM_VERSION="$2"; shift 2 ;;
+        *) die "usage: $0 update [--show] [--confirm-version <version> --confirm-digest <first 12 or more hex characters of the digest>]" ;;
+      esac
+    done
     need_kit; need_docker; load_env
     have_token || die "no site token available."
     observe
     post_beat "$(derive_status)" || die "Fedlify did not accept the heartbeat (HTTP $BEAT_HTTP)."
-    desired="$(printf '%s' "$BEAT_RESPONSE" | sed -n 's/.*"desiredImageDigest":"\\([^"]*\\)".*/\\1/p')"
-    if [ -z "$desired" ] || [ "$desired" = "$FEDLIFY_STUDY_IMAGE" ]; then echo "Already on the published version."; exit 0; fi
-    set_env FEDLIFY_STUDY_IMAGE "$desired"
-    export FEDLIFY_STUDY_IMAGE="$desired"
+    # The new digest and its pipeline version come from the server in the heartbeat response, never from this machine's files.
+    desired="$(beat_field desiredImageDigest)"
+    version="$(beat_field desiredPipelineVersion)"
+    if [ -z "$desired" ]; then echo "Nothing is published for this study yet; nothing to update."; exit 0; fi
+    printf '%s' "$desired" | grep -Eq '^[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}$' || die "the server sent an image reference that is not a digest reference; refusing to use it."
+    want_hex="\${desired##*sha256:}"
+    running="\${OBS_IMAGE:-$FEDLIFY_STUDY_IMAGE}"
+    case "$running" in *"sha256:$want_hex"*) echo "Already on the published version (sha256:\${want_hex:0:12})."; exit 0 ;; esac
+    # A per-site pull credential covers one registry project. If the study image moved to another, an update cannot work.
+    current_path="$(repo_path "$FEDLIFY_STUDY_IMAGE")"; new_path="$(repo_path "$desired")"
+    if [ -n "$current_path" ] && [ "$current_path" != "$new_path" ]; then
+      die "the published image moved from $current_path to $new_path, and this kit's registry credential only covers the old location. Nothing was changed. Download a new site kit in Fedlify, open it with its passphrase, and run start from the new kit folder."
+    fi
+    printf '%s' "$version" | grep -Eq '^[A-Za-z0-9._+-]{1,64}$' || die "the server did not report a usable pipeline version, so the update cannot be confirmed. Nothing was changed. Try again after the next heartbeat."
+    echo "A newer study image is published."
+    echo "  Running now:      \${running:-unknown}"
+    echo "  Published:        $desired"
+    echo "  Pipeline version: $version"
+    if [ "$SHOW_ONLY" = "1" ]; then echo "desiredDigest=$desired"; echo "desiredVersion=$version"; exit 0; fi
+    if [ -z "$CONFIRM_DIGEST" ] && [ -z "$CONFIRM_VERSION" ] && [ -t 0 ]; then
+      printf 'Type the pipeline version (%s) to confirm: ' "$version"; read -r CONFIRM_VERSION
+      printf 'Type the first 12 characters of the new digest (%s): ' "\${want_hex:0:12}"; read -r CONFIRM_DIGEST
+    fi
+    if [ -z "$CONFIRM_DIGEST" ] || [ -z "$CONFIRM_VERSION" ]; then
+      die "update replaces the running image, so it needs both confirmations. Nothing was changed. Re-run: $0 update --confirm-version $version --confirm-digest \${want_hex:0:12}"
+    fi
+    got_hex="\${CONFIRM_DIGEST#sha256:}"
+    printf '%s' "$got_hex" | grep -Eq '^[0-9a-f]{12,64}$' || die "--confirm-digest must be at least 12 hex characters of the digest. Nothing was changed."
+    case "$want_hex" in "$got_hex"*) ;; *) die "the confirmed digest does not match the published one (sha256:\${want_hex:0:12}...). Nothing was changed." ;; esac
+    [ "$CONFIRM_VERSION" = "$version" ] || die "the confirmed pipeline version does not match the published one ($version). Nothing was changed."
+    # Same project, so the kit's own credential file still applies: log in again from it (idempotent; covers a prior docker logout).
+    # The password goes to docker on stdin, and nothing here writes a credential to .env.
     registry_login
-    docker compose pull --quiet
-    docker compose up -d
-    echo "Updated to $desired" ;;
+    previous_image="$FEDLIFY_STUDY_IMAGE"
+    export FEDLIFY_STUDY_IMAGE="$desired"
+    docker compose pull --quiet || die "could not pull $desired. If the registry answered unauthorized, this site's credential expired or was revoked: download a fresh kit from Fedlify. .env was not changed."
+    set_env FEDLIFY_STUDY_IMAGE "$desired"
+    if ! docker compose up -d; then
+      # Roll back: put the previous digest back in .env so a rerun does not claim the site is current, and try to restore the old container.
+      if [ -n "$previous_image" ]; then
+        set_env FEDLIFY_STUDY_IMAGE "$previous_image"
+        export FEDLIFY_STUDY_IMAGE="$previous_image"
+        docker compose up -d >/dev/null 2>&1 || true
+      fi
+      die "starting the new image failed. .env was restored to the previous image (\${previous_image:-none}) and a restart of it was attempted. Run status, then retry update."
+    fi
+    observe; post_beat "$(derive_status)" || true
+    echo "Updated to $desired (pipeline version $version). The next heartbeat reports it to Fedlify." ;;
   logout)
     load_env
     if agent_running; then observe; post_beat OFFLINE || true; fi
@@ -447,6 +506,6 @@ case "\${1:-}" in
     echo "Logged out: site token and registry credential files removed, heartbeat agent stopped, registry login cleared."
     echo "Running containers are not affected (use stop). The NVFLARE keys stay in nvflare/; delete this folder when the site leaves."
     echo "Revoke or rotate this kit in Fedlify if the machine is shared or lost." ;;
-  *) die "usage: $0 preflight [--json] | start | stop | status [--json] | logs | update | logout | agent-unit | support-bundle [--include-logs]" ;;
+  *) die "usage: $0 preflight [--json] | start | stop | status [--json] | logs | update [--confirm-version V --confirm-digest HEX] | logout | agent-unit | support-bundle [--include-logs]" ;;
 esac
 `;
