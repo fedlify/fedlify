@@ -64,11 +64,13 @@ describe("published site kit", () => {
     expect(JSON.parse(String(files["manifest.json"])).runtime).toEqual({ mode: "k8s", hostname: "hf-mortality.fedlify.com", imageDigest: digest });
   });
 
-  it("lists only files the kit really ships and never the missing PowerShell runner", () => {
+  it("lists only files the kit really ships; the PowerShell file is the WSL wrapper and the manifest says so", () => {
     const files = kit();
     const manifest = JSON.parse(String(files["manifest.json"]));
-    expect(Object.keys(files)).not.toContain("fedlify-runner.ps1");
-    expect(JSON.stringify(manifest)).not.toMatch(/\.ps1/);
+    expect(manifest.files.runnerWindowsWsl).toBe("fedlify-runner.ps1");
+    expect(Object.keys(files)).toContain("fedlify-runner.ps1");
+    expect(String(files["fedlify-runner.ps1"])).toContain("wsl.exe");
+    expect(JSON.stringify(manifest)).not.toContain("runnerPowerShell");
     for (const path of Object.values(manifest.files as Record<string, string>)) {
       // nvflare/ comes from the real client kit that the route adds to the zip.
       if (!path.startsWith("nvflare/")) expect(Object.keys(files)).toContain(path);
@@ -86,5 +88,32 @@ describe("published site kit", () => {
     expect(compose).not.toContain("fedlify-site-agent");
     expect(compose).not.toMatch(/CONNECTED/);
     expect(compose.match(/logging: \*default-logging/g)).toHaveLength(1);
+  });
+});
+
+describe("phase 5 kit additions", () => {
+  it("defaults to CPU and amd64, and ships the GPU override as a separate file", () => {
+    const files = kit();
+    const env = String(files[".env"]);
+    expect(env).toMatch(/^FEDLIFY_GPU=off$/m);
+    expect(env).toMatch(/^FEDLIFY_IMAGE_ARCHES=amd64$/m);
+    expect(String(files["docker-compose.yml"])).not.toMatch(/nvidia|gpu|devices/i);
+    const gpu = String(files["docker-compose.gpu.yml"]);
+    expect(gpu).toContain("driver: nvidia");
+    expect(gpu).toContain("capabilities: [gpu]");
+    expect(gpu).toContain("nvflare-client");
+  });
+
+  it("only lists architectures the server was told were verified, and rejects odd values", () => {
+    const base = { manifest: buildStartupPackageManifest({ apiBaseUrl: "https://app.fedlify.com", studyId: "s", studyTitle: "T", studySiteId: "ss", siteId: "si", siteCode: "1", siteName: "H", nvflareClientName: "site_1", deployment: { id: "d", status: "ACTIVE", serverAddress: "x.fedlify.com:443" }, expiresAt: new Date("2026-11-01T00:00:00Z") }), hostname: "x.fedlify.com", imageDigest: digest, registry: { server: "harbor.fedlify.com", username: "u", password: "p" } };
+    expect(String(buildPublishedSiteKitFiles({ ...base, imageArches: ["amd64", "arm64"] })[".env"])).toMatch(/^FEDLIFY_IMAGE_ARCHES=amd64,arm64$/m);
+    expect(String(buildPublishedSiteKitFiles({ ...base, imageArches: ["amd64\nEVIL=1"] })[".env"])).not.toContain("EVIL");
+  });
+
+  it("states the Windows path in the README: WSL 2, a wrapper, not a port, untested", () => {
+    const readme = String(kit()["README.md"]);
+    expect(readme).toContain("There is no native Windows runner");
+    expect(readme).toContain("WSL 2");
+    expect(readme).toContain("has not been run on a real Windows machine");
   });
 });

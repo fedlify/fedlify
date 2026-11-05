@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fedlify site helper</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Fedlify site helper</h1>
+    <p class="muted">Runs only on this computer. The helper contains no code that sends data anywhere, and your data folder is mounted read-only.</p>
+  </header>
+  <nav id="steps" aria-label="Steps">
+    <button data-screen="unlock" class="active">1. Unlock</button>
+    <button data-screen="checks">2. Checks</button>
+    <button data-screen="data">3. Your data</button>
+    <button data-screen="run">4. Run status</button>
+    <button data-screen="bundle">5. Help bundle</button>
+  </nav>
+  <main>
+    <section id="screen-unlock">
+      <h2>Unlock your kit</h2>
+      <p>Type the passphrase you received separately from the kit file. It is used once, in memory, and then forgotten.</p>
+      <form id="unlock-form" autocomplete="off">
+        <label for="passphrase">Kit passphrase</label>
+        <input id="passphrase" type="password" autocomplete="off" spellcheck="false" required>
+        <button type="submit">Unlock</button>
+      </form>
+      <form id="token-form" autocomplete="off">
+        <label for="site-token">Site token (shown once in Fedlify)</label>
+        <input id="site-token" type="password" autocomplete="off" spellcheck="false" required>
+        <button type="submit">Save token</button>
+      </form>
+      <p id="unlock-msg" role="status"></p>
+    </section>
+    <section id="screen-checks" hidden>
+      <h2>Checks</h2>
+      <p>Docker, memory, disk, network to Fedlify, and your data folder. Nothing is sent.</p>
+      <button id="run-preflight">Run checks</button>
+      <ul id="check-list"></ul>
+      <p id="check-msg" role="status"></p>
+    </section>
+    <section id="screen-data" hidden>
+      <h2>Your data</h2>
+      <p>Column names, row counts and type problems only. No row is ever shown. Counts under 10 are shown as &lt;10.</p>
+      <button id="load-data">Look at my data folder</button>
+      <div id="data-out"></div>
+    </section>
+    <section id="screen-run" hidden>
+      <h2>Run status</h2>
+      <p>Starting connects this computer to the study. It does not start training; the study owner does that.</p>
+      <div class="row">
+        <button id="do-start">Start</button>
+        <button id="do-stop">Stop</button>
+        <button id="do-status">Refresh status</button>
+      </div>
+      <p id="status-line" class="big" role="status"></p>
+      <pre id="run-out"></pre>
+    </section>
+    <section id="screen-bundle" hidden>
+      <h2>Help bundle</h2>
+      <p>Builds a small archive of versions and check results for support. Read it first; you send it yourself.</p>
+      <label><input type="checkbox" id="with-logs"> Include redacted warning and error lines from the client log</label>
+      <button id="make-bundle">Build bundle</button>
+      <ul id="bundle-list"></ul>
+      <pre id="bundle-view"></pre>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

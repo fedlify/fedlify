@@ -4,12 +4,14 @@ import path from "node:path";
 
 export type ArchiveFileMap = Record<string, string | Buffer>;
 
-export async function zipFiles(files: ArchiveFileMap): Promise<Buffer> {
+/** `modes` stores Unix permission bits (for example 0o755) for the named paths so `./script.sh` works after unzip. */
+export async function zipFiles(files: ArchiveFileMap, modes: Record<string, number> = {}): Promise<Buffer> {
   const zip = new JSZip();
+  const withModes = Object.keys(modes).length > 0;
   for (const [path, body] of Object.entries(files)) {
-    zip.file(path, body);
+    zip.file(path, body, withModes ? { unixPermissions: modes[path] ?? 0o644 } : undefined);
   }
-  return Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+  return Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", ...(withModes ? { platform: "UNIX" as const } : {}) }));
 }
 
 export async function unzipToArchiveMap(body: Buffer): Promise<ArchiveFileMap> {

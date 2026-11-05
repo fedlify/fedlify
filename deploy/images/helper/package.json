@@ -1,0 +1,14 @@
+{
+  "name": "fedlify-site-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional local helper UI for a Fedlify hospital site. A thin shell over the runner CLI; loopback only.",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "age-encryption": "0.3.1",
+    "jszip": "3.10.1"
+  }
+}

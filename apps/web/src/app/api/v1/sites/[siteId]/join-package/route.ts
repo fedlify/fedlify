@@ -10,7 +10,7 @@ import { acquireSlot } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
 import { publicBaseUrl } from "@/lib/runtime-config";
-import { buildOuterKitFiles, buildPublishedSiteKitFiles, publishedKitManifest } from "@/lib/site-kit";
+import { buildOuterKitFiles, buildPublishedSiteKitFiles, outerKitModes, publishedKitManifest } from "@/lib/site-kit";
 import { buildStartupKitFiles, buildStartupPackageManifest, startupPackageChecksum } from "@/lib/site-onboarding";
 import { createPresignedDownloadUrl, deleteObject, objectKey, readObject, storageConfigured, uploadObject } from "@/lib/storage";
 import { verifyStepUp } from "@/lib/step-up";
@@ -111,7 +111,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
         server: process.env.FEDLIFY_STUDY_REGISTRY ?? activeDeployment.imageDigest!.split("/")[0],
         username: process.env.FEDLIFY_STUDY_PULL_USERNAME!,
         password: process.env.FEDLIFY_STUDY_PULL_PASSWORD!
-      }
+      },
+      // Set only after `deploy/images/build-multiarch.sh verify` passed for the published image; the default is amd64 only.
+      imageArches: process.env.FEDLIFY_STUDY_IMAGE_ARCHES?.split(",").map((a) => a.trim()).filter(Boolean)
     });
   } else {
     startupFiles = buildStartupKitFiles(manifest);
@@ -138,7 +140,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     } finally {
       release();
     }
-    manifestBody = await zipFiles(buildOuterKitFiles({ siteName: studySite.name, studyTitle: studySite.study.title, encryptedKit }));
+    const outerFiles = buildOuterKitFiles({ siteName: studySite.name, studyTitle: studySite.study.title, encryptedKit, helperImage: process.env.FEDLIFY_HELPER_IMAGE, kitFiles: startupFiles });
+    manifestBody = await zipFiles(outerFiles, outerKitModes(outerFiles));
   }
   const checksum = startupPackageChecksum(manifest);
   let sizeBytes = BigInt(0);

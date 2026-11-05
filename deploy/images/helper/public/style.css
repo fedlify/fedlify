@@ -1,0 +1,16 @@
+:root { color-scheme: light; --ink:#2f3040; --muted:#687086; --accent:#5f5090; --bg:#f7f5fb; --ok:#1a7f4b; --warn:#9a6700; --bad:#b42318; }
+body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); margin: 0 auto; max-width: 52rem; padding: 1rem; }
+h1 { font-size: 1.5rem; margin: .2rem 0; } h2 { font-size: 1.15rem; }
+.muted { color: var(--muted); }
+nav { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
+nav button { background: #fff; color: var(--ink); border: 1px solid #cfc8e6; }
+nav button.active { background: var(--accent); color: #fff; }
+button { font: inherit; padding: .45rem .9rem; border-radius: .6rem; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+input[type=password] { display: block; width: 100%; max-width: 28rem; padding: .45rem; margin: .3rem 0 .6rem; font: inherit; box-sizing: border-box; }
+main { background: #fff; border-radius: .9rem; padding: 1rem 1.2rem; }
+ul { padding-left: 1.1rem; } li { margin: .25rem 0; }
+.pass { color: var(--ok); } .warn { color: var(--warn); } .fail { color: var(--bad); }
+.row { display: flex; gap: .5rem; flex-wrap: wrap; } .big { font-size: 1.2rem; font-weight: 600; }
+pre { white-space: pre-wrap; background: #f1eef9; padding: .6rem; border-radius: .5rem; max-height: 22rem; overflow: auto; }
+table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: .2rem .5rem; text-align: left; }

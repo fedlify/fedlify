@@ -601,7 +601,13 @@ export default function SiteOnboardingPage() {
                       type="info"
                       showIcon
                       message="The runner owns the Docker complexity"
-                      description="The download is an encrypted kit with unlock scripts. Unlocking needs age or Docker, and creates a folder only the unlocking account can read. If Docker is missing, the runner explains the safe next step."
+                      description={
+                        <>
+                          The download is an encrypted kit with unlock scripts. Unlocking needs age or Docker, and creates a folder only the unlocking account can read.
+                          Before the kit arrives, the site can check its machine and install Docker with the public{" "}
+                          <a href="/get-ready" target="_blank" rel="noreferrer">Get ready page</a>. On Windows the runner runs inside WSL 2 (there is no native Windows runner).
+                        </>
+                      }
                     />
                     {inlineManifest ? (
                       <pre className="fedlify-detail-json">{JSON.stringify(inlineManifest, null, 2)}</pre>

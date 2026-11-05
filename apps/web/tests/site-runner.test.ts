@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PUBLISHED_RUNNER_SCRIPT } from "@/lib/site-runner-script";
 
 // Runs the generated runner under real bash (macOS /bin/bash is 3.2) against fake docker/curl/nc, never the real ones.
@@ -35,8 +35,9 @@ function setupDocker() {
   "compose version") echo "2.29.1"; exit 0;;
   "compose ps") echo cid123; exit 0;;
   "compose logs") printf 'INFO fine\\nERROR failed to read "patient_77.csv" row {"age": 71} at /data/x.csv user a@b.org token=abcdefghijklmnopqrstuvwxyz0123 id 1234567\\n'; exit 0;;
-  "compose up"|"compose down"|"compose pull") exit 0;;
-  "info --format") echo 8589934592; exit 0;;
+  "compose up") [ -n "$FAKE_COMPOSE_LOG" ] && echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$FAKE_COMPOSE_LOG"; exit 0;;
+  "compose down"|"compose pull") exit 0;;
+  "info --format") case "$3" in *Runtimes*) if [ -n "$FAKE_NVIDIA_RUNTIME" ]; then echo '{"runc":{},"nvidia":{}}'; else echo '{"runc":{}}'; fi;; *) echo 8589934592;; esac; exit 0;;
 esac
 [ "$1" = "info" ] && exit 0
 [ "$1" = "login" ] && { [ -n "$FAKE_LOGIN_ARGS" ] && echo "$@" > "$FAKE_LOGIN_ARGS"; if [ -n "$FAKE_LOGIN_STDIN" ]; then cat > "$FAKE_LOGIN_STDIN"; else cat >/dev/null; fi; exit 0; }
@@ -55,6 +56,7 @@ exit 0`
   );
   fake("nc", `[ -n "$FAKE_NC_LOG" ] && echo "$@" >> "$FAKE_NC_LOG"; [ "$FAKE_NC" = "fail" ] && exit 1; exit 0`);
   fake("getent", `exit 0`);
+  fake("nvidia-smi", `[ -n "$FAKE_GPUS" ] && { echo "GPU 0: Fake GPU (UUID: GPU-x)"; exit 0; }; exit 9`);
   fake("curl", `echo "$@" >> "$FAKE_CURL_ARGS"; cat > "$FAKE_CURL_STDIN"; printf '{"desiredImageDigest":null}\\n201'`);
 }
 
@@ -269,5 +271,93 @@ describe.skipIf(!hasBash)("site runner script", { timeout: 30_000 }, () => {
     const plain = run(["support-bundle"], env);
     expect(plain.status).toBe(0);
     expect(plain.stdout).not.toContain("client-log");
+  });
+
+  describe("GPU and architecture (phase 5)", () => {
+    // Earlier tests log out, which deletes the credential file; restore it so `start` can log in to the fake registry.
+    beforeEach(() => {
+      mkdirSync(path.join(kit, ".fedlify"), { recursive: true });
+      writeFileSync(path.join(kit, ".fedlify/registry-credential"), `robot\n${SECRET_PASSWORD}\n`, { mode: 0o600 });
+    });
+    const envFile = () => path.join(kit, ".env");
+    const withEnv = (extra: string, fn: () => void) => {
+      const original = readFileSync(envFile(), "utf8");
+      writeFileSync(envFile(), `${original}\n${extra}\n`);
+      try {
+        fn();
+      } finally {
+        writeFileSync(envFile(), original);
+      }
+    };
+    const startEnv = () => ({ FEDLIFY_SITE_TOKEN: SECRET_TOKEN, FAKE_CURL_ARGS: path.join(root, "a"), FAKE_CURL_STDIN: path.join(root, "b"), FAKE_COMPOSE_LOG: path.join(root, "compose.log") });
+    const check = (id: string, env: Record<string, string> = {}) => JSON.parse(run(["preflight", "--json"], env).stdout).checks.find((c: { id: string }) => c.id === id);
+
+    it("CPU is the default: a GPU host without FEDLIFY_GPU never gets the GPU override", () => {
+      rmSync(path.join(root, "compose.log"), { force: true });
+      writeFileSync(path.join(kit, "docker-compose.gpu.yml"), "services: {}\n");
+      const result = run(["start"], { ...startEnv(), FAKE_GPUS: "1", FAKE_NVIDIA_RUNTIME: "1" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(path.join(root, "compose.log"), "utf8").trim()).toBe("COMPOSE_FILE=");
+      expect(check("gpu", { FAKE_GPUS: "1", FAKE_NVIDIA_RUNTIME: "1" }).detail).toContain("GPU use is off");
+      run(["stop"], { ...startEnv(), FAKE_STATE: "exited" });
+    });
+
+    it("FEDLIFY_GPU=auto enables the override only when the GPU AND the container toolkit are detected", () => {
+      withEnv("FEDLIFY_GPU=auto", () => {
+        rmSync(path.join(root, "compose.log"), { force: true });
+        expect(run(["start"], { ...startEnv(), FAKE_GPUS: "1", FAKE_NVIDIA_RUNTIME: "1" }).status).toBe(0);
+        expect(readFileSync(path.join(root, "compose.log"), "utf8")).toContain("COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml");
+        expect(check("gpu", { FAKE_GPUS: "1", FAKE_NVIDIA_RUNTIME: "1" }).status).toBe("pass");
+        expect(JSON.parse(run(["status", "--json"], { FAKE_GPUS: "1", FAKE_NVIDIA_RUNTIME: "1" }).stdout).gpuActive).toBe(true);
+        run(["stop"], { ...startEnv(), FAKE_STATE: "exited" });
+        // GPU present but no toolkit, toolkit but no GPU, neither: all stay on CPU with a warning, never the override.
+        for (const env of [{ FAKE_GPUS: "1" }, { FAKE_NVIDIA_RUNTIME: "1" }, {}] as Record<string, string>[]) {
+          rmSync(path.join(root, "compose.log"), { force: true });
+          expect(run(["start"], { ...startEnv(), ...env }).status).toBe(0);
+          expect(readFileSync(path.join(root, "compose.log"), "utf8").trim()).toBe("COMPOSE_FILE=");
+          expect(check("gpu", env).status).toBe("warn");
+          expect(JSON.parse(run(["status", "--json"], env).stdout).gpuActive).toBe(false);
+          run(["stop"], { ...startEnv(), FAKE_STATE: "exited" });
+        }
+      });
+    });
+
+    it("FEDLIFY_GPU=on fails closed instead of silently falling back to CPU", () => {
+      withEnv("FEDLIFY_GPU=on", () => {
+        const result = run(["start"], startEnv());
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("FEDLIFY_GPU=on");
+        expect(check("gpu").status).toBe("fail");
+      });
+    });
+
+    it("rejects an unknown FEDLIFY_GPU value", () => {
+      withEnv("FEDLIFY_GPU=yes", () => {
+        const result = run(["status"]);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("FEDLIFY_GPU must be off, auto or on");
+      });
+    });
+
+    it("warns on an ARM host when the image lists amd64 only, and stops warning once arm64 is listed", () => {
+      const uname = (arch: string) => fake("uname", `[ "$1" = "-m" ] && { echo ${arch}; exit 0; }; exec /usr/bin/uname "$@"`);
+      try {
+        uname("arm64");
+        expect(check("platform").status).toBe("warn");
+        expect(check("platform").detail).toContain("emulation");
+        withEnv("FEDLIFY_IMAGE_ARCHES=amd64,arm64", () => expect(check("platform").status).toBe("pass"));
+        uname("x86_64");
+        expect(check("platform").status).toBe("pass");
+      } finally {
+        rmSync(path.join(bin, "uname"), { force: true });
+      }
+    });
+
+    it("FEDLIFY_NO_BG_AGENT=1 (used by the Windows wrapper) starts no background agent", () => {
+      const result = run(["start"], { ...startEnv(), FEDLIFY_NO_BG_AGENT: "1" });
+      expect(result.status).toBe(0);
+      expect(existsSync(path.join(kit, ".fedlify/agent.pid"))).toBe(false);
+      run(["stop"], { ...startEnv(), FAKE_STATE: "exited" });
+    });
   });
 });

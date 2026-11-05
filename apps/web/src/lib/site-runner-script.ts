@@ -8,7 +8,7 @@ export const PUBLISHED_RUNNER_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
 SELF="$PWD/$(basename "$0")"
-RUNNER_VERSION="fedlify-site-kit-4"
+RUNNER_VERSION="fedlify-site-kit-5"
 STATE_DIR=".fedlify"
 TOKEN_FILE="$STATE_DIR/site-token"
 CRED_FILE="$STATE_DIR/registry-credential"
@@ -33,6 +33,9 @@ load_env() {
   NVFLARE_SERVER="\${NVFLARE_SERVER:-}"
   FEDLIFY_HEARTBEAT_ENDPOINT="\${FEDLIFY_HEARTBEAT_ENDPOINT:-}"
   FEDLIFY_STUDY_IMAGE="\${FEDLIFY_STUDY_IMAGE:-}"
+  FEDLIFY_GPU="\${FEDLIFY_GPU:-off}"
+  FEDLIFY_IMAGE_ARCHES="\${FEDLIFY_IMAGE_ARCHES:-amd64}"
+  select_compose_files
 }
 need_kit() {
   [ -f .env ] || die "run this from the extracted kit folder (.env not found)."
@@ -86,6 +89,22 @@ ram_gb() {
 }
 gpu_count() {
   if have nvidia-smi; then nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true; else echo 0; fi
+}
+gpu_toolkit() { have docker && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; }
+# GPU is opt-in. FEDLIFY_GPU=off (default) never touches it. auto|on request it, and it is enabled only when an NVIDIA GPU
+# (nvidia-smi) and the container toolkit (an nvidia runtime in docker info) are both detected and the GPU compose file exists.
+GPU_ACTIVE=0
+select_compose_files() {
+  GPU_ACTIVE=0
+  case "$FEDLIFY_GPU" in
+    off|"") ;;
+    auto|on)
+      if [ -f docker-compose.gpu.yml ] && [ "$(gpu_count)" -gt 0 ] && gpu_toolkit; then
+        GPU_ACTIVE=1
+        export COMPOSE_FILE="docker-compose.yml:docker-compose.gpu.yml"
+      fi ;;
+    *) die "FEDLIFY_GPU must be off, auto or on (it is: $FEDLIFY_GPU)" ;;
+  esac
 }
 observe() { # sets OBS_* ; docker health is the source of truth
   OBS_CONTAINER="missing"; OBS_HEALTH="none"; OBS_RESTARTS=0; OBS_IMAGE=""
@@ -159,6 +178,8 @@ agent_loop() { # foreground heartbeat loop; used by start (in the background) an
   done
 }
 start_agent() {
+  # Windows (WSL) launchers run the agent in the foreground themselves, because background jobs can end when WSL idles.
+  [ "\${FEDLIFY_NO_BG_AGENT:-}" = "1" ] && return 0
   agent_running && return 0
   mkdir -p "$STATE_DIR"
   nohup "$SELF" agent >> "$STATE_DIR/agent.log" 2>&1 < /dev/null &
@@ -211,7 +232,7 @@ preflight_run() {
   load_env
   CHECKS=""; FAILS=0; WARNS=0
   [ "$JSON_OUT" = "1" ] || echo "Fedlify preflight ($RUNNER_VERSION)"
-  local docker_ok=0 v mem free n
+  local docker_ok=0 v mem free n arch
   if have docker; then
     if docker info >/dev/null 2>&1; then docker_ok=1; add_check docker pass "Docker engine reachable"
     else add_check docker fail "Docker is installed but the engine is not running or you lack permission"; fi
@@ -248,8 +269,31 @@ preflight_run() {
   check_endpoint registry "$(registry_endpoint)"
   add_check agent_persistence warn "the heartbeat agent started by start does not survive a host reboot; run ./fedlify-runner.sh agent-unit for a systemd unit, or re-run start after a reboot"
   n="$(gpu_count)"
-  if [ "$n" -gt 0 ]; then add_check gpu pass "$n NVIDIA GPU(s) detected (not used by the sklearn starter)"; else add_check gpu pass "no GPU detected; runs on CPU"; fi
-  add_check platform pass "$(uname -s) $(uname -m)"
+  case "$FEDLIFY_GPU" in
+    auto|on)
+      if [ "$GPU_ACTIVE" = "1" ]; then add_check gpu pass "GPU requested and detected ($n NVIDIA GPU(s) plus the container toolkit): the GPU compose reservation is enabled"
+      elif [ "$FEDLIFY_GPU" = "on" ]; then add_check gpu fail "FEDLIFY_GPU=on but no NVIDIA GPU with the container toolkit was detected (nvidia-smi and an nvidia runtime in docker info are both needed)"
+      else add_check gpu warn "FEDLIFY_GPU=auto but no NVIDIA GPU with the container toolkit was detected; running on CPU"; fi ;;
+    *)
+      if [ "$n" -gt 0 ]; then add_check gpu pass "$n NVIDIA GPU(s) detected; GPU use is off, CPU is the default (set FEDLIFY_GPU=auto in .env to request it; needs a CUDA study image)"
+      else add_check gpu pass "no GPU detected; runs on CPU"; fi ;;
+  esac
+  arch="$(uname -m)"
+  case "$arch" in
+    arm64|aarch64)
+      case ",$FEDLIFY_IMAGE_ARCHES," in
+        *,arm64,*) add_check platform pass "$(uname -s) $arch; the study image lists arm64 (not verified on this machine)" ;;
+        *) add_check platform warn "$(uname -s) $arch, but the study image is published for $FEDLIFY_IMAGE_ARCHES only: Docker will run it under emulation, which is slower and not verified" ;;
+      esac ;;
+    *) add_check platform pass "$(uname -s) $arch" ;;
+  esac
+  case "$(uname -r)" in
+    *[Mm]icrosoft*|*WSL*)
+      case "$PWD" in
+        /mnt/?/*) add_check wsl warn "running in WSL on a Windows drive: file modes (0600/0700) are not enforced here; protection comes from the Windows folder permissions. Heartbeats stop if WSL shuts down while idle" ;;
+        *) add_check wsl pass "running in WSL on the Linux file system" ;;
+      esac ;;
+  esac
   PREFLIGHT_OK=true; if [ "$FAILS" -gt 0 ]; then PREFLIGHT_OK=false; fi
   if [ "$JSON_OUT" = "1" ]; then
     printf '{"ok":%s,"runnerVersion":"%s","failed":%s,"warnings":%s,"checks":[%s]}\\n' "$PREFLIGHT_OK" "$RUNNER_VERSION" "$FAILS" "$WARNS" "$CHECKS"
@@ -269,9 +313,9 @@ status_run() {
   if agent_running; then agent=true; fi
   if [ -d "$FEDLIFY_DATA_DIR" ]; then data_present=true; fi
   if [ "$JSON_OUT" = "1" ]; then
-    printf '{"runnerVersion":"%s","status":"%s","container":"%s","health":"%s","restarts":%s,"image":"%s","tokenPresent":%s,"agentRunning":%s,"dataDirPresent":%s,"csvCount":%s,"diskFreeGb":%s,"gpuCount":%s,"lastHeartbeat":"%s"}\\n' \\
+    printf '{"runnerVersion":"%s","status":"%s","container":"%s","health":"%s","restarts":%s,"image":"%s","tokenPresent":%s,"agentRunning":%s,"dataDirPresent":%s,"csvCount":%s,"diskFreeGb":%s,"gpuCount":%s,"gpuRequested":"%s","gpuActive":%s,"lastHeartbeat":"%s"}\\n' \\
       "$RUNNER_VERSION" "$st" "$(jstr "$OBS_CONTAINER")" "$(jstr "$OBS_HEALTH")" "$OBS_RESTARTS" "$(jstr "\${OBS_IMAGE:-$FEDLIFY_STUDY_IMAGE}")" \\
-      "$token_present" "$agent" "$data_present" "$(csv_count)" "$(disk_free_gb || echo 0)" "$(gpu_count)" "$(jstr "$(last_beat)")"
+      "$token_present" "$agent" "$data_present" "$(csv_count)" "$(disk_free_gb || echo 0)" "$(gpu_count)" "$(jstr "$FEDLIFY_GPU")" "$([ "$GPU_ACTIVE" = "1" ] && echo true || echo false)" "$(jstr "$(last_beat)")"
   else
     echo "Status:         $st"
     echo "Client:         $OBS_CONTAINER (health: $OBS_HEALTH, restarts: $OBS_RESTARTS)"
@@ -348,6 +392,8 @@ case "\${1:-}" in
     need_kit; need_docker; load_env
     have_token || die "set the site token: FEDLIFY_SITE_TOKEN=<token shown once in Fedlify> ./fedlify-runner.sh start"
     [ -d "$FEDLIFY_DATA_DIR" ] || die "FEDLIFY_DATA_DIR does not exist; edit .env to point at this site's extract."
+    if [ "$FEDLIFY_GPU" = "on" ] && [ "$GPU_ACTIVE" != "1" ]; then die "FEDLIFY_GPU=on but no NVIDIA GPU with the container toolkit was detected. Fix that or set FEDLIFY_GPU=off."; fi
+    if [ "$FEDLIFY_GPU" = "auto" ] && [ "$GPU_ACTIVE" != "1" ]; then echo "Note: FEDLIFY_GPU=auto but no usable GPU was detected; starting on CPU."; fi
     store_token
     registry_login
     docker compose pull --quiet
@@ -368,10 +414,15 @@ case "\${1:-}" in
   logs) need_kit; need_docker; load_env; docker compose logs -f --tail 100 nvflare-client ;;
   agent) agent_loop ;;
   agent-unit) # print a systemd unit so the heartbeat agent survives reboots; review it, then install it yourself
+    case "$PWD$SELF" in *'"'*|*'\\'*|*'$'*) die "this folder path holds a quote, backslash or dollar sign, which a systemd unit cannot carry safely. Move the kit to a plain path." ;; esac
+    UNIT_PWD="$(printf '%s' "$PWD" | sed 's/%/%%/g')"; UNIT_SELF="$(printf '%s' "$SELF" | sed 's/%/%%/g')"
     echo "# Save as /etc/systemd/system/fedlify-agent.service, then: systemctl daemon-reload && systemctl enable --now fedlify-agent"
     echo "# The site token is read from $PWD/$STATE_DIR/site-token; the service user must be able to read it."
+    if [ "$(id -u)" -eq 0 ]; then echo "# Running as root: the unit will run as root. Prefer a dedicated account: add User=<name> and give it read access to the token file."; fi
     printf '[Unit]\\nDescription=Fedlify site heartbeat agent\\nAfter=docker.service network-online.target\\nWants=network-online.target\\n\\n'
-    printf '[Service]\\nWorkingDirectory=%s\\nEnvironment=FEDLIFY_SITE_TOKEN_FILE=%s/%s/site-token\\nExecStart=%s agent\\nRestart=always\\nRestartSec=15\\n\\n' "$PWD" "$PWD" "$STATE_DIR" "$SELF"
+    printf '[Service]\\n'
+    if [ "$(id -u)" -ne 0 ]; then printf 'User=%s\\n' "$(id -un)"; fi
+    printf 'WorkingDirectory=%s\\nEnvironment="FEDLIFY_SITE_TOKEN_FILE=%s/%s/site-token"\\nExecStart="%s" agent\\nRestart=always\\nRestartSec=15\\n\\n' "$UNIT_PWD" "$UNIT_PWD" "$STATE_DIR" "$UNIT_SELF"
     printf '[Install]\\nWantedBy=multi-user.target\\n' ;;
   support-bundle) shift; support_bundle "$@" ;;
   update)

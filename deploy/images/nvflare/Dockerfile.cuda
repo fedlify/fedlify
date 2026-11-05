@@ -1,0 +1,42 @@
+# Fedlify NVFLARE base image, CUDA flavour. NOT BUILT OR TESTED: no GPU host and no Docker build were available when it was written.
+# Build from the repository root:
+#   docker build -f deploy/images/nvflare/Dockerfile.cuda -t harbor.fedlify.com/fedlify/nvflare-base:2.6.2-cuda12.4 .
+# A study uses it by building its image FROM this tag (BASE_IMAGE build arg of deploy/images/study/Dockerfile). The CPU image
+# (Dockerfile) stays the default. This flavour only supplies the CUDA runtime libraries and a Python 3.10 environment that matches
+# the CPU image; a pipeline that needs a GPU framework installs it itself through the study's requirements.txt. The starter
+# (scikit-learn) does not use a GPU.
+# Pin the CUDA base by digest when you build for release: docker buildx imagetools inspect nvidia/cuda:12.4.1-runtime-ubuntu22.04
+ARG CUDA_IMAGE=nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM ${CUDA_IMAGE}
+
+ARG NVFLARE_VERSION=2.6.2
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    FEDLIFY_CODE_DIR=/opt/fedlify/code \
+    FEDLIFY_JOB_DIR=/opt/fedlify/code/job \
+    PYTHONPATH=/opt/fedlify/runtime:/opt/fedlify/code
+
+# Ubuntu 22.04 ships Python 3.10, the same minor version as the CPU image (python:3.10-slim).
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       python3 python3-pip python-is-python3 bash ca-certificates curl git tini \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install "nvflare==${NVFLARE_VERSION}" numpy pandas scikit-learn
+
+RUN useradd --create-home --uid 10001 fedlify \
+    && mkdir -p /opt/fedlify/code /workspace \
+    && chown -R fedlify:fedlify /opt/fedlify /workspace
+
+COPY --chown=fedlify:fedlify deploy/images/nvflare/fedlify-start.sh /usr/local/bin/fedlify-start
+COPY --chown=fedlify:fedlify deploy/images/nvflare/fedlify_runtime /opt/fedlify/runtime/fedlify_runtime
+COPY --chown=fedlify:fedlify services/flare-api-adapter/fedlify_flare_api_adapter.py /opt/fedlify/adapter/fedlify_flare_api_adapter.py
+COPY --chown=fedlify:fedlify deploy/images/study/validate_repo.py /opt/fedlify/runtime/validate_repo.py
+COPY --chown=fedlify:fedlify deploy/images/study/Dockerfile /opt/fedlify/runtime/study.Dockerfile
+COPY --chown=fedlify:fedlify deploy/k8s/study-aggregator/aggregator.yaml.tmpl /opt/fedlify/runtime/aggregator.yaml.tmpl
+
+USER fedlify
+WORKDIR /workspace
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/fedlify-start"]
