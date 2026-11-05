@@ -115,44 +115,20 @@ describe("terraform: registry resources", () => {
     expect(push).toMatch(/level\s+= "project"/);
   });
 
-  it("the provisioner is a system robot with no repository, artifact, tag or delete-project permission and never expires by accident", () => {
-    const block = resourceBlock("harbor_robot_account", "fedlify_provisioner");
-    expect(block).toMatch(/level\s+= "system"/);
-    expect(block).not.toMatch(/resource\s+= "(repository|artifact|tag|quota|member|configuration)"/);
-    expect(block).not.toMatch(/action\s+= "delete"\n\s+resource\s+= "project"/);
-    expect(block).not.toMatch(/action\s+= "(push|pull|\*)"/);
-    expect(block).toContain('resource = "robot"');
-    expect(block).toContain('resource = "tag-retention"');
-    expect(block).toMatch(/duration\s+= -1/);
+  it("the provisioner is a plain non-admin Harbor user, not a robot", () => {
+    const block = resourceBlock("harbor_user", "fedlify_provisioner");
+    expect(block).toMatch(/admin\s*=\s*false/);
+    expect(terraform).not.toMatch(/resource "harbor_robot_account" "fedlify_provisioner"/);
   });
 
-  it("the provisioner holds exactly the intended permissions: nothing else can be added silently", () => {
-    const block = resourceBlock("harbor_robot_account", "fedlify_provisioner");
-    const grants = [...block.matchAll(/permissions \{\s+kind\s+= "(\w+)"\s+namespace\s+= "([^"]+)"([\s\S]*?)\n  \}/g)].map((m) => ({
-      kind: m[1],
-      ns: m[2],
-      access: [...m[3]!.matchAll(/action\s+= "([\w-]+)"\s+resource\s+= "([\w-]+)"/g)].map((a) => `${a[1]} ${a[2]}`).sort()
-    }));
-    expect(grants).toEqual([
-      { kind: "system", ns: "/", access: ["create project", "list project"] },
-      {
-        kind: "project",
-        ns: "*",
-        access: ["create robot", "create tag-retention", "delete robot", "list robot", "list tag-retention", "read project", "read robot", "read tag-retention", "update tag-retention"]
-      }
-    ]);
-  });
-
-  it("the provisioner comment states the namespace-* blast radius and the unconfirmed escalation instead of claiming no image access", () => {
-    expect(terraform).toMatch(/HONEST LIMIT[\s\S]*EVERY\s+(#\s*)?project/);
-    expect(terraform).toContain("ESCALATION");
-    expect(terraform).not.toContain("cannot read or write images");
+  it("Terraform does not manage shared Harbor settings", () => {
+    expect(terraform).not.toMatch(/resource "harbor_config_/);
   });
 
   it("the provisioner Secret is its own resource, so a targeted apply depends on nothing but the robot and the namespace", () => {
     const secret = resourceBlock("kubernetes_secret_v1", "harbor_provisioner");
-    expect(secret).toContain("harbor_robot_account.fedlify_provisioner.secret");
-    expect(secret).not.toMatch(/local\.fedlify_secrets|random_password|gitea_token|fedlify_studies_pull/);
+    expect(secret).toContain("random_password.fedlify_provisioner.result");
+    expect(secret).not.toMatch(/local\.fedlify_secrets|random_password\.fedlify\[|gitea_token|fedlify_studies_pull/);
     expect(terraform).not.toMatch(/"harbor-provisioner" = \{/);
     const target = terraform.slice(terraform.indexOf("fedlify_secrets = {"), terraform.indexOf('resource "kubernetes_secret_v1" "fedlify"'));
     expect(target).not.toContain("fedlify_provisioner");

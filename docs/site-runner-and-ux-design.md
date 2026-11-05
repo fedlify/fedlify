@@ -487,3 +487,9 @@ Open, not fixable from this tree:
 - Retention keeps the newest K pushed tags per repository. A kit pins a digest; a site that keeps an old kit while the study is republished K or more times can lose its image. Raise `FEDLIFY_STUDY_RETENTION_KEEP` for long-lived sites, or issue the site a new kit. Quota and retention are applied at project creation only; changing the variables does not reach existing projects.
 - Expiry: site robots last 90 days, aggregator robots 365. Nothing warns or renews. The sweeper only cleans up expired robots; a site must download a new kit.
 - A study's `<Dockerfile>` build can read the push config while the build runs (limited to one project, 1-day expiry, deleted at exit).
+
+### 15.16 Provisioner result from the live check (supersedes the provisioner robot above)
+
+Live result on Harbor v2.15.2: a robot cannot create a robot with more rights than it holds. The provisioner robot could not mint pull or push robots, and giving it those rights would have meant image pull and push on every project on the shared Harbor, including hivelab and lab-sites.
+
+Decision: the provisioner is a plain non-admin Harbor user, `fedlify-provisioner`. Harbor already has `project_creation_restriction = everyone` and self-registration off, so no shared setting changes. Terraform does not manage those settings; if someone restricts project creation to admins, publishing in per-study mode stops with a Harbor error. Where earlier sections of section 15 describe a provisioner robot, read this user instead.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Typography } from "antd";
+import { Alert, Tag, Tooltip, Typography } from "antd";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -21,7 +21,11 @@ type RunRow = {
   metricsStored: boolean | null;
   modelSaved: boolean;
   modelRelease: { version: string; status: string } | null;
+  trainedRounds: number | null;
+  imageMismatchSites: string[];
 };
+
+const ENDED_EARLY = new Set(["FAILED", "ABORTED", "REJECTED"]);
 
 const missing = <Typography.Text type="secondary">Not recorded</Typography.Text>;
 
@@ -69,7 +73,20 @@ export default function StudyRunsPage() {
                 )
               },
               { title: "Status", dataIndex: "status", render: (value: string) => <StatusTag value={value} /> },
-              { title: "Pipeline version", dataIndex: "pipelineVersion" },
+              {
+                title: "Pipeline version",
+                render: (_, run) => (
+                  <span>
+                    {run.pipelineVersion}
+                    {run.imageMismatchSites.length ? (
+                      <Tooltip title={`When this run started, ${run.imageMismatchSites.join(", ")} reported a different image from this version, so the code that trained may not be ${run.pipelineVersion}.`}>
+                        {" "}
+                        <Tag color="warning">image mismatch</Tag>
+                      </Tooltip>
+                    ) : null}
+                  </span>
+                )
+              },
               {
                 title: "Commit",
                 render: (_, run) =>
@@ -85,7 +102,17 @@ export default function StudyRunsPage() {
               {
                 title: "Best AUROC",
                 render: (_, run) =>
-                  run.bestAuroc ? (
+                  run.bestAuroc && run.trainedRounds === 0 ? (
+                    <Tooltip title={`Only round 0 was scored. That is the starting model before any site trained it (AUROC ${run.bestAuroc.value.toFixed(4)}).`}>
+                      <Typography.Text type="secondary">No trained rounds</Typography.Text>
+                    </Tooltip>
+                  ) : run.bestAuroc && ENDED_EARLY.has(run.status) ? (
+                    <Tooltip title="The run did not finish. This is the best round reached before it stopped, not a final result.">
+                      <Typography.Text type="secondary">
+                        {run.bestAuroc.value.toFixed(4)} (round {run.bestAuroc.round}, partial)
+                      </Typography.Text>
+                    </Tooltip>
+                  ) : run.bestAuroc ? (
                     <span>
                       {run.bestAuroc.value.toFixed(4)} <Typography.Text type="secondary">(round {run.bestAuroc.round})</Typography.Text>
                     </span>

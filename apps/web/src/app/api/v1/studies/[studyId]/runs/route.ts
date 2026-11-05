@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { ownClientNames, resolveRunViewer } from "@/lib/run-evidence";
 import { reconcileRun } from "@/lib/run-reconcile";
 import { readMetricsSummary } from "@/lib/round-metrics";
+import { imageMismatchSites } from "@/lib/run-image-check";
 
 type Params = { params: Promise<{ studyId: string }> };
 
@@ -35,6 +36,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
       completedAt: true,
       gitCommit: true,
       imageDigest: true,
+      siteDigests: true,
       studyId: true,
       selectedSites: true,
       metricsSummary: true,
@@ -67,6 +69,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
       imageDigest: job.imageDigest ?? null,
       // Best of the stored round averages for the key metric. null = no stored metrics (or hidden from this viewer).
       bestAuroc: summary?.best?.key === "auroc" ? { value: summary.best.value, round: summary.best.round } : null,
+      // Only round 0 was scored: that is the starting model, before any site trained on it.
+      trainedRounds: summary ? (summary.lastRound ?? 0) : null,
+      imageMismatchSites: viewer.scope === "full" ? imageMismatchSites(job.imageDigest, job.siteDigests) : [],
       metricsStored: viewer.scope === "full" ? summary !== null : null,
       modelSaved: Boolean(job.result),
       modelRelease: job.result?.modelRelease ? { version: job.result.modelRelease.version, status: job.result.modelRelease.status } : null
