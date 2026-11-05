@@ -92,3 +92,16 @@ describe("audit-query helpers", () => {
     expect(redactMetadata({ note: "Bearer abcdefghijkl" })).toEqual({ note: "[redacted]" });
   });
 });
+
+describe("audit run filter", () => {
+  it("matches nothing for an unknown run or a run of another study", async () => {
+    const { auditWhere, parseAuditQuery: parse } = await import("@/lib/audit-query");
+    const where = auditWhere("s1", parse(new URLSearchParams("run=other")), null);
+    expect(where).toMatchObject({ studyId: "s1", id: { in: [] } });
+  });
+  it("covers the job, its result and its release", async () => {
+    const { auditWhere, parseAuditQuery: parse } = await import("@/lib/audit-query");
+    const where = auditWhere("s1", parse(new URLSearchParams("run=j1")), { jobId: "j1", resultId: "r1", releaseId: "m1" }) as { OR: Array<{ targetId?: { in: string[] } }> };
+    expect(where.OR[0].targetId?.in).toEqual(["j1", "r1", "m1"]);
+  });
+});

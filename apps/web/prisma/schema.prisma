@@ -127,6 +127,8 @@ enum ModelArtifactKind {
   LOG
   META
   MANIFEST
+  ROUND_METRICS
+  MODEL_CARD
 }
 
 enum ComputeMode {
@@ -1254,6 +1256,17 @@ model NvflareJob {
   logsStorageKey    String?
   submittedAt       DateTime?
   completedAt       DateTime?
+  // Evidence snapshotted when the run is submitted. Null on runs from before these columns existed (shown as "not recorded").
+  gitCommit         String?
+  imageDigest       String?
+  siteDigests       Json?
+  runParameters     Json?
+  // Small summary of the stored ROUND_METRICS artifact, written at sync so the run list needs no object-storage read.
+  metricsSummary    Json?
+  // Round metrics (fedlify_metrics.jsonl) captured when the run reached a terminal state, so FAILED, ABORTED and unsaved runs keep them.
+  metricsJsonl      String?
+  metricsChecksum   String?
+  metricsCapturedAt DateTime?
   study             Study              @relation(fields: [studyId], references: [id], onDelete: Cascade)
   deployment        NvflareDeployment? @relation(fields: [deploymentId], references: [id])
   pipelineVersion   PipelineVersion    @relation(fields: [pipelineVersionId], references: [id])

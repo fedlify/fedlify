@@ -13,6 +13,8 @@ import {
   resultPathAvailable
 } from "@/lib/model-results";
 import { prisma } from "@/lib/prisma";
+import { sha256 } from "@/lib/crypto";
+import { buildCardForJob, MODEL_CARD_FILENAME } from "@/lib/run-evidence";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { objectKey, storageConfigured, uploadObject } from "@/lib/storage";
 
@@ -88,6 +90,30 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
       "model_result_unavailable"
     );
   }
+  // Model card: only stored values. Written into the release as an immutable artifact next to the model.
+  const approverUser = parsed.data.status === "APPROVED" ? await prisma.user.findUnique({ where: { id: authResult.userId }, select: { name: true } }) : null;
+  const metricsArtifact = collected.artifacts.find((artifact) => artifact.kind === "ROUND_METRICS");
+  const card = await buildCardForJob(job.id, {
+    modelVersion: version,
+    releaseStatus: parsed.data.status,
+    metricsBody: metricsArtifact?.body ?? null,
+    metricsChecksum: metricsArtifact?.checksum ?? null,
+    modelChecksum: collected.artifacts.find((artifact) => artifact.kind === "AGGREGATED_MODEL")?.checksum ?? null,
+    approvers: parsed.data.status === "APPROVED" ? [{ userId: authResult.userId, name: approverUser?.name ?? null, role: "release approver", at: new Date().toISOString() }] : []
+  });
+  if (card) {
+    const body = Buffer.from(JSON.stringify(card, null, 2));
+    collected.artifacts.push({
+      kind: "MODEL_CARD",
+      relativePath: MODEL_CARD_FILENAME,
+      filename: MODEL_CARD_FILENAME,
+      contentType: "application/json",
+      body,
+      checksum: sha256(body),
+      sizeBytes: BigInt(body.byteLength)
+    });
+  }
+
   const checksum = modelReleaseChecksum({
     version,
     sourceResultId: job.result.id,

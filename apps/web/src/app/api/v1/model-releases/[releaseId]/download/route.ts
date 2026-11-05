@@ -4,6 +4,7 @@ import { audit } from "@/lib/audit";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { canAccessStudy } from "@/lib/rbac";
+import { artifactVisibleToViewer, resolveRunViewer } from "@/lib/run-evidence";
 import { createPresignedDownloadUrl, storageConfigured } from "@/lib/storage";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ releaseId: string }> }) {
@@ -19,11 +20,17 @@ export async function GET(request: NextRequest, context: { params: Promise<{ rel
   if (!modelRelease) return problem(404, "Model release not found.", "not_found");
   if (modelRelease.status !== "APPROVED") return problem(409, "Only approved model releases can be downloaded.", "not_approved");
 
-  const artifact = artifactId ? modelRelease.artifacts.find((item) => item.id === artifactId) : modelRelease.artifacts[0];
-  if (!artifact) return problem(404, "Model release artifact not found.", "not_found");
-
   const authorized = await canAccessStudy(authResult.userId, modelRelease.studyId, "downloadRelease");
   if (!authorized) return problem(403, "You do not have permission to download this model release artifact.", "forbidden");
+
+  // Run evidence (logs, all-site round metrics, the model card) follows the run page's scoping: a site operator who can
+  // download the model must not read other sites' values or raw logs through this route.
+  const viewer = await resolveRunViewer(authResult.userId, modelRelease.studyId);
+  if (!viewer) return problem(403, "You do not have permission to download this model release artifact.", "forbidden");
+  const allowed = modelRelease.artifacts.filter((item) => artifactVisibleToViewer(item.kind, viewer));
+  const artifact = artifactId ? modelRelease.artifacts.find((item) => item.id === artifactId) : allowed[0];
+  if (!artifact) return problem(404, "Model release artifact not found.", "not_found");
+  if (!artifactVisibleToViewer(artifact.kind, viewer)) return problem(403, "This artifact is limited to study managers. Your role can download the model only.", "forbidden");
 
   await prisma.modelArtifact.update({
     where: { id: artifact.id },

@@ -16,7 +16,9 @@ const nextConfig = {
   async redirects() {
     return [
       { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "(pipeline|run)" }], destination: "/studies/:studyId/projects", permanent: false },
-      { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "audit" }], destination: "/studies/:studyId/audit", permanent: false }
+      { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "audit" }], destination: "/studies/:studyId/audit", permanent: false },
+      // The Results list moved to /runs. A legacy record view (?detail=...) is left alone so nothing becomes unreachable.
+      { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "results" }], missing: [{ type: "query", key: "detail" }], destination: "/studies/:studyId/runs", permanent: false }
     ];
   },
   turbopack: {

@@ -70,6 +70,7 @@ export function studySectionHref(studyId: string, section: StudyWorkspaceSection
  * superseded by the Code & run workspace, so they resolve there; every other section keeps its section URL.
  */
 export function studyActionHref(studyId: string, section: StudyWorkspaceSection = "overview") {
+  if (section === "results") return `/studies/${studyId}/runs`;
   return section === "pipeline" || section === "run" ? `/studies/${studyId}/projects` : studySectionHref(studyId, section);
 }
 
@@ -77,7 +78,9 @@ export function studyActionHref(studyId: string, section: StudyWorkspaceSection 
 export const LEGACY_SECTION_REDIRECTS: Record<string, (studyId: string) => string> = {
   pipeline: (studyId) => `/studies/${studyId}/projects`,
   run: (studyId) => `/studies/${studyId}/projects`,
-  audit: (studyId) => `/studies/${studyId}/audit`
+  audit: (studyId) => `/studies/${studyId}/audit`,
+  // Only the list redirects; ?section=results&detail=... (a legacy record view) still renders on the study page.
+  results: (studyId) => `/studies/${studyId}/runs`
 };
 
 export type StudyNavKey = "overview" | "protocol" | "sites" | "team" | "code" | "results" | "audit";
@@ -96,6 +99,7 @@ export const STUDY_NAV_ITEMS: ReadonlyArray<{ key: StudyNavKey; label: string }>
 export function studyNavHref(studyId: string, key: StudyNavKey) {
   if (key === "code") return `/studies/${studyId}/projects`;
   if (key === "audit") return `/studies/${studyId}/audit`;
+  if (key === "results") return `/studies/${studyId}/runs`;
   return studySectionHref(studyId, key);
 }
 

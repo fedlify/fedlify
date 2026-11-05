@@ -6,13 +6,14 @@ import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
 import { json, problem } from "@/lib/json";
-import { collectModelResultArtifacts, resultStoragePrefix } from "@/lib/model-results";
+import { collectModelResultArtifacts, resultStoragePrefix, roundMetricsArtifact } from "@/lib/model-results";
 import { unzipToArchiveMap } from "@/lib/archive";
 import { downloadNvflareJobResult } from "@/lib/nvflare";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { objectKey, storageConfigured, uploadObject } from "@/lib/storage";
-import { adapterJobResultZip } from "@/lib/study-runtime";
+import { adapterJobMetrics, adapterJobResultZip } from "@/lib/study-runtime";
+import { parseRoundMetricsJsonl, recordsToJsonl, summarizeMetrics } from "@/lib/round-metrics";
 
 // Published studies: the adapter returns the NVFLARE result as a zip; unpack it so the existing
 // model-artifact collection runs unchanged. The caller removes the returned directory.
@@ -79,6 +80,19 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
       storagePrefix
     });
 
+    // The result zip normally carries fedlify_metrics.jsonl. If it does not (older image), keep what the aggregator
+    // still has in its run directory so the numbers are stored with the model rather than lost.
+    if (publishedRuntime && !collected.artifacts.some((artifact) => artifact.kind === "ROUND_METRICS")) {
+      if (job.metricsJsonl) {
+        collected.artifacts.push(roundMetricsArtifact(Buffer.from(job.metricsJsonl)));
+      } else try {
+        const live = await adapterJobMetrics({ studyId: job.studyId, adapterUrl: job.deployment!.adapterUrl }, job.nvflareJobId);
+        if (live.records.length) collected.artifacts.push(roundMetricsArtifact(Buffer.from(recordsToJsonl(live.records))));
+      } catch {
+        // Missing metrics are shown as missing on the run page; they never block saving the model.
+      }
+    }
+
     if (storageConfigured()) {
       for (const artifact of collected.artifacts) {
         const key = objectKey([storagePrefix, artifact.filename]);
@@ -123,6 +137,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
       },
       include: { artifacts: true, modelRelease: { include: { artifacts: true } } }
     });
+
+    const metricsArtifact = collected.artifacts.find((artifact) => artifact.kind === "ROUND_METRICS");
+    if (metricsArtifact) {
+      const summary = summarizeMetrics(parseRoundMetricsJsonl(metricsArtifact.body.toString("utf8")));
+      await tx.nvflareJob.update({ where: { id: job.id }, data: { metricsSummary: summary as unknown as Prisma.InputJsonObject } });
+    }
 
     await tx.nvflareJobEvent.create({
       data: {

@@ -29,7 +29,11 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 
   const query = parseAuditQuery(request.nextUrl.searchParams);
-  const where = auditWhere(studyId, query);
+  // A run filter is resolved against this study only, so another study's run id yields no rows.
+  const runJob = query.run
+    ? await prisma.nvflareJob.findFirst({ where: { id: query.run, studyId }, select: { id: true, result: { select: { id: true, modelRelease: { select: { id: true } } } } } })
+    : null;
+  const where = auditWhere(studyId, query, runJob ? { jobId: runJob.id, resultId: runJob.result?.id, releaseId: runJob.result?.modelRelease?.id } : null);
   const actorSelect = { actor: { select: { name: true, email: true } } };
   const order = [{ createdAt: "desc" as const }, { id: "desc" as const }];
 

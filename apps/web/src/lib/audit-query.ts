@@ -13,6 +13,8 @@ export type AuditQuery = {
   action?: string;
   targetType?: string;
   target?: string;
+  /** A run (NvflareJob id): events about the job, its synced result and its model release. */
+  run?: string;
   from?: Date;
   to?: Date;
   format: "page" | "csv" | "json";
@@ -43,15 +45,26 @@ export function parseAuditQuery(params: URLSearchParams): AuditQuery {
     action: clean(params.get("action")),
     targetType: clean(params.get("targetType")),
     target: clean(params.get("target")),
+    run: clean(params.get("run")),
     from: parseDate(params.get("from")),
     to: parseDate(params.get("to")),
     format: format === "csv" || format === "json" ? format : "page"
   };
 }
 
-export function auditWhere(studyId: string, query: AuditQuery) {
+/** Ids an audit event about a run can point at: the job, its synced result, its model release. */
+export type RunAuditTargets = { jobId: string; resultId?: string | null; releaseId?: string | null };
+
+export function runAuditClause(targets: RunAuditTargets | null) {
+  if (!targets) return { id: { in: [] as string[] } }; // unknown run or a run of another study: match nothing
+  const ids = [targets.jobId, targets.resultId, targets.releaseId].filter((id): id is string => Boolean(id));
+  return { OR: [{ targetId: { in: ids } }, { metadata: { path: ["jobId"], equals: targets.jobId } }] };
+}
+
+export function auditWhere(studyId: string, query: AuditQuery, runTargets?: RunAuditTargets | null) {
   return {
     studyId,
+    ...(query.run ? runAuditClause(runTargets ?? null) : {}),
     ...(query.actor ? { actorUserId: query.actor } : {}),
     ...(query.action ? { action: { contains: query.action, mode: "insensitive" as const } } : {}),
     ...(query.targetType ? { targetType: query.targetType } : {}),

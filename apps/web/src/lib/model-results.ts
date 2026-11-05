@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ModelArtifactKind } from "@prisma/client";
 import { sha256 } from "@/lib/crypto";
@@ -25,12 +25,16 @@ export type CollectedModelResult = {
   artifacts: CollectedModelArtifact[];
 };
 
+export const ROUND_METRICS_FILENAME = "fedlify_metrics.jsonl";
+
 const resultArtifactDefinitions: Array<{
   kind: ModelArtifactKind;
   relativePath: string;
   filename: string;
   contentType: string;
   required?: boolean;
+  /** The file sits somewhere under the result directory (the job run dir name is not fixed): find it by basename. */
+  findByName?: boolean;
 }> = [
   {
     kind: "AGGREGATED_MODEL",
@@ -56,8 +60,48 @@ const resultArtifactDefinitions: Array<{
     relativePath: "workspace/meta.json",
     filename: "meta.json",
     contentType: "application/json"
+  },
+  // Per-round, per-site metrics written by the aggregator's metrics collector. Stored so the Performance tab and
+  // the model card do not depend on the aggregator staying up. Optional: older runs and custom jobs may lack it.
+  {
+    kind: "ROUND_METRICS",
+    relativePath: ROUND_METRICS_FILENAME,
+    filename: ROUND_METRICS_FILENAME,
+    contentType: "application/x-ndjson",
+    findByName: true
   }
 ];
+
+/** Finds a file by basename under `root` (breadth-first, bounded). Returns the path relative to root, or null. */
+export async function findResultFile(root: string, filename: string, maxDepth = 6): Promise<string | null> {
+  let level = [""];
+  for (let depth = 0; depth <= maxDepth && level.length; depth += 1) {
+    const next: string[] = [];
+    for (const dir of level) {
+      const entries = await readdir(path.join(root, dir), { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isFile() && entry.name === filename) return path.join(dir, entry.name);
+        if (entry.isDirectory()) next.push(path.join(dir, entry.name));
+      }
+    }
+    level = next;
+  }
+  return null;
+}
+
+/** Builds the ROUND_METRICS artifact from a body obtained another way (the aggregator's live metrics endpoint). */
+export function roundMetricsArtifact(body: Buffer): CollectedModelArtifact {
+  return {
+    kind: "ROUND_METRICS",
+    relativePath: ROUND_METRICS_FILENAME,
+    filename: ROUND_METRICS_FILENAME,
+    contentType: "application/x-ndjson",
+    body,
+    checksum: sha256(body),
+    sizeBytes: BigInt(body.byteLength)
+  };
+}
 
 export function nextModelReleaseVersion(existingVersions: string[]) {
   const next = existingVersions.reduce((max, version) => {
@@ -108,7 +152,8 @@ type ResultIdentity = {
 export async function collectModelResultArtifacts(input: ResultIdentity & { resultPath: string }): Promise<CollectedModelResult> {
   const artifacts: CollectedModelArtifact[] = [];
   for (const definition of resultArtifactDefinitions) {
-    const absolutePath = path.join(input.resultPath, definition.relativePath);
+    const relativePath = definition.findByName ? ((await findResultFile(input.resultPath, definition.filename)) ?? definition.relativePath) : definition.relativePath;
+    const absolutePath = path.join(input.resultPath, relativePath);
     const exists = await stat(absolutePath).then(
       (info) => info.isFile(),
       () => false
@@ -120,7 +165,7 @@ export async function collectModelResultArtifacts(input: ResultIdentity & { resu
     const body = await readFile(absolutePath);
     artifacts.push({
       kind: definition.kind,
-      relativePath: definition.relativePath,
+      relativePath,
       filename: definition.filename,
       contentType: definition.contentType,
       body,

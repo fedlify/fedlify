@@ -10,6 +10,7 @@ import { submitNvflareJob } from "@/lib/nvflare";
 import { pipelineRunWorkspacePath, prepareNvflareJobWorkspaceForRun, runtimeParametersForSelectedSites } from "@/lib/pipeline-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { buildRunSnapshot } from "@/lib/run-evidence";
 import { adapterSubmitJob, adapterSystemInfo, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
 
 const submitJobSchema = z.object({
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       studyId,
       ...(parsed.data.studySiteIds?.length ? { id: { in: parsed.data.studySiteIds } } : {})
     },
-    include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 }, site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } } } } }
+    include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 }, site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, metadata: true } } } } }
   });
 
   const gate = pipelineExecutionGate({
@@ -166,8 +167,22 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     );
   }
 
+  // Snapshot the evidence now: the pipeline version, aggregator image and site runners can all change after the run.
+  const snapshot = buildRunSnapshot({
+    pipelineVersion: pipelineVersion,
+    deployment,
+    sites: studySites.map((site) => ({
+      code: site.code,
+      nvflareClientName: nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }),
+      heartbeatMetadata: site.site?.heartbeats[0]?.metadata ?? null,
+      heartbeatAt: site.site?.heartbeats[0]?.createdAt ?? null
+    })),
+    runtimeParameters
+  });
+
   const created = await prisma.nvflareJob.create({
     data: {
+      ...snapshot,
       studyId,
       deploymentId: deployment.id,
       pipelineVersionId: pipelineVersion.id,

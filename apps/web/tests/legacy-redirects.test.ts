@@ -13,5 +13,8 @@ describe("legacy study section redirects", () => {
       expect(rule!.destination.replace(":studyId", "s1")).toBe(LEGACY_SECTION_REDIRECTS[section]("s1"));
     }
     expect(rules.some((r) => r.has.some((h) => new RegExp(`^${h.value}$`).test("sites")))).toBe(false);
+    // The Results list redirects, but a legacy record view (?detail=) must stay reachable.
+    const results = (rules as Array<{ has: Array<{ value: string }>; missing?: Array<{ key: string }> }>).find((r) => r.has.some((h) => h.value === "results"))!;
+    expect(results.missing).toEqual([{ type: "query", key: "detail" }]);
   });
 });

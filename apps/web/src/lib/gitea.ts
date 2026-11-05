@@ -585,6 +585,33 @@ export async function readGiteaRepositoryFiles(input: {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** Link to a commit in the Gitea web UI. The sha must already be validated by the caller. */
+export function giteaCommitUrl(repoUrl: string, sha: string): string {
+  return `${repoUrl.replace(/\/$/, "")}/commit/${encodeURIComponent(sha)}`;
+}
+
+/** Blob paths at a commit (recursive tree). Read-only. `truncated` is set when Gitea paged the tree. */
+export async function listGiteaTreePaths(input: { owner: string; repo: string; ref: string }): Promise<{ files: Array<{ path: string; sha: string | null }>; truncated: boolean }> {
+  const tree = await giteaRequest<GiteaTreeResponse & { truncated?: boolean }>(
+    `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/git/trees/${encodeURIComponent(input.ref)}?recursive=1&per_page=1000`
+  );
+  const files = (tree.tree ?? [])
+    .filter((item) => item.type === "blob" && item.path && !item.path.startsWith(".git/"))
+    .map((item) => ({ path: item.path as string, sha: item.sha ?? null }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return { files, truncated: Boolean(tree.truncated) };
+}
+
+/** One file at a commit. Returns null when the path is absent at that commit or has no inline body. */
+export async function readGiteaFileAtRef(input: { owner: string; repo: string; ref: string; path: string }): Promise<string | null> {
+  const content = await giteaRequestNullable<GiteaContentResponse>(
+    `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/contents/${encodePath(input.path)}?ref=${encodeURIComponent(input.ref)}`
+  );
+  if (!content || content.content === undefined || content.content === null) return null;
+  const normalized = content.content.replace(/\s/g, "");
+  return Buffer.from(normalized, content.encoding === "base64" || content.encoding == null ? "base64" : "utf8").toString("utf8");
+}
+
 export function isRuntimeConfigurationError(error: unknown): error is RuntimeConfigurationError {
   return error instanceof RuntimeConfigurationError;
 }

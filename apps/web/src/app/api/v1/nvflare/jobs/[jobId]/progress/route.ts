@@ -10,6 +10,7 @@ import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
+import { captureRunMetrics } from "@/lib/run-reconcile";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { adapterJobMeta, adapterJobMetrics, fedlifyJobStatus, StudyRuntimeError, summarizeRoundMetrics } from "@/lib/study-runtime";
 
@@ -67,6 +68,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ jo
       return updated;
     });
   }
+
+  // Keep the per-round metrics once the run is over, whether or not anyone saves the model.
+  if (TERMINAL.has(current.status)) await captureRunMetrics(current);
 
   return json({ job: current, nvflareStatus, metricsSource, rounds });
 }

@@ -3,6 +3,7 @@
 import type { Key } from "react";
 import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
@@ -828,6 +829,7 @@ export default function StudyProjectsPage() {
                   </Button>
                 ) : null}
                 {row.result ? <Tag color="green">model saved</Tag> : null}
+                <Link href={`/studies/${studyId}/runs/${row.id}`}>Open run detail</Link>
               </Space>
             )
           }

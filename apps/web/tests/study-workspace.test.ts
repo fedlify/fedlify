@@ -108,3 +108,10 @@ describe("study workspace navigation", () => {
     }
   });
 });
+
+describe("results navigation", () => {
+  it("sends the sidebar and summary cards to the runs table", () => {
+    expect(studyNavHref("s1", "results")).toBe("/studies/s1/runs");
+    expect(studyActionHref("s1", "results")).toBe("/studies/s1/runs");
+  });
+});
