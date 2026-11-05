@@ -10,7 +10,7 @@ import {
   SafetyCertificateOutlined,
   TeamOutlined
 } from "@ant-design/icons";
-import { Alert, Button, Checkbox, Form, Input, Select, Space, Tabs, Typography, message } from "antd";
+import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Tabs, Tag, Typography, message } from "antd";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
@@ -148,6 +148,11 @@ export default function SiteOnboardingPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [enrollmentToken, setEnrollmentToken] = useState<string | null>(null);
   const [inlineManifest, setInlineManifest] = useState<unknown>(null);
+  // The kit passphrase exists only here, in memory, until the creator dismisses it. Fedlify keeps no copy.
+  const [kitPassphrase, setKitPassphrase] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<{ mode: "create" } | { mode: "download"; packageId: string } | null>(null);
+  const [stepUpPassword, setStepUpPassword] = useState("");
+  const [stepUpError, setStepUpError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("governance");
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -219,28 +224,72 @@ export default function SiteOnboardingPage() {
     }
   }
 
-  async function createJoinPackage() {
-    const result = await post(`/api/v1/sites/${siteId}/join-package`, {}, "Startup kit prepared.");
-    if (!result) return;
-    setEnrollmentToken(result.enrollmentToken ?? null);
-    setInlineManifest(result.manifest ?? null);
-    if (result.downloadUrl) window.location.assign(result.downloadUrl);
-    if (result.message) messageApi.info(result.message);
+  function askPassword(next: { mode: "create" } | { mode: "download"; packageId: string }) {
+    setStepUpPassword("");
+    setStepUpError(null);
+    setStepUp(next);
   }
 
-  async function downloadJoinPackage(packageId: string) {
-    const response = await fetch(`/api/v1/sites/${siteId}/join-package/${packageId}/download`);
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      messageApi.error(body?.error?.message ?? "Startup kit could not be downloaded.");
+  function closeStepUp() {
+    setStepUp(null);
+    setStepUpPassword("");
+    setStepUpError(null);
+  }
+
+  async function confirmStepUp() {
+    if (!stepUp) return;
+    if (!stepUpPassword) {
+      setStepUpError("Enter your account password.");
       return;
     }
-    if (body.downloadUrl) {
-      window.location.href = body.downloadUrl;
-      return;
+    setSubmitting(true);
+    setStepUpError(null);
+    try {
+      if (stepUp.mode === "create") {
+        const response = await fetch(`/api/v1/sites/${siteId}/join-package`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: stepUpPassword })
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error?.message ?? "The startup kit could not be created.");
+        closeStepUp();
+        messageApi.success("Startup kit prepared.");
+        setEnrollmentToken(body.enrollmentToken ?? null);
+        setKitPassphrase(body.passphrase ?? null);
+        setInlineManifest(body.manifest ?? null);
+        await load();
+        if (body.downloadUrl) window.location.assign(body.downloadUrl);
+        if (body.message) messageApi.info(body.message);
+      } else {
+        const base = `/api/v1/sites/${siteId}/join-package/${stepUp.packageId}/download`;
+        const grantResponse = await fetch(base, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: stepUpPassword })
+        });
+        const grantBody = await grantResponse.json().catch(() => null);
+        if (!grantResponse.ok) throw new Error(grantBody?.error?.message ?? "Startup kit could not be downloaded.");
+        closeStepUp();
+        if (!grantBody.grant) {
+          setInlineManifest(grantBody.manifest ?? null);
+          messageApi.info(grantBody.message ?? "Startup kit manifest is available inline.");
+          return;
+        }
+        const urlResponse = await fetch(base, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ grant: grantBody.grant })
+        });
+        const urlBody = await urlResponse.json().catch(() => null);
+        if (!urlResponse.ok || !urlBody?.downloadUrl) throw new Error(urlBody?.error?.message ?? "Startup kit could not be downloaded.");
+        window.location.href = urlBody.downloadUrl;
+      }
+    } catch (error) {
+      setStepUpError(error instanceof Error ? error.message : "The request could not be completed.");
+    } finally {
+      setSubmitting(false);
     }
-    setInlineManifest(body.manifest ?? null);
-    messageApi.info(body.message ?? "Startup kit manifest is available inline.");
   }
 
   async function rotateToken() {
@@ -293,8 +342,10 @@ export default function SiteOnboardingPage() {
     [dashboard?.approvedReleases]
   );
   const runnerCommand = [
-    "chmod +x fedlify-runner.sh",
-    `FEDLIFY_SITE_TOKEN=${enrollmentToken ?? "<token-from-fedlify>"} ./fedlify-runner.sh start --safe`
+    "# Unzip the download, then (the passphrase is typed at the prompt):",
+    "chmod +x unlock.sh && ./unlock.sh",
+    "cd fedlify-site-kit",
+    `FEDLIFY_SITE_TOKEN=${enrollmentToken ?? "<token-from-fedlify>"} ./fedlify-runner.sh start`
   ].join("\n");
   const onboardingWorkflow = useMemo(
     () =>
@@ -344,6 +395,32 @@ export default function SiteOnboardingPage() {
   return (
     <>
       {contextHolder}
+      <Modal
+        open={stepUp !== null}
+        title={stepUp?.mode === "create" ? "Confirm your password to create a kit" : "Confirm your password to download"}
+        okText={stepUp?.mode === "create" ? "Create kit" : "Download"}
+        confirmLoading={submitting}
+        onOk={() => void confirmStepUp()}
+        onCancel={closeStepUp}
+        destroyOnHidden
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Typography.Text>
+            {stepUp?.mode === "create"
+              ? "Creating a kit rotates this site's token, revokes the previous kit, and issues a new passphrase."
+              : "Each confirmation allows one download. The kit file is useless without its passphrase."}
+          </Typography.Text>
+          <Input.Password
+            autoFocus
+            autoComplete="current-password"
+            placeholder="Account password"
+            value={stepUpPassword}
+            onChange={(event) => setStepUpPassword(event.target.value)}
+            onPressEnter={() => void confirmStepUp()}
+          />
+          {stepUpError ? <Alert type="error" showIcon message={stepUpError} /> : null}
+        </Space>
+      </Modal>
       <AppPage>
         <AppPageHeader
           title={text(site.name, "Participant site")}
@@ -458,11 +535,11 @@ export default function SiteOnboardingPage() {
                         ]}
                         actions={
                           <Space wrap>
-                            <Button icon={<CloudDownloadOutlined />} loading={submitting} onClick={() => void createJoinPackage()}>
-                              Download runner kit
+                            <Button icon={<CloudDownloadOutlined />} loading={submitting} onClick={() => askPassword({ mode: "create" })}>
+                              Create encrypted kit
                             </Button>
                             {activeJoinPackage ? (
-                              <Button icon={<CloudDownloadOutlined />} onClick={() => void downloadJoinPackage(activeJoinPackage.id)}>
+                              <Button icon={<CloudDownloadOutlined />} onClick={() => askPassword({ mode: "download", packageId: activeJoinPackage.id })}>
                                 Download latest
                               </Button>
                             ) : null}
@@ -482,12 +559,49 @@ export default function SiteOnboardingPage() {
                         ]}
                       />
                     </CardGrid>
+                    {kitPassphrase ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="Kit passphrase: shown once"
+                        description={
+                          <Space direction="vertical" style={{ width: "100%" }}>
+                            <Typography.Text code copyable={false} style={{ fontSize: 16, wordBreak: "break-all" }}>
+                              {kitPassphrase}
+                            </Typography.Text>
+                            <Typography.Text>
+                              Fedlify does not keep it. Send it to the site operator by a different channel than the kit file (phone, a messaging app,
+                              in person). Never send it with the file, and never by email together with the file. If it is lost, create a new kit.
+                            </Typography.Text>
+                            <Space wrap>
+                              <Button
+                                icon={<CopyOutlined />}
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(kitPassphrase);
+                                  messageApi.success("Passphrase copied.");
+                                }}
+                              >
+                                Copy passphrase
+                              </Button>
+                              <Button onClick={() => setKitPassphrase(null)}>I have saved it, hide it</Button>
+                            </Space>
+                          </Space>
+                        }
+                      />
+                    ) : null}
+                    <Space wrap>
+                      <Tag color="orange">Revocation: partial</Tag>
+                      <Typography.Text type="secondary">
+                        Creating a new kit or rotating the token revokes the old kit and token. The site&apos;s NVFLARE certificate cannot be re-issued yet, so a
+                        kit that was already unlocked keeps a valid certificate until the study is republished with new site identities.
+                      </Typography.Text>
+                    </Space>
                     <pre className="fedlify-command-panel">{runnerCommand}</pre>
                     <Alert
                       type="info"
                       showIcon
                       message="The runner owns the Docker complexity"
-                      description="Run the command from the extracted kit folder. If Docker is missing, the runner explains the safe next step. Sites that permit managed dependency installation can rerun with `--install-deps --yes`."
+                      description="The download is an encrypted kit with unlock scripts. Unlocking needs age or Docker, and creates a folder only the unlocking account can read. If Docker is missing, the runner explains the safe next step."
                     />
                     {inlineManifest ? (
                       <pre className="fedlify-detail-json">{JSON.stringify(inlineManifest, null, 2)}</pre>

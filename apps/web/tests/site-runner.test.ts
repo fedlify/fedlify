@@ -39,7 +39,7 @@ function setupDocker() {
   "info --format") echo 8589934592; exit 0;;
 esac
 [ "$1" = "info" ] && exit 0
-[ "$1" = "login" ] && { cat >/dev/null; exit 0; }
+[ "$1" = "login" ] && { [ -n "$FAKE_LOGIN_ARGS" ] && echo "$@" > "$FAKE_LOGIN_ARGS"; if [ -n "$FAKE_LOGIN_STDIN" ]; then cat > "$FAKE_LOGIN_STDIN"; else cat >/dev/null; fi; exit 0; }
 [ "$1" = "logout" ] && exit 0
 if [ "$1" = "inspect" ]; then
   case "$3" in
@@ -74,13 +74,13 @@ beforeAll(() => {
       "FEDLIFY_STUDY_IMAGE=harbor.example/study@sha256:abc",
       "FEDLIFY_DATA_DIR=./data",
       "FEDLIFY_REGISTRY=harbor.example",
-      "FEDLIFY_REGISTRY_USERNAME='robot'",
-      `FEDLIFY_REGISTRY_PASSWORD='${SECRET_PASSWORD}'`,
       "NVFLARE_CLIENT_NAME=site_1",
       "NVFLARE_SERVER=agg.example:443",
       ""
     ].join("\n")
   );
+  mkdirSync(path.join(kit, ".fedlify"), { recursive: true });
+  writeFileSync(path.join(kit, ".fedlify/registry-credential"), `robot\n${SECRET_PASSWORD}\n`, { mode: 0o600 });
   writeFileSync(path.join(kit, "fedlify-runner.sh"), PUBLISHED_RUNNER_SCRIPT);
   chmodSync(path.join(kit, "fedlify-runner.sh"), 0o755);
   setupDocker();
@@ -200,11 +200,40 @@ describe.skipIf(!hasBash)("site runner script", { timeout: 30_000 }, () => {
     expect(alive).toBe(false);
   });
 
+  it("logs in to the registry with the credential file, password on stdin only, and never from .env", () => {
+    const args = path.join(root, "login-args");
+    const stdin = path.join(root, "login-stdin");
+    const env = { FAKE_LOGIN_ARGS: args, FAKE_LOGIN_STDIN: stdin, FAKE_CURL_ARGS: path.join(root, "a"), FAKE_CURL_STDIN: path.join(root, "b"), FEDLIFY_SITE_TOKEN: SECRET_TOKEN };
+    expect(readFileSync(path.join(kit, ".env"), "utf8")).not.toMatch(/PASSWORD|SECRET|robot/i);
+    const started = run(["start"], env);
+    expect(started.status).toBe(0);
+    expect(readFileSync(stdin, "utf8")).toBe(SECRET_PASSWORD);
+    expect(readFileSync(args, "utf8")).toContain("-u robot");
+    expect(readFileSync(args, "utf8")).toContain("--password-stdin");
+    expect(readFileSync(args, "utf8")).not.toContain(SECRET_PASSWORD);
+    expect(started.stdout + started.stderr).not.toContain(SECRET_PASSWORD);
+    run(["stop"], { ...env, FAKE_STATE: "exited" });
+    // Without the file (and no environment override) start fails closed with a clear message instead of logging in blank.
+    const credFile = path.join(kit, ".fedlify/registry-credential");
+    const saved = readFileSync(credFile);
+    rmSync(credFile);
+    try {
+      const missing = run(["start"], env);
+      expect(missing.status).toBe(1);
+      expect(missing.stderr).toContain("no registry credential");
+      const report = JSON.parse(run(["preflight", "--json"]).stdout);
+      expect(report.checks.find((c: { id: string }) => c.id === "registry_credential").status).toBe("warn");
+    } finally {
+      writeFileSync(credFile, saved, { mode: 0o600 });
+    }
+  });
+
   it("logout removes the token file and never prints it", () => {
     expect(existsSync(path.join(kit, ".fedlify/site-token"))).toBe(true);
     const result = run(["logout"], { FAKE_CURL_ARGS: path.join(root, "a"), FAKE_CURL_STDIN: path.join(root, "b") });
     expect(result.status).toBe(0);
     expect(existsSync(path.join(kit, ".fedlify/site-token"))).toBe(false);
+    expect(existsSync(path.join(kit, ".fedlify/registry-credential"))).toBe(false);
     expect(result.stdout + result.stderr).not.toContain(SECRET_TOKEN);
   });
 

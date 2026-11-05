@@ -169,3 +169,36 @@ Phases 0 to 2 can run in parallel. Phase 6 is the paper's critical path because 
 - A helper UI adds a localhost attack surface; the hardening list in section 6 is mandatory, not optional.
 - Revocation stays partial until cert re-provisioning exists; the UI must say so.
 - Collapsing the legacy page is a large refactor; redirects first, deletion later.
+
+## 13. Phase 3 implementation notes (password-protected kits, 2026-11-04)
+
+What shipped (working tree, not deployed):
+- Kit encryption: `lib/kit-crypto.ts` wraps the inner kit zip with `age` passphrase mode (npm `age-encryption` 0.3.1, BSD-3, pure ESM JS, scrypt work factor 18). The output is a standard age file; real `age` 1.2.1 decrypts it (checked by hand, see below).
+- Passphrase: 7 words from the EFF large list (7776 words, `lib/eff-wordlist.ts`), about 90 bits, drawn with `crypto.randomInt`. Returned once in the create response (`Cache-Control: no-store`). Not stored, logged, audited, or uploaded.
+- Download is an outer plaintext zip: `kit.zip.age`, `unlock.sh`, `unlock.ps1`, `README.txt` (no secrets).
+- Unlock: local `age` if present, else Docker with `docker.io/library/alpine@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f` (alpine 3.22 index digest from `docker buildx imagetools inspect`, confirmed with `docker manifest inspect`; `apk add age` gives 1.2.1; no official age image exists). The pin fixes the base image, not the apk package, and needs internet. The passphrase is typed at age's own tty prompt, so it is never in argv or the environment. Staging directory 0700, output renamed into place only after decrypt, `unzip -t` and a kit check; every failure removes staging. Directories 0700, files 0600. Windows: `icacls /inheritance:r` plus a grant to the current user (`unlock.ps1` is untested: no PowerShell here).
+- Secrets: `.env` and `.env.example` carry none. Registry login is `.fedlify/registry-credential` (two lines, 0600); the runner reads it (or `FEDLIFY_REGISTRY_USERNAME/PASSWORD` from the environment for scripts) and pipes the password to `docker login --password-stdin`. Site token stays in `.fedlify/site-token`. `logout` deletes both files.
+- Step-up: `lib/step-up.ts`, argon2 verify, 5 failures per 15 minutes per user (in-process `rate-limit.ts`, so per pod). Codes: `step_up_failed`, `step_up_required`, `password_not_set` (all 403), `step_up_rate_limited` (429). Failures are audited as `<action>_failed` with no password.
+- One-time download: `POST .../download {password}` returns a 2-minute grant; `GET .../download?grant=` redeems it atomically once and returns the 5-minute presigned URL. Only the grant hash is stored (two new nullable columns). The create call's own step-up covers the URL it returns. Kit validity stays 7 days. Upload-first ordering is unchanged.
+- Audit: `site.join_package.create`, `.create_failed`, `.download_authorized`, `.download`, `.download_failed`.
+- Revocation is labelled "partial" in the UI (NVFLARE cert not re-issued).
+- Local-runtime (non-published) kits get the same step-up, encryption and outer zip when storage is configured. Without storage nothing is downloadable, so no passphrase is issued. Its legacy runner still writes the site token into `.env` at `start`; that runner was not rewritten.
+
+Not done:
+- Re-wrap at first unlock: skipped. The creator keeps the original file and passphrase, so re-wrapping the operator's copy would not remove the creator's access and would add an interactive encrypt step across three platforms. The real mitigations are token rotation and cert re-provisioning.
+- Headless passphrase from a file or environment variable (5.2).
+- Per-site Harbor robot accounts: the global pull credential is still inside the encrypted part, so anyone with one site's passphrase can read a credential shared by all kits.
+- The plaintext `unlock.*` scripts can be tampered with in transit; there is no signature on them.
+
+### Pending infrastructure item: S3 lifecycle rule (do not apply from this repo)
+The route now deletes the previous kit object after a new kit commits (best effort). Backstop for expired kits and failed deletes. S3 filters cannot match the `/join/` path segment, so the rule needs an object tag that the upload would set (`fedlify-kind=site-kit`, not yet implemented in `uploadObject`):
+```json
+{"Rules":[{"ID":"expire-site-kits","Status":"Enabled","Filter":{"Tag":{"Key":"fedlify-kind","Value":"site-kit"}},"Expiration":{"Days":14}}]}
+```
+14 days = 7-day kit validity plus margin. Until the tag exists, a prefix rule on `studies/` would also hit other objects and must not be used.
+
+### Deploy and verification notes
+- Migration `20261106090000_site_kit_download_grant` (two nullable columns, additive). Migrations apply through the `migrate` initContainer in `deploy/k8s/web-deployment.yaml` (`prisma migrate deploy`) on each web pod start. Not applied anywhere yet.
+- `pnpm add age-encryption@0.3.1` changed `apps/web/package.json` and `pnpm-lock.yaml` (the Dockerfile uses `--frozen-lockfile`). No `serverExternalPackages` entry was added: the package is pure JS and bundles. A `next build` was not run (forbidden here), so the standalone build is unverified.
+- Manual interop (not in vitest): kit encrypted by `age-encryption`, unlocked by `unlock.sh` through the pinned Docker image on a pty, under bash 5.3 and macOS bash 3.2. Correct passphrase unlocked with 0700/0600 modes; wrong passphrase and a flipped byte both failed with nothing left behind.
+- Playwright specs were updated to send the password but were not run.

@@ -46,6 +46,9 @@ importers:
       '@refinedev/nextjs-router':
         specifier: 7.0.5
         version: 7.0.5(@refinedev/core@5.0.12)(@types/react-dom@19.2.3)(@types/react@19.2.14)(next@16.2.5)(react-dom@19.2.6)(react@19.2.6)
+      age-encryption:
+        specifier: 0.3.1
+        version: 0.3.1
       antd:
         specifier: 5.29.3
         version: 5.29.3(react-dom@19.2.6)(react@19.2.6)
@@ -1735,6 +1738,43 @@ packages:
     dev: false
     optional: true
 
+  /@noble/ciphers@2.4.0:
+    resolution: {integrity: sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==}
+    engines: {node: '>= 20.19.0'}
+    dev: false
+
+  /@noble/curves@2.0.1:
+    resolution: {integrity: sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==}
+    engines: {node: '>= 20.19.0'}
+    dependencies:
+      '@noble/hashes': 2.0.1
+    dev: false
+
+  /@noble/curves@2.4.0:
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+    dependencies:
+      '@noble/hashes': 2.4.0
+    dev: false
+
+  /@noble/hashes@2.0.1:
+    resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
+    engines: {node: '>= 20.19.0'}
+    dev: false
+
+  /@noble/hashes@2.4.0:
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
+    dev: false
+
+  /@noble/post-quantum@0.5.4:
+    resolution: {integrity: sha512-leww0zzIirrvwaYMPI9fj6aRIlA/c6Y0/lifQQ1YOOyHEr0MNH3yYpjXeiVG+tWdPps4XxGclFWX2INPO3Yo5w==}
+    engines: {node: '>= 20.19.0'}
+    dependencies:
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+    dev: false
+
   /@nodable/entities@2.1.0:
     resolution: {integrity: sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA==}
     dev: false
@@ -2346,6 +2386,10 @@ packages:
   /@rtsao/scc@1.1.0:
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
     dev: true
+
+  /@scure/base@2.4.0:
+    resolution: {integrity: sha512-thZ1TuJwFwBblOhgsjDKvvGirBxNp+wSvY/DR6tJBJOTDhdAAcHJ8Vbr2eFnqaxeca4+t0i9KBf+uHYGWwZORg==}
+    dev: false
 
   /@smithy/chunked-blob-reader-native@4.2.3:
     resolution: {integrity: sha512-jA5k5Udn7Y5717L86h4EIv06wIr3xn8GM1qHRi/Nf31annXcXHJjBKvgztnbn2TxH3xWrPBfgwHsOwZf0UmQWw==}
@@ -3575,6 +3619,16 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
     dev: true
+
+  /age-encryption@0.3.1:
+    resolution: {integrity: sha512-bYgd7lxM7tEANmb9bXf7xTFB3Qpq+JGKinVSdFh5MV+t2fJJZSTdKhWkvXTFJQGysZd+K9Dt3F+n+4DKazXlnQ==}
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@noble/post-quantum': 0.5.4
+      '@scure/base': 2.4.0
+    dev: false
 
   /ajv-formats@3.0.1(ajv@8.20.0):
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}

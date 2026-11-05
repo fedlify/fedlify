@@ -347,7 +347,9 @@ test.describe.serial("site onboarding and experiment join", () => {
       (response) =>
         response.url().includes(`/api/v1/sites/${scenario.studySiteId}/join-package`) && response.request().method() === "POST"
     );
-    await page.getByRole("button", { name: "Download runner kit" }).click();
+    await page.getByRole("button", { name: "Create encrypted kit" }).click();
+    await page.getByPlaceholder("Account password").fill(password);
+    await page.getByRole("button", { name: "Create kit" }).click();
     const joinPackageResponse = await joinPackageResponsePromise;
     expect(joinPackageResponse.ok(), await joinPackageResponse.text()).toBe(true);
     const joinPackagePayload = (await joinPackageResponse.json()) as { enrollmentToken?: string };

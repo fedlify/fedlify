@@ -417,7 +417,7 @@ test.describe.serial("eicu real fedavg", () => {
       const governance = await governanceResponse.json();
       expect(governance.studySite.readinessChecks[0].status).toBe("PASSED");
 
-      const joinResponse = await page.request.post(`/api/v1/sites/${participant.studySiteId}/join-package`, { data: {} });
+      const joinResponse = await page.request.post(`/api/v1/sites/${participant.studySiteId}/join-package`, { data: { password } });
       expect(joinResponse.ok(), await joinResponse.text()).toBe(true);
       const joinPayload = await joinResponse.json();
 

@@ -508,7 +508,7 @@ test.describe.serial("live full cycle", () => {
       const governance = await governanceResponse.json();
       const readinessCheck = governance.studySite.readinessChecks[0];
       expect(readinessCheck.status).toBe("PASSED");
-      const joinResponse = await page.request.post(`/api/v1/sites/${studySiteId}/join-package`, { data: {} });
+      const joinResponse = await page.request.post(`/api/v1/sites/${studySiteId}/join-package`, { data: { password } });
       expect(joinResponse.ok(), await joinResponse.text()).toBe(true);
       const joinPayload = await joinResponse.json();
       expect(joinPayload.downloadUrl).toBeTruthy();

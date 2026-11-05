@@ -52,7 +52,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
       dataProfile: true,
       members: { include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: "desc" } },
       readinessChecks: { orderBy: { createdAt: "desc" }, take: 5 },
-      joinPackages: { orderBy: { createdAt: "desc" }, take: 5 },
+      joinPackages: { omit: { downloadGrantHash: true, downloadGrantExpiresAt: true }, orderBy: { createdAt: "desc" }, take: 5 },
       nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 5 },
       logArtifacts: { orderBy: { createdAt: "desc" }, take: 10 }
     }

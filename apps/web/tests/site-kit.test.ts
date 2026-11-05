@@ -37,11 +37,22 @@ describe("published site kit", () => {
     expect(String(files[".env"])).toContain(`FEDLIFY_STUDY_IMAGE=${digest}`);
   });
 
-  it("never ships a token, and quotes registry credentials for the shell", () => {
-    const env = String(kit()[".env"]);
-    expect(env).not.toMatch(/^FEDLIFY_SITE_TOKEN=/m);
-    expect(env).toContain(`FEDLIFY_REGISTRY_USERNAME='robot$fedlify-studies+studies-pull'`);
-    expect(env).toContain(`FEDLIFY_REGISTRY_PASSWORD='p'"'"'ss'`);
+  it("keeps every secret out of .env and .env.example; the registry login is a separate file", () => {
+    const files = kit();
+    for (const name of [".env", ".env.example"]) {
+      const env = String(files[name]);
+      expect(env).not.toMatch(/^FEDLIFY_SITE_TOKEN=/m);
+      const assignments = env.split("\n").filter((line) => line && !line.startsWith("#"));
+      expect(assignments.join("\n")).not.toMatch(/PASSWORD|TOKEN|SECRET|CREDENTIAL|KEY/i);
+      expect(env).not.toContain("p'ss");
+      expect(env).not.toContain("robot$");
+    }
+    // Only the credential file carries the login, as two plain lines (username, password).
+    expect(files[".fedlify/registry-credential"]).toBe("robot$fedlify-studies+studies-pull\np'ss\n");
+    for (const [name, body] of Object.entries(files)) {
+      if (name === ".fedlify/registry-credential") continue;
+      expect(String(body)).not.toContain("p'ss");
+    }
   });
 
   it("points sites at the study hostname on 443 and supports updates", () => {

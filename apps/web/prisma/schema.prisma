@@ -715,24 +715,27 @@ model SiteReadinessCheck {
 }
 
 model SiteJoinPackage {
-  id            String                @id @default(cuid())
-  studySiteId   String
-  generatedById String
-  kind          SiteJoinPackageKind   @default(STARTUP_KIT)
-  status        SiteJoinPackageStatus @default(ACTIVE)
-  filename      String
-  contentType   String                @default("application/json")
-  storageKey    String                @unique
-  checksum      String
-  sizeBytes     BigInt                @default(0)
-  expiresAt     DateTime
-  downloadCount Int                   @default(0)
-  deploymentId  String?
-  imageDigest   String?
-  studySite     StudySite             @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
-  generatedBy   User                  @relation("SiteJoinPackageGeneratedBy", fields: [generatedById], references: [id])
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
+  id                     String                @id @default(cuid())
+  studySiteId            String
+  generatedById          String
+  kind                   SiteJoinPackageKind   @default(STARTUP_KIT)
+  status                 SiteJoinPackageStatus @default(ACTIVE)
+  filename               String
+  contentType            String                @default("application/json")
+  storageKey             String                @unique
+  checksum               String
+  sizeBytes              BigInt                @default(0)
+  expiresAt              DateTime
+  downloadCount          Int                   @default(0)
+  deploymentId           String?
+  imageDigest            String?
+  // One-time download grant minted by a password step-up: only the sha256 of the grant token is kept; it is cleared when used.
+  downloadGrantHash      String?
+  downloadGrantExpiresAt DateTime?
+  studySite              StudySite             @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
+  generatedBy            User                  @relation("SiteJoinPackageGeneratedBy", fields: [generatedById], references: [id])
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
 
   @@index([studySiteId, status])
   @@index([expiresAt])

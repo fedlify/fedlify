@@ -256,7 +256,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
     // (apps/web/src/app/api/v1/sites/[siteId]/join-package/route.ts) never reads
     // readinessStatus/SiteReadinessCheck at all -- confirmed here by issuing a kit for a site
     // that is provably not ready and observing it succeed.
-    const kitForUnreadySite = await api.post(`/api/v1/sites/${siteIdByCode.C}/join-package`);
+    const kitForUnreadySite = await api.post(`/api/v1/sites/${siteIdByCode.C}/join-package`, { data: { password } });
     expect(kitForUnreadySite.status()).toBe(201);
     const kitBody = await kitForUnreadySite.json();
     expect(kitBody.enrollmentToken).toBeTruthy();

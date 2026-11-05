@@ -2,13 +2,16 @@
 // Edit the script text here; tests/site-runner.test.ts runs it under bash against a fake docker.
 export const PUBLISHED_RUNNER_SCRIPT = `#!/usr/bin/env bash
 # Fedlify site runner (bash 3.2+ on macOS and Linux).
+# Secrets: .env holds no secret. The registry credential is .fedlify/registry-credential (0600) and the site token is
+# .fedlify/site-token (0600); both are read by this script only, and passwords reach docker/curl on stdin.
 # usage: ./fedlify-runner.sh preflight [--json] | start | stop | status [--json] | logs | update | logout | support-bundle [--include-logs]
 set -euo pipefail
 cd "$(dirname "$0")"
 SELF="$PWD/$(basename "$0")"
-RUNNER_VERSION="fedlify-site-kit-3"
+RUNNER_VERSION="fedlify-site-kit-4"
 STATE_DIR=".fedlify"
 TOKEN_FILE="$STATE_DIR/site-token"
+CRED_FILE="$STATE_DIR/registry-credential"
 AGENT_PID="$STATE_DIR/agent.pid"
 LAST_BEAT="$STATE_DIR/last-heartbeat"
 BEAT_SECONDS=30
@@ -54,6 +57,20 @@ store_token() { # persist a token given through the environment
     ( umask 077; printf '%s' "$FEDLIFY_SITE_TOKEN" > "$TOKEN_FILE" )
     chmod 600 "$TOKEN_FILE"
   fi
+}
+
+# ---- registry credential: a 0600 file inside the unlocked kit (or, for scripts, the environment); never .env ------
+read_registry_cred() { # sets REG_USER and REG_PASS ; returns 0 only if both are present
+  REG_USER="\${FEDLIFY_REGISTRY_USERNAME:-}"; REG_PASS="\${FEDLIFY_REGISTRY_PASSWORD:-}"
+  if [ -z "$REG_USER" ] || [ -z "$REG_PASS" ]; then
+    REG_USER=""; REG_PASS=""
+    if [ -r "$CRED_FILE" ]; then { IFS= read -r REG_USER || true; IFS= read -r REG_PASS || true; } < "$CRED_FILE"; fi
+  fi
+  [ -n "$REG_USER" ] && [ -n "$REG_PASS" ]
+}
+registry_login() { # the password goes to docker on stdin, never on a command line
+  read_registry_cred || die "no registry credential: expected $CRED_FILE (shipped inside the unlocked kit). Unlock a fresh kit from Fedlify."
+  printf '%s' "$REG_PASS" | docker login "$FEDLIFY_REGISTRY" -u "$REG_USER" --password-stdin >/dev/null
 }
 
 # ---- observation: facts only, never data -------------------------------------------------------------------------
@@ -209,6 +226,7 @@ preflight_run() {
   else add_check compose fail "cannot check without Docker"; fi
   if [ -f .env ]; then add_check kit_env pass ".env present"; else add_check kit_env fail ".env missing: run from the extracted kit folder"; fi
   if [ -f nvflare/startup/fed_client.json ]; then add_check kit_nvflare pass "NVFLARE client kit present"; else add_check kit_nvflare fail "nvflare/startup/fed_client.json missing: download a new kit"; fi
+  if read_registry_cred; then add_check registry_credential pass "registry credential available"; else add_check registry_credential warn "no registry credential at $CRED_FILE; start and update cannot pull the image"; fi
   if have_token; then add_check site_token pass "site token available"; else add_check site_token warn "no site token yet; start needs FEDLIFY_SITE_TOKEN or FEDLIFY_SITE_TOKEN_FILE"; fi
   if [ -d "$FEDLIFY_DATA_DIR" ]; then
     n="$(csv_count)"
@@ -331,7 +349,7 @@ case "\${1:-}" in
     have_token || die "set the site token: FEDLIFY_SITE_TOKEN=<token shown once in Fedlify> ./fedlify-runner.sh start"
     [ -d "$FEDLIFY_DATA_DIR" ] || die "FEDLIFY_DATA_DIR does not exist; edit .env to point at this site's extract."
     store_token
-    printf '%s' "$FEDLIFY_REGISTRY_PASSWORD" | docker login "$FEDLIFY_REGISTRY" -u "$FEDLIFY_REGISTRY_USERNAME" --password-stdin >/dev/null
+    registry_login
     docker compose pull --quiet
     docker compose up -d
     start_agent
@@ -365,7 +383,7 @@ case "\${1:-}" in
     if [ -z "$desired" ] || [ "$desired" = "$FEDLIFY_STUDY_IMAGE" ]; then echo "Already on the published version."; exit 0; fi
     set_env FEDLIFY_STUDY_IMAGE "$desired"
     export FEDLIFY_STUDY_IMAGE="$desired"
-    printf '%s' "$FEDLIFY_REGISTRY_PASSWORD" | docker login "$FEDLIFY_REGISTRY" -u "$FEDLIFY_REGISTRY_USERNAME" --password-stdin >/dev/null
+    registry_login
     docker compose pull --quiet
     docker compose up -d
     echo "Updated to $desired" ;;
@@ -374,9 +392,9 @@ case "\${1:-}" in
     if agent_running; then observe; post_beat OFFLINE || true; fi
     stop_agent
     if have docker && [ -n "$FEDLIFY_REGISTRY" ]; then docker logout "$FEDLIFY_REGISTRY" >/dev/null 2>&1 || true; fi
-    rm -f "$TOKEN_FILE" "$LAST_BEAT"
-    echo "Logged out: site token file removed, heartbeat agent stopped, registry login cleared."
-    echo "Running containers are not affected (use stop). The registry password is still in .env, and the NVFLARE keys stay in nvflare/."
+    rm -f "$TOKEN_FILE" "$LAST_BEAT" "$CRED_FILE"
+    echo "Logged out: site token and registry credential files removed, heartbeat agent stopped, registry login cleared."
+    echo "Running containers are not affected (use stop). The NVFLARE keys stay in nvflare/; delete this folder when the site leaves."
     echo "Revoke or rotate this kit in Fedlify if the machine is shared or lost." ;;
   *) die "usage: $0 preflight [--json] | start | stop | status [--json] | logs | update | logout | agent-unit | support-bundle [--include-logs]" ;;
 esac

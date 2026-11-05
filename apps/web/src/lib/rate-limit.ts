@@ -29,6 +29,14 @@ export function rateLimit(key: string, limit: number, windowMs: number, options:
   return true;
 }
 
+/** Give back one unit of budget taken by a consuming `rateLimit` call (e.g. an attempt that turned out to be legitimate). */
+export function refundRateLimit(key: string): void {
+  const current = buckets.get(key);
+  if (!current) return;
+  current.count -= 1;
+  if (current.count <= 0) buckets.delete(key);
+}
+
 const slots = new Map<string, number>();
 
 /** Per-process concurrency cap. Returns a release function, or null when `max` are already in flight. */
