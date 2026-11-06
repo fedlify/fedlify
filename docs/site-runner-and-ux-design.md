@@ -493,3 +493,24 @@ Open, not fixable from this tree:
 Live result on Harbor v2.15.2: a robot cannot create a robot with more rights than it holds. The provisioner robot could not mint pull or push robots, and giving it those rights would have meant image pull and push on every project on the shared Harbor, including hivelab and lab-sites.
 
 Decision: the provisioner is a plain non-admin Harbor user, `fedlify-provisioner`. Harbor already has `project_creation_restriction = everyone` and self-registration off, so no shared setting changes. Terraform does not manage those settings; if someone restricts project creation to admins, publishing in per-study mode stops with a Harbor error. Where earlier sections of section 15 describe a provisioner robot, read this user instead.
+
+
+## 16. Assistant threads, plan mode and changes timeline (WP5, 2026-11-06)
+
+**Switch.** `AGENT_THREADS_ENABLED` (read in `src/lib/runtime-config.ts`) is set to `"true"` in `deploy/k8s/web-deployment.yaml`. Unset or false restores today's behaviour: every `agent/threads/**` route and `agent/timeline` answers 404 `threads_disabled`; `agent/messages` and `agent/proposals` take the old stateless path (the new optional `threadId`, `planId`, `clientTurnId` fields are ignored); the panel's thread probe fails and it shows Ask and Edit only.
+
+**Decisions.** Chat is kept until the project is deleted (threads can be archived; the panel shows a notice). The author and a user with manage rights can read a thread, the manager read-only; the audit role sees metadata only (titles redacted). The direct "Propose change" path stays, renamed "Edit".
+
+**Data.** Threads, turns (MESSAGE, QUESTIONS, PLAN, NOTICE, PROPOSAL kinds) and plans; proposals gain `threadId`, `turnId`, `rejectedById`, `rejectedAt`. Existing proposals are linked by `scripts/backfill-agent-threads.ts` (`--dry-run`, idempotent, needs `tsx`).
+
+**Routes** (under `/api/v1/studies/{studyId}/pipeline-projects/{projectId}/agent/`):
+- `threads` GET list, POST create (`message`, `mode`); `threads/{tid}` GET, PATCH (`title`, `status`).
+- `threads/{tid}/turns` POST `{message, mode: ask|plan, clientTurnId, filePath?, selection?, diagnostics?}`. Ask streams SSE; plan returns JSON, or SSE with `Accept: text/event-stream`. SSE events: the usual `fedlify.context`, `response.output_text.delta`, `fedlify.notice`, `fedlify.error`, `fedlify.done`, plus `fedlify.turn`, `fedlify.questions`, `fedlify.plan`.
+- `threads/{tid}/answers` POST; `threads/{tid}/plans/{pid}/decision` POST (author only); `threads/{tid}/plans/{pid}/code` POST.
+- `timeline` GET `?cursor&kind=all|agent|manual|published&limit`, or `?commit=<sha>` for one commit's before/after files.
+
+**Rules.** Nothing is written to the repository by planning. Code is only written after plan approval, and accepting the diff stays a separate step. A thread in plan or agent mode refuses a proposal without an approved `planId` (409 `plan_not_approved`). Audit metadata never contains message text. Accepted commits carry the `Fedlify-Agent-Proposal: <id>` trailer, which the timeline uses to match commits to proposals.
+
+**Known gaps.** Manual commits have no read-only compare view in the UI yet; "Save to study requirements" is not wired; selections sent from the editor use placeholder line numbers; nothing was run against a live Gitea, database or browser, so the Gitea `stats`/`files` fields are assumed.
+
+**Tests.** `agent-plan`, `agent-threads-route`, `agent-thread-turns-route`, `agent-plan-routes`, `agent-timeline`, `agent-backfill`, `gitea-commits`, `agent-thread-client`.

@@ -49,6 +49,9 @@ spec:
             # Workflow callbacks stay inside the cluster (the public edge blocks the callback step's user agent).
             - name: FEDLIFY_CALLBACK_BASE_URL
               value: http://fedlify-web.fedlify.svc.cluster.local
+            # Persisted assistant history, plan mode and changes timeline. Unset or false restores the stateless panel.
+            - name: AGENT_THREADS_ENABLED
+              value: "true"
             - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
               value: fedlify-study-pipeline-ci
             - name: GITEA_BASE_URL

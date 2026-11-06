@@ -2,11 +2,17 @@
 
 import { ClearOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
 import { Alert, Button, Input, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
+import { AgentHistoryPopover } from "@/components/AgentHistoryPopover";
+import { ChangesTimeline } from "@/components/ChangesTimeline";
+import { PlanQuestionsCard } from "@/components/PlanQuestionsCard";
+import { PlanStepsCard } from "@/components/PlanStepsCard";
+import { ThreadBar } from "@/components/ThreadBar";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   appliedPaths,
   createProposal,
   effectiveStatus,
+  getProposal,
   listProposals,
   type ProposalFailure,
   type ProposalStatus,
@@ -14,6 +20,33 @@ import {
 } from "@/lib/agent-proposal-client";
 import type { FailureSummary } from "@/lib/diagnostics";
 import { failureIsStale } from "@/lib/pipeline-start";
+import {
+  RETENTION_NOTICE,
+  buildChatItems,
+  codeFromPlan,
+  createThread,
+  decidePlan,
+  getThread,
+  getThreadAll,
+  initialStream,
+  lastThreadKey,
+  newClientTurnId,
+  patchThread,
+  pickInitialThread,
+  listThreads,
+  reduceStream,
+  submitAnswers,
+  threadModeFor,
+  toThreadView,
+  turnModeFor,
+  turnsUrl,
+  type ChatItem,
+  type PanelMode,
+  type ThreadView,
+  lastSeq,
+  storedUserTurn
+} from "@/lib/agent-thread-client";
+import type { AssistantEvent } from "@/lib/assistant-stream";
 import { MAX_MESSAGE_CHARS, MAX_SELECTION_CHARS, buildHistory, createSseParser, splitFences } from "@/lib/assistant-stream";
 
 export type AskRequest = { id: number; path: string; selection?: string };
@@ -63,6 +96,10 @@ type AssistantPanelProps = {
   onStartPromptConsumed?: (id: number) => void;
   /** Codes of sites that should be connected to the live aggregator but are not. */
   unconnectedSites?: string[];
+  /** Thread from the page URL (?thread=). Falls back to the last thread used in this project. */
+  threadId?: string | null;
+  /** Called when the open thread changes, so the page can keep it in the URL. */
+  onThreadChange?: (id: string | null) => void;
 };
 
 const FAILURE_PROMPTS = {
@@ -260,9 +297,23 @@ export function AssistantPanel({
   onOpenPublish,
   startPrompt,
   onStartPromptConsumed,
-  unconnectedSites = []
+  unconnectedSites = [],
+  threadId: threadIdProp = null,
+  onThreadChange
 }: AssistantPanelProps) {
-  const [mode, setMode] = useState<"ask" | "propose">("ask");
+  const [mode, setMode] = useState<PanelMode>("ask");
+  /** null while probing; false when the threads feature is off, then the panel works exactly as before. */
+  const [threadsOn, setThreadsOn] = useState<boolean | null>(null);
+  const [view, setView] = useState<ThreadView | null>(null);
+  const viewRef = useRef<ThreadView | null>(null);
+  /** The chat the person asked for (null = new chat); undefined until the first one is chosen. Late loads of other chats are ignored. */
+  const wantedThreadRef = useRef<string | null | undefined>(undefined);
+  const [tab, setTab] = useState<"chat" | "changes">("chat");
+  const [listKey, setListKey] = useState(0);
+  const [timelineKey, setTimelineKey] = useState(0);
+  const [cardBusy, setCardBusy] = useState<string | null>(null);
+  const [itemErrors, setItemErrors] = useState<Record<string, string>>({});
+  const [threadError, setThreadError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<Record<string, ProposalSummary>>({});
   const [busyProposal, setBusyProposal] = useState<string | null>(null);
   const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
@@ -279,6 +330,9 @@ export function AssistantPanel({
   const [notices, setNotices] = useState<FailureSummary[]>([]);
   const dismissedRef = useRef<Set<string>>(new Set(typeof window === "undefined" ? [] : (() => { try { return JSON.parse(window.sessionStorage.getItem(`fedlify-dismissed-notices:${projectId}`) ?? "[]") as string[]; } catch { return []; } })()));
   const streaming = messages.some((message) => message.status === "streaming");
+  const hydratedStreaming = Boolean(view?.turns.some((turn) => turn.status === "streaming"));
+  const readOnly = Boolean(view?.readOnly) || view?.thread.status === "ARCHIVED";
+  const threadMode = threadsOn === true;
 
   const update = useCallback((updater: (current: ChatMessage[]) => ChatMessage[]) => {
     setMessages((current) => {
@@ -289,6 +343,103 @@ export function AssistantPanel({
   }, []);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  const applyView = useCallback((next: ThreadView | null) => {
+    viewRef.current = next;
+    setView(next);
+  }, []);
+
+  const rememberThread = useCallback(
+    (id: string | null) => {
+      try {
+        if (id) window.localStorage.setItem(lastThreadKey(projectId), id);
+        else window.localStorage.removeItem(lastThreadKey(projectId));
+      } catch { /* storage unavailable */ }
+      onThreadChange?.(id);
+    },
+    [projectId, onThreadChange]
+  );
+
+  /** Fetch the thread from the server (the source of truth) and show it. Returns false when it is gone or not allowed. */
+  const refreshThread = useCallback(
+    async (id: string, adoptMode = false): Promise<boolean> => {
+      const result = await getThreadAll(studyId, projectId, id);
+      // The person moved to another chat while this was loading: do not overwrite it.
+      if (wantedThreadRef.current !== undefined && wantedThreadRef.current !== id) return false;
+      if (!result.ok) {
+        if (result.status === 404) {
+          applyView(null);
+          rememberThread(null);
+        } else setThreadError(result.message);
+        return false;
+      }
+      setThreadError(null);
+      const next = toThreadView(result);
+      applyView(next);
+      if (adoptMode) setMode(next.thread.mode);
+      return true;
+    },
+    [studyId, projectId, applyView, rememberThread]
+  );
+
+  // Probe the feature and restore the thread from the URL, else the last one used in this project.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const probe = await listThreads(studyId, projectId, { status: "ACTIVE" });
+      if (cancelled) return;
+      if (!probe.ok) {
+        // Flag off, or not allowed: behave as before. Any other failure also falls back rather than blocking the assistant.
+        setThreadsOn(false);
+        return;
+      }
+      setThreadsOn(true);
+      let stored: string | null = null;
+      try { stored = window.localStorage.getItem(lastThreadKey(projectId)); } catch { /* storage unavailable */ }
+      const id = pickInitialThread(threadIdProp, stored);
+      if (id) {
+        wantedThreadRef.current = id;
+        let ok = await refreshThread(id, true);
+        let used = id;
+        // A link from another project (or a deleted chat) falls back to the last chat used here.
+        if (!ok && stored && stored !== id && !cancelled) {
+          used = stored;
+          wantedThreadRef.current = stored;
+          ok = await refreshThread(stored, true);
+        }
+        if (!cancelled && ok) rememberThread(used);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Runs once per project (the page remounts the panel per project).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studyId, projectId]);
+
+  // A reload mid-stream shows a turn that is still "streaming" on the server; follow it until it settles.
+  useEffect(() => {
+    if (!view || !hydratedStreaming || streaming) return;
+    const id = view.thread.id;
+    const timer = setTimeout(() => void refreshThread(id), 3000);
+    return () => clearTimeout(timer);
+  }, [view, hydratedStreaming, streaming, refreshThread]);
+
+  // Proposal cards in a thread need the full summary (rationale, files); fetch the ones the list did not return.
+  useEffect(() => {
+    if (!view) return;
+    for (const item of view.proposals) {
+      const known = proposals[item.id];
+      if (known) continue;
+      void getProposal(studyId, projectId, item.id).then((result) => {
+        if (result.ok) setProposals((current) => (current[item.id] ? current : { ...current, [item.id]: result.proposal }));
+      });
+    }
+  }, [view, proposals, studyId, projectId]);
+
+  useEffect(() => {
+    if (proposalSync) setTimelineKey((key) => key + 1);
+  }, [proposalSync]);
 
   // Proposals survive a page reload: they are stored server-side, only the chat is local.
   useEffect(() => {
@@ -336,7 +487,8 @@ export function AssistantPanel({
   useEffect(() => {
     const log = logRef.current;
     if (log) log.scrollTop = log.scrollHeight;
-  }, [messages]);
+    // Also after a saved chat loads or refreshes, so the newest turn is in view rather than older notices.
+  }, [messages, view]);
 
   // "Ask assistant" from the editor: attach the file (and selection) and prefill a prompt for the user to review.
   useEffect(() => {
@@ -350,8 +502,114 @@ export function AssistantPanel({
   const attachedPath = includeFile ? (selection?.path ?? focusFile) : null;
   const attachedSelection = selection && selection.path === attachedPath ? selection.text : undefined;
 
+  /** The open thread, creating one first when this is the first message. Null when creation failed (the error is shown in the bubble). */
+  const ensureThread = useCallback(
+    async (title: string, panelMode: PanelMode): Promise<{ id: string } | { error: string }> => {
+      if (viewRef.current) return { id: viewRef.current.thread.id };
+      const created = await createThread(studyId, projectId, { message: title.slice(0, 80), mode: threadModeFor(panelMode) });
+      if (!created.ok) return { error: created.message };
+      const detail = await getThread(studyId, projectId, created.thread.id);
+      wantedThreadRef.current = created.thread.id;
+      applyView(toThreadView(detail.ok ? detail : { thread: created.thread }));
+      rememberThread(created.thread.id);
+      setListKey((key) => key + 1);
+      return { id: created.thread.id };
+    },
+    [studyId, projectId, applyView, rememberThread]
+  );
+
+  /** Ask and Plan turns in a thread. The server stores both sides; this only shows the stream and then reloads the thread. */
+  const sendThreadTurn = useCallback(
+    async (rawText: string, panelMode: PanelMode, options?: { diagnostics?: boolean }) => {
+      const text = rawText.trim().slice(0, MAX_MESSAGE_CHARS);
+      const turnMode = turnModeFor(panelMode);
+      if (!text || !turnMode || messagesRef.current.some((message) => message.status === "streaming")) return;
+      const userId = nextId.current++;
+      const assistantId = nextId.current++;
+      update((current) => [
+        ...current,
+        { id: userId, role: "user", content: text, status: "done" },
+        { id: assistantId, role: "assistant", content: "", status: "streaming" }
+      ]);
+      setInput("");
+      const patch = (changes: Partial<ChatMessage>) => update((current) => current.map((message) => (message.id === assistantId ? { ...message, ...changes } : message)));
+      const controller = new AbortController();
+      abortRef.current = controller;
+      let stream = initialStream();
+      const apply = (event: AssistantEvent) => {
+        if (event.kind === "context") setContext({ hash: event.hash, commit: event.commit, truncated: event.truncated, answered: event.answered, total: event.total });
+        stream = reduceStream(stream, event);
+        patch({ content: stream.content, notice: stream.notice, ...(stream.status !== "streaming" ? { status: stream.status, error: stream.error } : {}) });
+      };
+      let threadIdNow: string | null = null;
+      let seqBefore = 0;
+      try {
+        const ensured = await ensureThread(text, panelMode);
+        if ("error" in ensured) {
+          patch({ status: "error", error: ensured.error });
+          return;
+        }
+        threadIdNow = ensured.id;
+        seqBefore = lastSeq(viewRef.current?.turns ?? []);
+        const body = {
+          message: text,
+          mode: turnMode,
+          clientTurnId: newClientTurnId(),
+          filePath: attachedPath ?? undefined,
+          selection: attachedSelection ? { startLine: 1, endLine: 1, text: attachedSelection.slice(0, MAX_SELECTION_CHARS) } : undefined,
+          diagnostics: options?.diagnostics || undefined
+        };
+        const response = await fetch(turnsUrl(studyId, projectId, ensured.id), {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "text/event-stream, application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null);
+          patch({ status: "error", error: errorFromResponse(response.status, errorBody) });
+          return;
+        }
+        if (response.body && (response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          const parser = createSseParser();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            parser.push(decoder.decode(value, { stream: true })).forEach(apply);
+          }
+          parser.push(decoder.decode()).forEach(apply);
+          parser.flush().forEach(apply);
+          if (stream.status === "streaming") patch({ status: "error", error: "The reply ended unexpectedly. What arrived is shown above." });
+        } else {
+          // Plan turns may answer with plain JSON once the structured result is ready.
+          await response.text().catch(() => "");
+          patch({ status: "done" });
+        }
+      } catch (sendError) {
+        if (controller.signal.aborted) patch({ status: "stopped" });
+        else patch({ status: "error", error: sendError instanceof Error ? "The connection was interrupted." : "The assistant request failed." });
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
+        update((current) => current.map((message) => (message.id === assistantId && message.status === "streaming" ? { ...message, status: "error", error: "The reply did not finish." } : message)));
+        // The stored turns replace the temporary bubbles. Keep the bubbles if the server never saw the turn.
+        if (threadIdNow) {
+          const reached = stream.userTurnId || stream.status === "done" || stream.structured;
+          const ok = await refreshThread(threadIdNow);
+          // The server may have stored the message even when the reply failed; then the stored copy replaces the temporary one.
+          const storedUser = ok && storedUserTurn(viewRef.current, text, seqBefore);
+          if (ok && (reached || storedUser)) update((current) => current.filter((message) => message.id !== userId && (!reached || message.id !== assistantId)));
+          setListKey((key) => key + 1);
+        }
+      }
+    },
+    [attachedPath, attachedSelection, ensureThread, projectId, refreshThread, studyId, update]
+  );
+
   const send = useCallback(
     async (rawText: string, options?: { diagnostics?: boolean }) => {
+      if (threadsOn) return sendThreadTurn(rawText, mode === "plan" || mode === "agent" ? mode : "ask", options);
       const text = rawText.trim().slice(0, MAX_MESSAGE_CHARS);
       if (!text || messagesRef.current.some((message) => message.status === "streaming")) return;
       const history = buildHistory(messagesRef.current);
@@ -421,7 +679,7 @@ export function AssistantPanel({
         update((current) => current.map((message) => (message.id === assistantId && message.status === "streaming" ? { ...message, status: "error", error: "The reply did not finish." } : message)));
       }
     },
-    [attachedPath, attachedSelection, projectId, studyId, update]
+    [attachedPath, attachedSelection, mode, projectId, sendThreadTurn, studyId, threadsOn, update]
   );
 
   /** File and selection each proposal was written with, so Regenerate asks the same question. Lost on reload. */
@@ -444,7 +702,21 @@ export function AssistantPanel({
       const controller = new AbortController();
       abortRef.current = controller;
       const sent = context ?? { filePath: attachedPath ?? undefined, selection: attachedSelection ? attachedSelection.slice(0, MAX_SELECTION_CHARS) : undefined };
-      const result = await createProposal(studyId, projectId, { message: text, history, filePath: sent.filePath, selection: sent.selection, diagnostics: options?.diagnostics || undefined }, controller.signal);
+      let editThreadId: string | undefined;
+      if (threadsOn) {
+        const ensured = await ensureThread(text, "edit");
+        if ("error" in ensured) {
+          if (abortRef.current === controller) abortRef.current = null;
+          patch({ status: "error", error: ensured.error });
+          return;
+        }
+        editThreadId = ensured.id;
+      }
+      const seqBefore = lastSeq(viewRef.current?.turns ?? []);
+      const threadHistory = viewRef.current
+        ? buildHistory(viewRef.current.turns.filter((turn) => turn.kind === "MESSAGE").map((turn) => ({ role: turn.role === "USER" ? ("user" as const) : ("assistant" as const), content: turn.content, status: turn.status })))
+        : history;
+      const result = await createProposal(studyId, projectId, { message: text, history: threadHistory, filePath: sent.filePath, selection: sent.selection, diagnostics: options?.diagnostics || undefined, threadId: editThreadId }, controller.signal);
       if (abortRef.current === controller) abortRef.current = null;
       if (controller.signal.aborted) {
         patch({ status: "stopped" });
@@ -459,8 +731,16 @@ export function AssistantPanel({
       } else {
         patch({ status: "error", error: result.message, details: result.details });
       }
+      if (editThreadId) {
+        // The server stored the turns (and the proposal turn); show them instead of the temporary bubbles when it reached them.
+        const reached = result.ok || result.code === "no_changes";
+        const ok = await refreshThread(editThreadId);
+        const storedUser = ok && storedUserTurn(viewRef.current, text, seqBefore);
+        if (ok && (reached || storedUser)) update((current) => current.filter((message) => message.id !== userId && (!reached || message.id !== assistantId)));
+        setListKey((key) => key + 1);
+      }
     },
-    [attachedPath, attachedSelection, projectId, studyId, update]
+    [attachedPath, attachedSelection, ensureThread, projectId, refreshThread, studyId, threadsOn, update]
   );
 
   // A prompt handed over by the Start a pipeline screen. A "propose" prompt is sent as a proposal right away, so the
@@ -469,18 +749,19 @@ export function AssistantPanel({
   const startPromptId = startPrompt?.id ?? null;
   const startPromptTaken = useRef<number | null>(null);
   useEffect(() => {
-    if (!startPrompt || startPromptTaken.current === startPrompt.id) return;
+    // Wait for the feature probe so the prompt lands in a thread when threads are on.
+    if (!startPrompt || threadsOn === null || startPromptTaken.current === startPrompt.id) return;
     startPromptTaken.current = startPrompt.id;
     onStartPromptConsumed?.(startPrompt.id);
     if (startPrompt.mode === "propose") {
-      setMode("propose");
+      setMode("edit");
       void propose(startPrompt.text);
     } else {
       setMode("ask");
       setInput((current) => current.trim() || startPrompt.text);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startPromptId]);
+  }, [startPromptId, threadsOn]);
 
   async function acceptCard(id: string) {
     setBusyProposal(id);
@@ -519,7 +800,7 @@ export function AssistantPanel({
         onAccept={() => void acceptCard(id)}
         onReject={() => void rejectCard(id)}
         onRegenerate={() => {
-          setMode("propose");
+          setMode("edit");
           // Only start the new proposal once the old one is really closed; otherwise two open proposals would exist.
           void rejectCard(id).then((closed) => {
             if (closed) void propose(proposal.prompt, proposalContextRef.current[id] ?? {});
@@ -551,7 +832,7 @@ export function AssistantPanel({
   }
 
   function proposeFix(kind: FailureSummary["kind"]) {
-    setMode("propose");
+    setMode("edit");
     void propose(FAILURE_PROMPTS[kind].fix, undefined, { diagnostics: true });
   }
 
@@ -562,8 +843,194 @@ export function AssistantPanel({
     setSelection(null);
   }
 
-  const submit = (text: string) => (mode === "propose" ? propose(text) : send(text));
-  const shownIds = new Set(messages.flatMap((message) => (message.proposalId ? [message.proposalId] : [])));
+    // ---------- thread actions ----------
+
+  function resetLocal() {
+    abortRef.current?.abort();
+    update(() => []);
+    setContext(null);
+    setSelection(null);
+    setItemErrors({});
+    setThreadError(null);
+  }
+
+  async function selectThread(id: string) {
+    resetLocal();
+    setTab("chat");
+    wantedThreadRef.current = id;
+    applyView(null);
+    const ok = await refreshThread(id, true);
+    if (ok) rememberThread(id);
+  }
+
+  function newChat() {
+    wantedThreadRef.current = null;
+    resetLocal();
+    applyView(null);
+    rememberThread(null);
+    setTab("chat");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  async function setArchived(id: string, archived: boolean) {
+    const result = await patchThread(studyId, projectId, id, { status: archived ? "ARCHIVED" : "ACTIVE" });
+    if (!result.ok) {
+      setThreadError(result.message);
+      return;
+    }
+    if (viewRef.current?.thread.id === id) {
+      if (archived) newChat();
+      else await refreshThread(id);
+    }
+    setListKey((key) => key + 1);
+  }
+
+  async function renameThread(title: string) {
+    const id = viewRef.current?.thread.id;
+    if (!id) return;
+    const result = await patchThread(studyId, projectId, id, { title });
+    if (!result.ok) setThreadError(result.message);
+    else await refreshThread(id);
+    setListKey((key) => key + 1);
+  }
+
+  function failItem(key: string, message: string) {
+    setItemErrors((current) => ({ ...current, [key]: message }));
+  }
+
+  async function answerQuestions(turnId: string, answers: Record<string, string | string[]>, skipped: boolean) {
+    const id = viewRef.current?.thread.id;
+    if (!id || cardBusy) return;
+    setCardBusy(turnId);
+    failItem(turnId, "");
+    const result = await submitAnswers(studyId, projectId, id, { turnId, answers, skipped: skipped || undefined });
+    if (!result.ok) failItem(turnId, result.message);
+    await refreshThread(id);
+    setCardBusy(null);
+  }
+
+  async function writeCode(threadIdNow: string, planId: string) {
+    const coded = await codeFromPlan(studyId, projectId, threadIdNow, planId);
+    if (!coded.ok) failItem(planId, [coded.message, ...coded.details].join(" "));
+    await refreshThread(threadIdNow);
+    setTimelineKey((key) => key + 1);
+  }
+
+  async function approvePlan(planId: string, approvedStepIds: string[], ackAssumptions: string[]) {
+    const id = viewRef.current?.thread.id;
+    if (!id || cardBusy) return;
+    setCardBusy(planId);
+    failItem(planId, "");
+    const decided = await decidePlan(studyId, projectId, id, planId, { decision: "approve", approvedStepIds, ackAssumptions });
+    if (!decided.ok) {
+      failItem(planId, decided.code === "plan_stale" ? "The saved code changed since this plan was written. Re-plan from the latest commit." : [decided.message, ...decided.details].join(" "));
+      await refreshThread(id);
+    } else if (mode === "agent") {
+      await writeCode(id, planId);
+    } else {
+      await refreshThread(id);
+    }
+    setCardBusy(null);
+  }
+
+  async function rejectPlan(planId: string) {
+    const id = viewRef.current?.thread.id;
+    if (!id || cardBusy) return;
+    setCardBusy(planId);
+    const decided = await decidePlan(studyId, projectId, id, planId, { decision: "reject" });
+    if (!decided.ok) failItem(planId, decided.message);
+    await refreshThread(id);
+    setCardBusy(null);
+  }
+
+  async function codeApprovedPlan(planId: string) {
+    const id = viewRef.current?.thread.id;
+    if (!id || cardBusy) return;
+    setCardBusy(planId);
+    failItem(planId, "");
+    await writeCode(id, planId);
+    setCardBusy(null);
+  }
+
+  function revisePlan() {
+    setMode("plan");
+    setInput((current) => current.trim() || "Revise the plan: ");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function renderItem(item: ChatItem) {
+    const current = view;
+    switch (item.type) {
+      case "message":
+        return (
+          <div key={item.key} className={`fedlify-ws-msg is-${item.role}${item.isNotice ? " is-system" : ""}`}>
+            <span className="fedlify-ws-msg-role">{item.role === "user" ? "You" : item.isNotice ? "Notice" : "Assistant"}</span>
+            <MessageBody message={{ id: 0, role: item.role, content: item.content, status: item.status }} />
+            {item.status === "stopped" ? <Typography.Text className="fedlify-muted">Stopped.</Typography.Text> : null}
+            {item.status === "error" ? <Alert type="error" showIcon message="The reply did not finish." /> : null}
+          </div>
+        );
+      case "questions":
+        return (
+          <div key={item.key} className="fedlify-ws-msg is-assistant">
+            <span className="fedlify-ws-msg-role">Assistant</span>
+            <PlanQuestionsCard
+              questions={item.payload.questions}
+              round={item.payload.round}
+              answered={item.answered}
+              disabled={readOnly || !current?.canDecidePlan}
+              busy={cardBusy === item.turnId}
+              onSubmit={(answers, skipped) => void answerQuestions(item.turnId, answers, skipped)}
+            />
+            {itemErrors[item.turnId] ? <Alert type="error" showIcon message={itemErrors[item.turnId]} /> : null}
+          </div>
+        );
+      case "plan": {
+        const plan = current?.plans.find((candidate) => candidate.id === item.planId);
+        if (!plan) return null;
+        return (
+          <div key={item.key} className="fedlify-ws-msg is-assistant">
+            <span className="fedlify-ws-msg-role">Assistant</span>
+            <PlanStepsCard
+              plan={plan}
+              head={commit}
+              canDecide={Boolean(current?.canDecidePlan) && !readOnly}
+              autoCode={mode === "agent"}
+              busy={cardBusy === plan.id}
+              error={itemErrors[plan.id]}
+              onApprove={(steps, acked) => void approvePlan(plan.id, steps, acked)}
+              onReject={() => void rejectPlan(plan.id)}
+              onRevise={revisePlan}
+              onWriteCode={() => void codeApprovedPlan(plan.id)}
+              onReplan={() => void sendThreadTurn("Re-plan from the latest commit, keeping the same goal and my earlier answers.", "plan")}
+            />
+          </div>
+        );
+      }
+      case "proposal":
+        return (
+          <div key={item.key} className="fedlify-ws-msg is-assistant">
+            <span className="fedlify-ws-msg-role">Assistant</span>
+            {renderCard(item.proposalId) ?? <Typography.Text className="fedlify-muted">Loading the proposal...</Typography.Text>}
+          </div>
+        );
+      case "steps":
+        return (
+          <details key={item.key} className="fedlify-ws-steps">
+            <summary>{item.steps.length === 1 ? item.steps[0].label : `${item.steps.length} steps: ${item.steps[item.steps.length - 1].label}`}</summary>
+            <ul>{item.steps.map((step) => <li key={step.id}>{step.label}</li>)}</ul>
+          </details>
+        );
+    }
+  }
+
+  const chatItems = view && !view.metadataOnly ? buildChatItems(view.turns, view.plans) : [];
+
+  const submit = (text: string) => (readOnly ? Promise.resolve() : mode === "edit" ? propose(text) : send(text));
+  const shownIds = new Set([
+    ...messages.flatMap((message) => (message.proposalId ? [message.proposalId] : [])),
+    ...chatItems.flatMap((item) => (item.type === "proposal" ? [item.proposalId] : []))
+  ]);
   const earlier = Object.values(proposals)
     .filter((item) => !shownIds.has(item.id) && ["PROPOSED", "STALE"].includes(effectiveStatus(item, commit)))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -594,15 +1061,50 @@ export function AssistantPanel({
           </Tooltip>
         </div>
         <span>
-          <Tooltip title="Clear conversation">
-            <Button size="small" type="text" icon={<ClearOutlined />} onClick={clearChat} disabled={messages.length === 0} aria-label="Clear conversation" />
-          </Tooltip>
+          {threadMode ? (
+            <AgentHistoryPopover studyId={studyId} projectId={projectId} activeId={view?.thread.id ?? null} refreshKey={listKey} disabled={streaming} onSelect={(id) => void selectThread(id)} onNew={newChat} onSetArchived={(id, archived) => void setArchived(id, archived)} />
+          ) : (
+            <Tooltip title="Clear conversation">
+              <Button size="small" type="text" icon={<ClearOutlined />} onClick={clearChat} disabled={messages.length === 0} aria-label="Clear conversation" />
+            </Tooltip>
+          )}
           <Tooltip title="Collapse assistant">
             <Button size="small" type="text" icon={<MenuUnfoldOutlined />} onClick={onToggle} aria-label="Collapse assistant" />
           </Tooltip>
         </span>
       </div>
 
+      {threadMode ? (
+        <div className="fedlify-ws-tabs">
+          <Segmented size="small" value={tab} onChange={(value) => setTab(value as "chat" | "changes")} options={[{ label: "Chat", value: "chat" }, { label: "Changes", value: "changes" }]} aria-label="Assistant view" />
+        </div>
+      ) : null}
+      {threadMode && tab === "chat" && view ? (
+        <ThreadBar view={view} head={commit} onRename={(title) => void renameThread(title)} onArchive={() => void setArchived(view.thread.id, true)} />
+      ) : null}
+      {threadMode && tab === "chat" && view?.metadataOnly ? (
+        <Alert className="fedlify-ws-banner" type="info" showIcon message="Audit view: only the chat's details are shown, not its messages." />
+      ) : null}
+      {threadMode && tab === "chat" && view && readOnly && !view.metadataOnly ? (
+        <Alert className="fedlify-ws-banner" type="info" showIcon message={`Read-only: started by ${view.thread.createdBy.name ?? "another user"}.`} />
+      ) : null}
+      {threadMode && tab === "chat" && view?.thread.status === "ARCHIVED" ? (
+        <Alert className="fedlify-ws-banner" type="warning" showIcon message="This chat is archived and read-only." action={view.canArchive ? <Button size="small" onClick={() => void setArchived(view.thread.id, false)}>Restore</Button> : undefined} />
+      ) : null}
+      {threadError ? <Alert className="fedlify-ws-banner" type="error" showIcon closable message={threadError} onClose={() => setThreadError(null)} /> : null}
+
+      {threadMode && tab === "changes" ? (
+        <div className="fedlify-ws-log">
+          <ChangesTimeline
+            studyId={studyId}
+            projectId={projectId}
+            refreshKey={timelineKey}
+            onReviewProposal={onReviewProposal}
+            onOpenThread={(id) => void selectThread(id)}
+          />
+        </div>
+      ) : (
+      <>
       <div className="fedlify-ws-log" ref={logRef} role="log" aria-live="polite" aria-label="Conversation">
         {notices.map((notice) => {
           // Only a publish failure belongs to a commit; the saved head moving past it makes the notice out of date.
@@ -631,15 +1133,21 @@ export function AssistantPanel({
           </div>
           );
         })}
-        {messages.length === 0 ? (
+        {chatItems.map(renderItem)}
+        {messages.length === 0 && chatItems.length === 0 ? (
           <div className="fedlify-ws-quick">
             <Typography.Text className="fedlify-muted">
-              {mode === "propose"
+              {mode === "edit"
                 ? "Describe a change. The assistant writes a proposal you can review as a diff. It cannot save, publish, run, or release anything."
-                : "Ask about this project. It can read your study context and the saved code, but it cannot save, publish, run, or release anything."}
+                : mode === "plan"
+                  ? "Describe a goal. The assistant may ask questions, then writes a plan. No code is written until you approve the plan, and nothing is saved until you accept the diff."
+                  : mode === "agent"
+                    ? "Describe a goal. The assistant plans, waits for your approval, then writes a proposal. You still review and accept the diff."
+                    : "Ask about this project. It can read your study context and the saved code, but it cannot save, publish, run, or release anything."}
             </Typography.Text>
+            {threadMode ? <Typography.Text className="fedlify-muted fedlify-ws-retention" data-testid="retention-notice">{RETENTION_NOTICE}</Typography.Text> : null}
             <div className="fedlify-ws-quick-list">
-              {(mode === "propose" ? PROPOSE_PROMPTS : QUICK_PROMPTS).map((prompt) => (
+              {(mode === "edit" ? PROPOSE_PROMPTS : mode === "ask" ? QUICK_PROMPTS : []).map((prompt) => (
                 <Button key={prompt} size="small" onClick={() => void submit(prompt)}>{prompt}</Button>
               ))}
               {mode === "ask" && publishKey && !notices.some((n) => n.kind === "publish") ? <Button size="small" onClick={() => void send("Why did publish fail?", { diagnostics: true })}>Why did publish fail?</Button> : null}
@@ -677,6 +1185,9 @@ export function AssistantPanel({
         ) : null}
       </div>
 
+      {readOnly ? (
+        <div className="fedlify-ws-composer"><Typography.Text className="fedlify-muted">This chat is read-only for you. Start a new chat to ask something.</Typography.Text></div>
+      ) : (
       <div className="fedlify-ws-composer">
         <div className="fedlify-ws-chips" aria-label="Context sent with your next message">
           <Tooltip title="Protocol fields, your requirement answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
@@ -716,7 +1227,7 @@ export function AssistantPanel({
           maxLength={MAX_MESSAGE_CHARS}
           variant="borderless"
           autoSize={{ minRows: 1, maxRows: 8 }}
-          placeholder={mode === "propose" ? "Describe the change you want proposed..." : focusFile ? `Ask about ${focusFile} or the project...` : "Ask about the project..."}
+          placeholder={mode === "edit" ? "Describe the change you want proposed..." : mode === "plan" || mode === "agent" ? "Describe what you want to build or change..." : focusFile ? `Ask about ${focusFile} or the project...` : "Ask about the project..."}
           aria-label="Message to the assistant"
           onChange={(event) => setInput(event.target.value)}
           onPressEnter={(event) => {
@@ -729,8 +1240,8 @@ export function AssistantPanel({
           <Segmented
             size="small"
             value={mode}
-            onChange={(value) => setMode(value as "ask" | "propose")}
-            options={[{ label: "Ask", value: "ask" }, { label: "Propose change", value: "propose" }]}
+            onChange={(value) => setMode(value as PanelMode)}
+            options={threadMode ? [{ label: "Ask", value: "ask" }, { label: "Plan", value: "plan" }, { label: "Agent", value: "agent" }, { label: "Edit", value: "edit" }] : [{ label: "Ask", value: "ask" }, { label: "Edit", value: "edit" }]}
             aria-label="Assistant mode"
           />
           <span className="fedlify-ws-composer-right">
@@ -740,11 +1251,14 @@ export function AssistantPanel({
             {streaming ? (
               <Button shape="circle" danger icon={<StopOutlined />} aria-label="Stop" title="Stop" onClick={() => abortRef.current?.abort()} />
             ) : (
-              <Button shape="circle" type="primary" icon={<ArrowUpOutlined />} aria-label={mode === "propose" ? "Propose" : "Send"} title={mode === "propose" ? "Propose" : "Send"} disabled={!input.trim()} onClick={() => void submit(input)} />
+              <Button shape="circle" type="primary" icon={<ArrowUpOutlined />} aria-label={mode === "edit" ? "Propose" : "Send"} title={mode === "edit" ? "Propose" : "Send"} disabled={!input.trim()} onClick={() => void submit(input)} />
             )}
           </span>
         </div>
       </div>
+      )}
+      </>
+      )}
     </aside>
   );
 }

@@ -612,6 +612,83 @@ export async function readGiteaFileAtRef(input: { owner: string; repo: string; r
   return Buffer.from(normalized, content.encoding === "base64" || content.encoding == null ? "base64" : "utf8").toString("utf8");
 }
 
+export type GiteaCommitSummary = {
+  sha: string;
+  /** Full commit message (subject and body, trailers included). */
+  message: string;
+  authorName: string | null;
+  authorEmail: string | null;
+  /** ISO time the commit was created. */
+  at: string;
+  parents: string[];
+  additions: number | null;
+  deletions: number | null;
+};
+
+type GiteaCommitResponse = {
+  sha?: string;
+  created?: string;
+  commit?: { message?: string; author?: { name?: string; email?: string; date?: string }; committer?: { date?: string } };
+  parents?: Array<{ sha?: string }>;
+  stats?: { additions?: number; deletions?: number };
+  files?: Array<{ filename?: string; status?: string; previous_filename?: string }>;
+};
+
+function toCommitSummary(item: GiteaCommitResponse): GiteaCommitSummary | null {
+  if (!item.sha) return null;
+  const at = item.created ?? item.commit?.committer?.date ?? item.commit?.author?.date;
+  if (!at || Number.isNaN(Date.parse(at))) return null;
+  return {
+    sha: item.sha,
+    message: item.commit?.message ?? "",
+    authorName: item.commit?.author?.name ?? null,
+    authorEmail: item.commit?.author?.email ?? null,
+    at: new Date(at).toISOString(),
+    parents: (item.parents ?? []).map((parent) => parent.sha).filter((sha): sha is string => Boolean(sha)),
+    additions: typeof item.stats?.additions === "number" ? item.stats.additions : null,
+    deletions: typeof item.stats?.deletions === "number" ? item.stats.deletions : null
+  };
+}
+
+/** One page of commits reachable from `branch` (or a commit sha), newest first. Read-only. Page is 1-based. */
+export async function listGiteaCommits(input: { owner: string; repo: string; branch: string; page?: number; limit?: number }): Promise<GiteaCommitSummary[]> {
+  const page = Math.max(1, Math.floor(input.page ?? 1));
+  const limit = Math.min(50, Math.max(1, Math.floor(input.limit ?? 50)));
+  const items = await giteaRequest<GiteaCommitResponse[]>(
+    `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/commits?sha=${encodeURIComponent(input.branch)}&page=${page}&limit=${limit}&stat=true&files=false&verification=false`
+  );
+  return (Array.isArray(items) ? items : []).map(toCommitSummary).filter((item): item is GiteaCommitSummary => item !== null);
+}
+
+export type GiteaCommitChange = { path: string; status: "added" | "modified" | "deleted" | "renamed"; previousPath: string | null };
+
+/** What one commit changed against its first parent: the parent sha, changed paths and line totals. Read-only. Null when the commit is unknown. */
+export async function compareGiteaCommit(input: { owner: string; repo: string; commit: string }): Promise<{
+  sha: string;
+  parent: string | null;
+  files: GiteaCommitChange[];
+  additions: number | null;
+  deletions: number | null;
+} | null> {
+  const item = await giteaRequestNullable<GiteaCommitResponse>(
+    `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/git/commits/${encodeURIComponent(input.commit)}?stat=true&files=true&verification=false`
+  );
+  if (!item?.sha) return null;
+  const files = (item.files ?? [])
+    .filter((file): file is { filename: string; status?: string; previous_filename?: string } => Boolean(file.filename))
+    .map((file): GiteaCommitChange => {
+      const status = file.status === "added" || file.status === "deleted" || file.status === "renamed" ? file.status : "modified";
+      return { path: file.filename, status, previousPath: file.previous_filename || null };
+    });
+  return {
+    sha: item.sha,
+    parent: item.parents?.[0]?.sha ?? null,
+    files,
+    additions: typeof item.stats?.additions === "number" ? item.stats.additions : null,
+    deletions: typeof item.stats?.deletions === "number" ? item.stats.deletions : null
+  };
+}
+
 export function isRuntimeConfigurationError(error: unknown): error is RuntimeConfigurationError {
   return error instanceof RuntimeConfigurationError;
 }

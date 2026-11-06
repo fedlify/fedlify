@@ -3,12 +3,17 @@
  * Pure functions so the SSE handling can be unit tested without a browser.
  */
 
+import { THREAD_SSE_EVENTS, type PlanEventData, type QuestionsEventData, type TurnEventData } from "@/lib/agent-thread-types";
+
 export type AssistantEvent =
   | { kind: "context"; hash: string; commit: string | null; truncated: string[]; answered: number; total: number }
   | { kind: "delta"; text: string }
   | { kind: "notice"; message: string }
   | { kind: "error"; message: string }
   | { kind: "done" }
+  | { kind: "turn"; data: TurnEventData }
+  | { kind: "questions"; data: QuestionsEventData }
+  | { kind: "plan"; data: PlanEventData }
   | { kind: "ignore" };
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -20,6 +25,11 @@ export const MAX_SELECTION_CHARS = 20000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/** Thread events carry their fields either flat next to "type" or under "data". */
+function threadEventData(event: Record<string, unknown>): Record<string, unknown> | null {
+  return asRecord(event.data) ?? event;
 }
 
 /** Map one decoded SSE JSON payload to something the panel can act on. Unknown events are ignored. */
@@ -45,6 +55,22 @@ export function interpretEvent(payload: unknown): AssistantEvent {
       return { kind: "error", message: typeof event.message === "string" ? event.message : "The assistant failed." };
     case "fedlify.done":
       return { kind: "done" };
+    case THREAD_SSE_EVENTS.turn: {
+      const data = threadEventData(event);
+      return data && typeof data.userTurnId === "string" && typeof data.assistantTurnId === "string"
+        ? { kind: "turn", data: data as unknown as TurnEventData }
+        : { kind: "ignore" };
+    }
+    case THREAD_SSE_EVENTS.questions: {
+      const data = threadEventData(event);
+      return data && asRecord(data.payload) && Array.isArray(asRecord(data.payload)?.questions)
+        ? { kind: "questions", data: data as unknown as QuestionsEventData }
+        : { kind: "ignore" };
+    }
+    case THREAD_SSE_EVENTS.plan: {
+      const data = threadEventData(event);
+      return data && asRecord(data.plan) ? { kind: "plan", data: data as unknown as PlanEventData } : { kind: "ignore" };
+    }
     default:
       return { kind: "ignore" };
   }

@@ -402,6 +402,7 @@ model User {
   templateAgentSessions      TemplateAgentSession[]    @relation("TemplateAgentSessionRequestedBy")
   requestedAgentProposals    AgentProposal[]           @relation("AgentProposalRequestedBy")
   acceptedAgentProposals     AgentProposal[]           @relation("AgentProposalAcceptedBy")
+  agentThreads               AgentThread[]             @relation("AgentThreadCreator")
   approvedPipelineVersions   PipelineVersion[]         @relation("PipelineVersionApprovedBy")
   submittedNvflareJobs       NvflareJob[]              @relation("NvflareJobSubmittedBy")
   syncedNvflareJobResults    NvflareJobResult[]        @relation("NvflareJobResultSyncedBy")
@@ -957,6 +958,7 @@ model PipelineProject {
   childProjects      PipelineProject[]        @relation("PipelineProjectLineage")
   versions           PipelineVersion[]
   proposals          AgentProposal[]
+  agentThreads       AgentThread[]
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
@@ -1096,7 +1098,15 @@ model AgentProposal {
   acceptedCommit         String?
   acceptedPaths          Json?
   decidedAt              DateTime?
+  // Agent thread provenance (all null for proposals made outside a thread).
+  threadId               String?
+  planId                 String?
+  turnId                 String?
+  rejectedById           String?
+  rejectedAt             DateTime?
   project                PipelineProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  thread                 AgentThread?        @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  plan                   AgentPlan?          @relation(fields: [planId], references: [id], onDelete: SetNull)
   requestedBy            User                @relation("AgentProposalRequestedBy", fields: [requestedById], references: [id])
   acceptedBy             User?               @relation("AgentProposalAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
   ciRuns                 CIValidationRun[]
@@ -1106,6 +1116,114 @@ model AgentProposal {
   @@index([projectId, status])
   @@index([projectId, acceptedCommit])
   @@index([acceptedById])
+  @@index([threadId])
+  @@index([planId])
+}
+
+enum AgentThreadStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AgentTurnRole {
+  USER
+  ASSISTANT
+}
+
+enum AgentTurnKind {
+  MESSAGE
+  QUESTIONS
+  ANSWERS
+  PLAN
+  PLAN_DECISION
+  PROPOSAL
+  NOTICE
+}
+
+enum AgentPlanStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+  SUPERSEDED
+  STALE
+  EXECUTED
+}
+
+// A persisted assistant conversation for one pipeline project. Retained until the project is deleted (archive only).
+model AgentThread {
+  id          String            @id @default(cuid())
+  projectId   String
+  // Denormalised for RBAC and audit.
+  studyId     String
+  createdById String
+  title       String
+  status      AgentThreadStatus @default(ACTIVE)
+  mode        String            @default("ask")
+  // Sequence allocator for turns, incremented in a transaction.
+  turnCount   Int               @default(0)
+  lastTurnAt  DateTime          @default(now())
+  createdAt   DateTime          @default(now())
+  project     PipelineProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User              @relation("AgentThreadCreator", fields: [createdById], references: [id])
+  turns       AgentTurn[]
+  plans       AgentPlan[]
+  proposals   AgentProposal[]
+
+  @@index([projectId, lastTurnAt])
+  @@index([createdById])
+}
+
+// Append-only transcript row. There is no update or delete route; rows leave only with the project cascade.
+model AgentTurn {
+  id            String        @id @default(cuid())
+  threadId      String
+  seq           Int
+  role          AgentTurnRole
+  kind          AgentTurnKind @default(MESSAGE)
+  content       String        @default("")
+  payload       Json?
+  // streaming | done | error | stopped
+  status        String        @default("done")
+  actorUserId   String?
+  model         String?
+  promptVersion String?
+  contextHash   String?
+  baseCommit    String?
+  filePath      String?
+  selection     Json?
+  clientTurnId  String?
+  planId        String?
+  proposalId    String?
+  inputTokens   Int?
+  outputTokens  Int?
+  createdAt     DateTime      @default(now())
+  thread        AgentThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, seq])
+  @@unique([threadId, clientTurnId])
+  @@index([proposalId])
+  @@index([planId])
+}
+
+model AgentPlan {
+  id               String          @id @default(cuid())
+  threadId         String
+  version          Int
+  summary          String
+  steps            Json
+  assumptions      Json
+  baseCommit       String
+  contextHash      String
+  requirementsHash String
+  status           AgentPlanStatus @default(DRAFT)
+  approvedStepIds  Json?
+  decidedById      String?
+  decidedAt        DateTime?
+  createdAt        DateTime        @default(now())
+  thread           AgentThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  proposals        AgentProposal[]
+
+  @@unique([threadId, version])
 }
 
 model CIValidationRun {

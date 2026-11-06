@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   // Guarded by the current status so a concurrent accept cannot be overwritten.
   const result = await prisma.agentProposal.updateMany({
     where: { id, projectId, status: { in: ["PROPOSED", "STALE"] } },
-    data: { status: "REJECTED", decidedAt: new Date() }
+    data: { status: "REJECTED", decidedAt: new Date(), rejectedById: authResult.userId, rejectedAt: new Date() }
   });
   if (result.count === 0) return problem(409, "This proposal was already decided.", "proposal_not_open");
 

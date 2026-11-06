@@ -66,7 +66,7 @@ export const getProposal = (studyId: string, projectId: string, id: string) => c
 export const createProposal = (
   studyId: string,
   projectId: string,
-  body: { message: string; history: Array<{ role: "user" | "assistant"; content: string }>; filePath?: string; selection?: string; diagnostics?: boolean },
+  body: { message: string; history: Array<{ role: "user" | "assistant"; content: string }>; filePath?: string; selection?: string; diagnostics?: boolean; threadId?: string; planId?: string },
   signal?: AbortSignal
 ) => call<{ proposal: ProposalSummary }>(base(studyId, projectId), { method: "POST", body: JSON.stringify(body) }, signal);
 export const acceptProposal = (studyId: string, projectId: string, id: string, paths?: string[]) =>

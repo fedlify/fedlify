@@ -101,3 +101,12 @@ export function openAiCodeAgentConfig(): { apiKey: string; model: string } | nul
     model: clean(process.env.OPENAI_CODE_AGENT_MODEL) ?? "gpt-4.1"
   };
 }
+
+/**
+ * Persisted assistant history, plan mode and the changes timeline.
+ * Unset or any value other than true/1/on/yes means off, which keeps the stateless panel. The k8s deployment sets it to "true".
+ */
+export function agentThreadsEnabled(): boolean {
+  const value = clean(process.env.AGENT_THREADS_ENABLED)?.toLowerCase();
+  return value === "true" || value === "1" || value === "on" || value === "yes";
+}

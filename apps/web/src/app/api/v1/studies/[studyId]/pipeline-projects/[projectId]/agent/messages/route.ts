@@ -2,8 +2,10 @@
  * POST /api/v1/studies/[studyId]/pipeline-projects/[projectId]/agent/messages
  *
  * Read-only project assistant: streams an OpenAI Responses API reply over SSE. The assistant has no tools and
- * cannot write, publish, run or release. Nothing is persisted; the audit entry records the context hash and
- * request sizes, not the chat or the context.
+ * cannot write, publish, run or release. Without `threadId` nothing is persisted; the audit entry records the
+ * context hash and request sizes, not the chat or the context. With `threadId` (and AGENT_THREADS_ENABLED) the turns
+ * are stored in that thread, history comes from the stored turns and the client's `history` is ignored (see
+ * agent-thread-runner.ts; POST threads/[tid]/turns is the same thing).
  *
  * SSE events: raw OpenAI events, plus `fedlify.context` (first), `fedlify.done` (success) and
  * `fedlify.error` (any failure after the stream started; the stream then closes).
@@ -22,6 +24,8 @@ import { acquireSlot, rateLimit } from "@/lib/rate-limit";
 import { isSensitiveFilePath } from "@/lib/repo-checks";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { openThreadRoute, writableThreadOrResponse } from "@/lib/agent-thread-route";
+import { runAskTurn } from "@/lib/agent-thread-runner";
 
 const filePathSchema = z
   .string()
@@ -41,7 +45,9 @@ const requestSchema = z.object({
   filePath: filePathSchema.optional(),
   selection: z.string().max(20000).optional(),
   /** Set by the failure buttons and site prompts; otherwise the question itself decides. */
-  diagnostics: z.boolean().optional()
+  diagnostics: z.boolean().optional(),
+  threadId: z.string().trim().min(1).max(100).optional(),
+  clientTurnId: z.string().trim().min(1).max(100).optional()
 });
 
 type Params = { params: Promise<{ studyId: string; projectId: string }> };
@@ -75,6 +81,28 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   if (body.filePath && isSensitiveFilePath(body.filePath)) {
     return problem(400, "Secrets, key and certificate files cannot be shared with the assistant.", "file_not_shareable");
+  }
+
+  if (body.threadId) {
+    const ctx = await openThreadRoute({ userId: authResult.userId, studyId, projectId, threadId: body.threadId });
+    if (!ctx.ok) return ctx.response;
+    const refused = writableThreadOrResponse(ctx);
+    if (refused) return refused;
+    const threadConfig = openAiCodeAgentConfig();
+    if (!threadConfig) return problem(503, "The assistant is not configured. Set OPENAI_API_KEY to enable it.", "ai_not_configured");
+    return runAskTurn({
+      request,
+      userId: authResult.userId,
+      studyId,
+      projectId,
+      thread: ctx.thread!,
+      config: threadConfig,
+      message: body.message,
+      clientTurnId: body.clientTurnId,
+      filePath: body.filePath,
+      selection: body.selection ? { startLine: 0, endLine: 0, text: body.selection } : null,
+      diagnostics: body.diagnostics
+    });
   }
 
   // At most 2 live assistant streams per user in this process.

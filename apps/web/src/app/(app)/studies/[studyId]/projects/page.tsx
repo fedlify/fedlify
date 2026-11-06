@@ -15,6 +15,7 @@ import { PipelineRail } from "@/components/PipelineRail";
 import { PipelinesList } from "@/components/PipelinesList";
 import { StartPipeline, type CreatedPipeline } from "@/components/StartPipeline";
 import { acceptProposal, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
+import { withThreadParam } from "@/lib/agent-thread-client";
 import type { StartPath } from "@/lib/pipeline-start";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
 import { ApiError, apiCall } from "@/lib/web-api";
@@ -138,6 +139,13 @@ export default function StudyProjectsPage() {
   const [runError, setRunError] = useState<string | null>(null);
   const [review, setReview] = useState<ProposalReviewState | null>(null);
   const [proposalSync, setProposalSync] = useState<ProposalSync | null>(null);
+  /** Open assistant chat, kept in the URL (?thread=) so a reload or a shared link returns to it. Read once; the panel restores the last chat otherwise. */
+  const initialThreadId = useRef(searchParams.get("thread")).current;
+  const syncThreadParam = useCallback((id: string | null) => {
+    if (typeof window === "undefined") return;
+    const search = withThreadParam(window.location.search, id);
+    if (search !== window.location.search) window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}${window.location.hash}`);
+  }, []);
   const syncCounter = useRef(0);
   const editorControl = useRef<{ save: () => void; hasEdits: () => boolean } | null>(null);
   const askCounter = useRef(0);
@@ -1040,6 +1048,8 @@ export default function StudyProjectsPage() {
               startPrompt={startPrompt}
               onStartPromptConsumed={(id) => setStartPrompt((current) => (current?.id === id ? null : current))}
               unconnectedSites={unconnectedSites}
+              threadId={initialThreadId}
+              onThreadChange={syncThreadParam}
             />
           </div>
         </>

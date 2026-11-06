@@ -6251,3 +6251,34 @@ h4.ant-typography {
 .fedlify-pipelines-table .ant-table-wrapper {
   overflow-x: auto;
 }
+
+/* Agent threads: history, thread bar, cards, changes timeline */
+.fedlify-ws-tabs { padding: 4px 12px 0; }
+.fedlify-ws-threadbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0); }
+.fedlify-ws-threadbar-title { flex: 1 1 100%; min-width: 0; margin: 0 !important; }
+.fedlify-ws-threadbar-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.fedlify-ws-threadbar-tags .ant-tag { margin-inline-end: 0; }
+.fedlify-ws-banner { margin: 6px 12px 0; }
+.fedlify-ws-history { width: 340px; max-width: 80vw; display: flex; flex-direction: column; gap: 8px; }
+.fedlify-ws-history-head { display: flex; align-items: center; gap: 8px; }
+.fedlify-ws-history-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+.fedlify-ws-history-list li { display: flex; align-items: center; gap: 4px; border-radius: 6px; }
+.fedlify-ws-history-list li.is-active { background: rgba(114, 46, 209, 0.08); }
+.fedlify-ws-history-row { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border: 0; background: transparent; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.fedlify-ws-history-row:hover { background: rgba(0, 0, 0, 0.04); }
+.fedlify-ws-history-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.fedlify-ws-history-note, .fedlify-ws-retention { font-size: 12px; }
+.fedlify-ws-card { border: 1px solid var(--ant-color-border-secondary, #e5e5e5); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--ant-color-bg-container, #fff); }
+.fedlify-ws-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fedlify-ws-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.fedlify-ws-question { display: flex; flex-direction: column; gap: 6px; }
+.fedlify-ws-options { display: flex; flex-direction: column; gap: 4px; }
+.fedlify-ws-plan-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fedlify-ws-plan-paths { margin-left: 24px; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.fedlify-ws-plan-assumptions { display: flex; flex-direction: column; gap: 4px; }
+.fedlify-ws-steps { font-size: 12px; color: var(--ant-color-text-secondary, #666); margin: 0 4px; }
+.fedlify-ws-steps summary { cursor: pointer; }
+.fedlify-ws-changes { display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; }
+.fedlify-ws-changes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.fedlify-ws-changes-list li { border-left: 2px solid var(--ant-color-border, #d9d9d9); padding-left: 10px; display: flex; flex-direction: column; gap: 2px; }
+.fedlify-ws-changes-head { display: flex; align-items: center; gap: 6px; }
