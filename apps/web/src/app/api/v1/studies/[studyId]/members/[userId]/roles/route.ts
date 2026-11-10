@@ -1,10 +1,11 @@
 import { z } from "zod";
+import type { StudyRole } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { audit } from "@/lib/audit";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
-import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { assertCanGrantRoles, assertStudyAccess, isForbiddenError, STUDY_LEAD_ROLES } from "@/lib/rbac";
 
 const studyRoleSchema = z.enum([
   "PRINCIPAL_INVESTIGATOR",
@@ -21,6 +22,8 @@ const studyRoleSchema = z.enum([
 const updateMemberRolesSchema = z.object({
   roles: z.array(studyRoleSchema).min(1).max(9)
 });
+
+class LastLeadError extends Error {}
 
 export async function PATCH(
   request: NextRequest,
@@ -49,23 +52,50 @@ export async function PATCH(
   });
   if (existing.length === 0) return problem(404, "Study member not found.", "not_found");
 
-  const roles = Array.from(new Set(parsed.data.roles));
+  const roles: StudyRole[] = Array.from(new Set(parsed.data.roles));
   const oldRoles = existing.map((member) => member.role);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.studyMember.deleteMany({
-      where: {
-        studyId,
-        userId,
-        role: { notIn: roles }
-      }
-    });
+  const changed: StudyRole[] = [
+    ...roles.filter((role) => !oldRoles.includes(role)),
+    ...oldRoles.filter((role) => !roles.includes(role))
+  ];
+  try {
+    await assertCanGrantRoles(authResult.userId, studyId, changed);
+  } catch (error) {
+    if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
+    throw error;
+  }
 
-    await tx.studyMember.createMany({
-      data: roles.map((role) => ({ studyId, userId, role, invitedById: authResult.userId })),
-      skipDuplicates: true
-    });
-  });
+  const losesLead = oldRoles.some((role) => STUDY_LEAD_ROLES.includes(role)) && !roles.some((role) => STUDY_LEAD_ROLES.includes(role));
+
+  try {
+    // Serializable, so two people demoting the last two leads at once cannot both pass the check.
+    await prisma.$transaction(
+      async (tx) => {
+        if (losesLead) {
+          const otherLeads = await tx.studyMember.count({ where: { studyId, userId: { not: userId }, role: { in: STUDY_LEAD_ROLES } } });
+          if (otherLeads === 0) throw new LastLeadError();
+        }
+
+        await tx.studyMember.deleteMany({
+          where: {
+            studyId,
+            userId,
+            role: { notIn: roles }
+          }
+        });
+
+        await tx.studyMember.createMany({
+          data: roles.map((role) => ({ studyId, userId, role, invitedById: authResult.userId })),
+          skipDuplicates: true
+        });
+      },
+      { isolationLevel: "Serializable" }
+    );
+  } catch (error) {
+    if (error instanceof LastLeadError) return problem(409, "A study must keep at least one study lead.", "last_study_lead");
+    throw error;
+  }
 
   await audit({
     actorUserId: authResult.userId,

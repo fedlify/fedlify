@@ -11,7 +11,7 @@ import { submitNvflareJob } from "@/lib/nvflare";
 import { pipelineRunWorkspacePath, prepareNvflareJobWorkspaceForRun, runtimeParametersForSelectedSites } from "@/lib/pipeline-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { buildRunSnapshot } from "@/lib/run-evidence";
+import { buildRunSnapshot, ownClientNames, resolveRunViewer } from "@/lib/run-evidence";
 import { adapterSubmitJob, adapterSystemInfo, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
 
 const submitJobSchema = z.object({
@@ -31,12 +31,8 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
   if ("response" in authResult) return authResult.response;
   const { studyId } = await context.params;
 
-  try {
-    await assertStudyAccess(authResult.userId, studyId, "read");
-  } catch (error) {
-    if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
-    throw error;
-  }
+  const viewer = await resolveRunViewer(authResult.userId, studyId);
+  if (!viewer) return problem(403, "You do not have permission to perform this action for this study.", "forbidden");
 
   const jobs = await prisma.nvflareJob.findMany({
     where: { studyId },
@@ -49,7 +45,41 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     orderBy: { createdAt: "desc" }
   });
 
-  return json({ jobs });
+  if (viewer.scope === "full") {
+    if (viewer.canViewLogs) return json({ jobs });
+    // The server log is for study managers only, the same rule as the run's Logs tab.
+    return json({
+      jobs: jobs.map(({ logText: _text, logChecksum: _checksum, logTruncated: _truncated, logCapturedAt: _captured, logsStorageKey: _key, logArtifacts: _artifacts, ...job }) => ({ ...job, logArtifacts: [] }))
+    });
+  }
+
+  // A site operator only sees runs that include one of their own sites, without the other sites' details,
+  // the run's event history or its log files.
+  // Built from an explicit list so columns added later (round metrics, server log, site-lost details) never leak by default.
+  const ownJobs = jobs
+    .filter((job) => ownClientNames(job.selectedSites, viewer.ownSiteCodes).size > 0)
+    .map((job) => ({
+      id: job.id,
+      studyId: job.studyId,
+      pipelineVersionId: job.pipelineVersionId,
+      nvflareJobId: job.nvflareJobId,
+      status: job.status,
+      commandSummary: job.commandSummary,
+      submittedAt: job.submittedAt,
+      completedAt: job.completedAt,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      pipelineVersion: job.pipelineVersion ? { id: job.pipelineVersion.id, version: job.pipelineVersion.version } : null,
+      selectedSites: Array.isArray(job.selectedSites)
+        ? (job.selectedSites as Array<{ code?: unknown }>).filter((entry) => typeof entry?.code === "string" && viewer.ownSiteCodes.includes(entry.code))
+        : [],
+      deployment: null,
+      siteDigests: null,
+      metricsSummary: null,
+      events: [],
+      logArtifacts: []
+    }));
+  return json({ jobs: ownJobs });
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ studyId: string }> }) {
@@ -86,6 +116,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   const studySites = await prisma.studySite.findMany({
     where: {
       studyId,
+      // Same rule as publish: a disabled site neither blocks nor takes part in a run.
+      participationStatus: { not: "DISABLED" },
       ...(parsed.data.studySiteIds?.length ? { id: { in: parsed.data.studySiteIds } } : {})
     },
     include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 }, site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, metadata: true } } } } }
@@ -95,7 +127,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     ethicsStatus: latestEthicsStatus(study.ethics),
     pipelineApprovalStatus: pipelineVersion.approvalStatus,
     pipelineValidationStatus: pipelineVersion.validationStatus,
-    readinessChecks: studySites.map((site) => ({ status: site.readinessChecks[0]?.status ?? "PENDING" }))
+    readinessChecks: studySites.map((site) => site.readinessChecks[0] ?? null)
   });
   if (!gate.allowed) {
     const unreadySites = describeUnreadySites(

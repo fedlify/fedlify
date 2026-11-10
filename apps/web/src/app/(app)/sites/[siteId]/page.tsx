@@ -518,8 +518,8 @@ export default function SiteOnboardingPage() {
                           notes: latestReadiness?.notes
                         }}
                         onFinish={async (values) => {
-                          // Connectivity and installation are facts the runner reports, so they are not typed in by hand.
-                          await patch(`/api/v1/sites/${siteId}/governance`, { readiness: { ...values, connectivityVerified: runtime.connected === true, kitInstalled: runtime.lastHeartbeatAt !== null } }, "Site attestation saved.");
+                          // Connectivity is checked live when a run starts, so the sign-off is only what staff confirm here.
+                          await patch(`/api/v1/sites/${siteId}/governance`, { readiness: values }, "Site attestation saved.");
                         }}
                       >
                         <div className="fedlify-readiness-checks">

@@ -63,6 +63,7 @@ import {
   studyActionHref,
   type StudyWorkspaceSection
 } from "@/lib/study-workspace";
+import { siteSignedOff } from "@/lib/site-signoff";
 import { parseStudyDetailParam, serializeStudyDetailParam, type StudyDetailKind, type StudyDetailState } from "@/lib/study-detail";
 import {
   activeDeployment,
@@ -430,7 +431,7 @@ function activeDeploymentForStudy(study?: StudyDetail | null) {
 }
 
 function readySites(study?: StudyDetail | null) {
-  return (study?.studySites ?? []).filter((site) => site.readinessChecks?.[0]?.status === "PASSED");
+  return (study?.studySites ?? []).filter((site) => siteSignedOff(site.readinessChecks?.[0]));
 }
 
 function connectedSites(study?: StudyDetail | null) {
@@ -1726,7 +1727,7 @@ export default function StudyDetailPage() {
             <FieldRow label="Site PI" value={text(record.principalInvestigator)} />
             <FieldRow label="NVFLARE client" value={text(record.site?.nvflareClientName)} />
             <FieldRow label="Participation" value={displayEnum(record.participationStatus)} />
-            <FieldRow label="Readiness" value={displayEnum(record.readinessChecks?.[0]?.status, "Pending")} />
+            <FieldRow label="Readiness" value={siteSignedOff(record.readinessChecks?.[0]) ? "Passed" : "Pending"} />
             <FieldRow label="Connection" value={displayEnum(record.nvflareStatuses?.[0]?.status, "Offline")} />
             <FieldRow label="Data modalities" value={text(record.dataProfile?.modality)} />
             <FieldRow label="Cohort size" value={text(record.dataProfile?.cohortSizeRange)} />

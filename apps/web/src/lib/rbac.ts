@@ -187,6 +187,80 @@ export async function canAccessStudy(userId: string, studyId: string, action: St
   return study.members.some((member) => roleCan(member.role, action));
 }
 
+export type RoleGrantActor = {
+  platformAdmin: boolean;
+  orgAdmin: boolean;
+  /** The actor's own study roles. */
+  roles: StudyRole[];
+};
+
+/** Actions an org admin gets without holding a study role for them (mirrors canAccessStudy). */
+const ORG_ADMIN_NEEDS_ROLE: StudyAction[] = ["approveRelease", "approvePipeline", "submitJob", "abortJob"];
+
+function actorCan(actor: RoleGrantActor, action: StudyAction): boolean {
+  if (actor.platformAdmin) return true;
+  if (actor.roles.some((role) => roleCan(role, action))) return true;
+  return actor.orgAdmin && !ORG_ADMIN_NEEDS_ROLE.includes(action);
+}
+
+/** Roles the actor may grant or remove: those whose every permission the actor also has. */
+export function grantableRoles(actor: RoleGrantActor): StudyRole[] {
+  return (Object.keys(permissionsByRole) as StudyRole[]).filter((role) => permissionsByRole[role].every((action) => actorCan(actor, action)));
+}
+
+/** The subset of `roles` the actor may not grant or remove. */
+export function ungrantableRoles(actor: RoleGrantActor, roles: StudyRole[]): StudyRole[] {
+  const allowed = new Set(grantableRoles(actor));
+  return roles.filter((role) => !allowed.has(role));
+}
+
+const ROLE_LABELS: Record<StudyRole, string> = {
+  PRINCIPAL_INVESTIGATOR: "Principal Investigator",
+  STUDY_OWNER: "Study Owner",
+  STUDY_COORDINATOR: "Study Coordinator",
+  CLINICAL_LEAD: "Clinical Lead",
+  ETHICS_REVIEWER: "Ethics Reviewer",
+  DATA_SCIENTIST: "Data Scientist",
+  PIPELINE_DEVELOPER: "Pipeline Developer",
+  PRIVACY_SECURITY_OFFICER: "Privacy and Security Officer",
+  RELEASE_APPROVER: "Release Approver",
+  SITE_ADMIN: "Site Admin",
+  AUDITOR: "Auditor"
+};
+
+export const STUDY_LEAD_ROLES: StudyRole[] = ["PRINCIPAL_INVESTIGATOR", "STUDY_OWNER"];
+
+/**
+ * Throws a ForbiddenError naming the roles the actor may not grant or remove. A person can only hand out access they
+ * hold themselves, so a coordinator cannot make anyone (including themselves) a Principal Investigator.
+ */
+export async function assertCanGrantRoles(userId: string, studyId: string, roles: StudyRole[]): Promise<void> {
+  const [user, study] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { platformRole: true } }),
+    prisma.study.findUnique({
+      where: { id: studyId },
+      select: {
+        members: { where: { userId }, select: { role: true } },
+        organization: { select: { memberships: { where: { userId, status: "ACTIVE" }, select: { role: true } } } }
+      }
+    })
+  ]);
+  const blocked = ungrantableRoles(
+    {
+      platformAdmin: user?.platformRole === "PLATFORM_ADMIN",
+      orgAdmin: Boolean(study?.organization.memberships.some((membership) => membership.role === "ORG_ADMIN")),
+      roles: study?.members.map((member) => member.role) ?? []
+    },
+    roles
+  );
+  if (blocked.length === 0) return;
+  const error = new Error(
+    `You cannot grant or remove the ${blocked.map((role) => ROLE_LABELS[role]).join(", ")} role because it gives more access than you have yourself.`
+  );
+  error.name = "ForbiddenError";
+  throw error;
+}
+
 export async function canAccessSite(userId: string, siteId: string, action: SiteAction): Promise<boolean> {
   const site = await prisma.studySite.findUnique({
     where: { id: siteId },

@@ -10,7 +10,7 @@ import { collectModelResultArtifacts, resultStoragePrefix, roundMetricsArtifact 
 import { unzipToArchiveMap } from "@/lib/archive";
 import { downloadNvflareJobResult } from "@/lib/nvflare";
 import { prisma } from "@/lib/prisma";
-import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { canSaveRunModel } from "@/lib/run-evidence";
 import { objectKey, storageConfigured, uploadObject } from "@/lib/storage";
 import { adapterJobMetrics, adapterJobResultZip } from "@/lib/study-runtime";
 import { parseRoundMetricsJsonl, recordsToJsonl, summarizeMetrics } from "@/lib/round-metrics";
@@ -45,11 +45,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ jo
   });
   if (!job) return problem(404, "NVFLARE job not found.", "not_found");
 
-  try {
-    await assertStudyAccess(authResult.userId, job.studyId, "viewLogs");
-  } catch (error) {
-    if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
-    throw error;
+  // Same rule as the Save model button on the run page.
+  if (!(await canSaveRunModel(authResult.userId, job.studyId))) {
+    return problem(403, "Only study managers and release approvers can save a model.", "forbidden");
   }
 
   if (job.status !== "COMPLETED") {

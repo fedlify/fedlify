@@ -5,7 +5,7 @@ import { audit } from "@/lib/audit";
 import { normalizeNullableMultiSelectValue } from "@/lib/governance-options";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
-import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
+import { assertSiteAccess, canAccessSite, isForbiddenError } from "@/lib/rbac";
 import { readinessStatus } from "@/lib/site-onboarding";
 
 const optionalNullableGovernanceString = (max: number) =>
@@ -39,8 +39,6 @@ const governanceSchema = z.object({
     .optional(),
   readiness: z
     .object({
-      connectivityVerified: z.boolean().optional(),
-      kitInstalled: z.boolean().optional(),
       dependenciesVerified: z.boolean().optional(),
       policyAccepted: z.boolean().optional(),
       notes: z.string().trim().max(4000).optional()
@@ -65,6 +63,16 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
 
   const studySite = await prisma.studySite.findUnique({ where: { id: siteId }, include: { study: true } });
   if (!studySite) return problem(404, "Participant site not found.", "not_found");
+
+  const latestCheck = parsed.data.readiness
+    ? await prisma.siteReadinessCheck.findFirst({ where: { studySiteId: siteId }, orderBy: { createdAt: "desc" } })
+    : null;
+  // Accepting the data-use policy is a separate permission from editing the site profile. Keeping an existing
+  // acceptance (or withdrawing it) does not need it.
+  const newlyAcceptsPolicy = parsed.data.readiness?.policyAccepted === true && !latestCheck?.policyAccepted;
+  if (newlyAcceptsPolicy && !(await canAccessSite(authResult.userId, siteId, "acceptSitePolicy"))) {
+    return problem(403, "Only a site administrator, site PI or data steward can accept the data-use policy for this site.", "forbidden");
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     if (parsed.data.principalInvestigator !== undefined) {
@@ -95,12 +103,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
         data: {
           studySiteId: siteId,
           checkedById: authResult.userId,
-          connectivityVerified: parsed.data.readiness.connectivityVerified ?? false,
-          kitInstalled: parsed.data.readiness.kitInstalled ?? false,
           dependenciesVerified: parsed.data.readiness.dependenciesVerified ?? false,
           policyAccepted: parsed.data.readiness.policyAccepted ?? false,
-          policyAcceptedById: parsed.data.readiness.policyAccepted ? authResult.userId : null,
-          policyAcceptedAt: parsed.data.readiness.policyAccepted ? new Date() : null,
+          // An existing acceptance keeps its original acceptor and time when the form is saved again.
+          policyAcceptedById: parsed.data.readiness.policyAccepted ? (newlyAcceptsPolicy ? authResult.userId : latestCheck?.policyAcceptedById ?? authResult.userId) : null,
+          policyAcceptedAt: parsed.data.readiness.policyAccepted ? (newlyAcceptsPolicy ? new Date() : latestCheck?.policyAcceptedAt ?? new Date()) : null,
           status: readinessStatus(parsed.data.readiness),
           notes: parsed.data.readiness.notes
         }

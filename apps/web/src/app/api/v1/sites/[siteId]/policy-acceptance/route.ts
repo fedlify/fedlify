@@ -34,8 +34,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
 
   const latest = studySite.readinessChecks[0];
   const readiness = {
-    connectivityVerified: latest?.connectivityVerified ?? false,
-    kitInstalled: latest?.kitInstalled ?? false,
     dependenciesVerified: latest?.dependenciesVerified ?? false,
     policyAccepted: true
   };

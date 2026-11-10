@@ -7,7 +7,7 @@ import { randomToken, sha256 } from "@/lib/crypto";
 import { sendInvitationEmail } from "@/lib/email";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
-import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { assertCanGrantRoles, assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { publicBaseUrl } from "@/lib/runtime-config";
 
 const studyRoleSchema = z.enum([
@@ -66,6 +66,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
 
   const parsed = createInvitationSchema.safeParse(await request.json());
   if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid invitation.");
+
+  try {
+    await assertCanGrantRoles(authResult.userId, studyId, parsed.data.roles);
+  } catch (error) {
+    if (isForbiddenError(error)) return problem(403, error.message, "forbidden");
+    throw error;
+  }
 
   const study = await prisma.study.findUnique({
     where: { id: studyId },

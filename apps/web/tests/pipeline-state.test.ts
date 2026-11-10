@@ -170,13 +170,15 @@ describe("approvedTemplateCatalog", () => {
 
 // ── Execution gate (extended coverage) ───────────────────────────────────────
 
+const SIGNED = { dependenciesVerified: true, policyAccepted: true };
+
 describe("pipelineExecutionGate extended", () => {
   it("blocks when ethics not cleared", () => {
     const gate = pipelineExecutionGate({
       ethicsStatus: "PENDING",
       pipelineApprovalStatus: "APPROVED",
       pipelineValidationStatus: "PASSED",
-      readinessChecks: [{ status: "PASSED" }]
+      readinessChecks: [SIGNED]
     });
     expect(gate.allowed).toBe(false);
     expect(gate.missing).toContain("ethicsApproval");
@@ -187,7 +189,7 @@ describe("pipelineExecutionGate extended", () => {
       ethicsStatus: "APPROVED",
       pipelineApprovalStatus: "APPROVED",
       pipelineValidationStatus: "PASSED",
-      readinessChecks: [{ status: "PASSED" }, { status: "PENDING" }]
+      readinessChecks: [SIGNED, { dependenciesVerified: true, policyAccepted: false }]
     });
     expect(gate.allowed).toBe(false);
     expect(gate.missing).toContain("allSitesReady");
@@ -210,7 +212,7 @@ describe("pipelineExecutionGate extended", () => {
         ethicsStatus: "APPROVED",
         pipelineApprovalStatus: "APPROVED",
         pipelineValidationStatus: "PASSED",
-        readinessChecks: [{ status: "PASSED" }, { status: "PASSED" }]
+        readinessChecks: [SIGNED, SIGNED]
       }).allowed
     ).toBe(true);
   });

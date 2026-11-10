@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { siteSignedOff } from "@/lib/site-signoff";
 import { markStaleSitesOffline } from "@/lib/site-presence";
 import { kitState, type SiteOverviewRow } from "@/lib/site-overview";
 import { checkSiteImages, isImageMismatch, siteImageFixSteps } from "@/lib/site-image";
@@ -34,7 +35,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
         name: true,
         institutionName: true,
         participationStatus: true,
-        readinessChecks: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
+        readinessChecks: { orderBy: { createdAt: "desc" }, take: 1, select: { dependenciesVerified: true, policyAccepted: true } },
         nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 1, select: { status: true } },
         joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1, select: { imageDigest: true } },
         site: { select: { nvflareClientName: true, heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, metadata: true } } } }
@@ -59,7 +60,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     code: site.code,
     name: site.name,
     institutionName: site.institutionName,
-    readiness: site.readinessChecks[0]?.status ?? "PENDING",
+    readiness: siteSignedOff(site.readinessChecks[0]) ? "PASSED" : "PENDING",
     kitState: kitState(site.joinPackages[0], deployment?.imageDigest),
     imageState: checks.get(site.code)?.state ?? "UNKNOWN",
     imageFix: checks.get(site.code) && isImageMismatch(checks.get(site.code)!.state) ? siteImageFixSteps(checks.get(site.code)!) : [],

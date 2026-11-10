@@ -29,6 +29,16 @@ export function buildRunSnapshot(input: {
   };
 }
 
+/** Saving a model keeps the run's result for the study: managers and release approvers only. */
+export function modelSaveAllowed(caps: { manage: boolean; approve: boolean }): boolean {
+  return caps.manage || caps.approve;
+}
+
+export async function canSaveRunModel(userId: string, studyId: string): Promise<boolean> {
+  const [manage, approve] = await Promise.all([canAccessStudy(userId, studyId, "manage"), canAccessStudy(userId, studyId, "approveRelease")]);
+  return modelSaveAllowed({ manage, approve });
+}
+
 export type RunViewer = {
   scope: "full" | "site";
   /** Docker/aggregator logs: study managers only. */
@@ -61,7 +71,7 @@ export async function resolveRunViewer(userId: string, studyId: string): Promise
     scope: full ? "full" : "site",
     canViewLogs: manage,
     canAudit: audit,
-    canSaveModel: manage || approve,
+    canSaveModel: modelSaveAllowed({ manage, approve }),
     canRelease: approve,
     ownSiteCodes: ownSites.map((site) => site.code)
   };

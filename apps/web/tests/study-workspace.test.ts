@@ -57,7 +57,7 @@ describe("study workspace navigation", () => {
         status: "ACTIVE",
         ethics: [{ status: "APPROVED" }],
         pipelineProjects: [{ versions: [{ validationStatus: "PASSED", approvalStatus: "APPROVED" }] }],
-        studySites: [{ readinessChecks: [{ status: "PASSED" }], nvflareStatuses: [{ status: "CONNECTED" }] }]
+        studySites: [{ readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }], nvflareStatuses: [{ status: "CONNECTED" }] }]
       })
     ).toMatchObject({ title: "Provision aggregator", section: "run" });
 
@@ -66,7 +66,7 @@ describe("study workspace navigation", () => {
         status: "ACTIVE",
         ethics: [{ status: "APPROVED" }],
         pipelineProjects: [{ versions: [{ approvalStatus: "APPROVED" }] }],
-        studySites: [{ readinessChecks: [{ status: "PASSED" }], nvflareStatuses: [{ status: "CONNECTED" }] }],
+        studySites: [{ readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }], nvflareStatuses: [{ status: "CONNECTED" }] }],
         nvflareDeployments: [{ active: true, status: "ACTIVE", serverAddress: "localhost:18010" }]
       })
     ).toMatchObject({ title: "Start run", section: "run" });
@@ -77,7 +77,7 @@ describe("study workspace navigation", () => {
       status: "ACTIVE",
       ethics: [{ status: "APPROVED" }],
       pipelineProjects: [{ versions: [{ approvalStatus: "APPROVED" }] }],
-      studySites: [{ readinessChecks: [{ status: "PENDING" }], nvflareStatuses: [{ status: "OFFLINE" }] }],
+      studySites: [{ readinessChecks: [{ dependenciesVerified: false, policyAccepted: false }], nvflareStatuses: [{ status: "OFFLINE" }] }],
       nvflareDeployments: [{ active: true, status: "ACTIVE", serverAddress: "localhost:18010" }]
     });
 

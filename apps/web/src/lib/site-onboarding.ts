@@ -1,4 +1,7 @@
 import { sha256 } from "@/lib/crypto";
+import { siteSignedOff } from "@/lib/site-signoff";
+
+export { siteSignedOff };
 
 export type ReadinessInput = {
   connectivityVerified?: boolean;
@@ -36,9 +39,7 @@ export const SITE_ONBOARDING_STEPS = [
 ] as const;
 
 export function readinessStatus(input: ReadinessInput) {
-  return input.connectivityVerified && input.kitInstalled && input.dependenciesVerified && input.policyAccepted
-    ? "PASSED"
-    : "PENDING";
+  return siteSignedOff(input) ? "PASSED" : "PENDING";
 }
 
 export function buildStartupPackageManifest(input: StartupPackageManifestInput) {

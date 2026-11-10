@@ -45,7 +45,7 @@ import { POST } from "@/app/api/v1/studies/[studyId]/nvflare/jobs/route";
 
 const now = () => new Date();
 const site = (code: string, metadata: unknown) => ({
-  id: `ss-${code}`, siteId: `site-${code}`, code, name: code, readinessChecks: [{ status: "READY" }],
+  id: `ss-${code}`, siteId: `site-${code}`, code, name: code, readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }],
   site: { nvflareClientName: `site-${code}`, heartbeats: [{ createdAt: now(), metadata }] }
 });
 const post = () =>

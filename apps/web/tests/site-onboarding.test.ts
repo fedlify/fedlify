@@ -2,23 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildStartupKitFiles, buildStartupPackageManifest, readinessStatus, startupPackageChecksum } from "@/lib/site-onboarding";
 
 describe("site onboarding", () => {
-  it("requires all readiness checks to pass", () => {
-    expect(
-      readinessStatus({
-        connectivityVerified: true,
-        kitInstalled: true,
-        dependenciesVerified: true,
-        policyAccepted: false
-      })
-    ).toBe("PENDING");
-    expect(
-      readinessStatus({
-        connectivityVerified: true,
-        kitInstalled: true,
-        dependenciesVerified: true,
-        policyAccepted: true
-      })
-    ).toBe("PASSED");
+  it("passes on the human sign-off alone, whatever the live connection looks like", () => {
+    expect(readinessStatus({ dependenciesVerified: true, policyAccepted: false })).toBe("PENDING");
+    expect(readinessStatus({ dependenciesVerified: false, policyAccepted: true })).toBe("PENDING");
+    expect(readinessStatus({ dependenciesVerified: true, policyAccepted: true })).toBe("PASSED");
   });
 
   it("builds a site-local startup manifest without embedding the enrollment token", () => {

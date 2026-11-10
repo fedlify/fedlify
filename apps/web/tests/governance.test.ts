@@ -79,7 +79,7 @@ describe("governance gates", () => {
       ethicsStatus: "APPROVED",
       pipelineApprovalStatus: "VALIDATED",
       pipelineValidationStatus: "PASSED",
-      readinessChecks: [{ status: "PENDING" }]
+      readinessChecks: [{ dependenciesVerified: true, policyAccepted: false }]
     });
 
     expect(gate.allowed).toBe(false);
@@ -92,7 +92,7 @@ describe("governance gates", () => {
         ethicsStatus: "NOT_REQUIRED",
         pipelineApprovalStatus: "APPROVED",
         pipelineValidationStatus: "PASSED",
-        readinessChecks: [{ status: "PASSED" }]
+        readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }]
       }).allowed
     ).toBe(true);
   });
@@ -102,16 +102,16 @@ import { describeUnreadySites, executionGateMessage } from "@/lib/governance";
 
 describe("execution gate message", () => {
   const sites = [
-    { code: "A", name: "Site A", check: { status: "PASSED" as const, kitInstalled: true, connectivityVerified: true, dependenciesVerified: true, policyAccepted: true } },
-    { code: "B", name: "Site B", check: { status: "PENDING" as const, kitInstalled: true, connectivityVerified: false, dependenciesVerified: true, policyAccepted: false } },
+    { code: "A", name: "Site A", check: { dependenciesVerified: true, policyAccepted: true } },
+    { code: "B", name: "Site B", check: { dependenciesVerified: true, policyAccepted: false } },
     { code: "C", name: "Site C", check: null }
   ];
 
   it("lists only unready sites with what is open", () => {
     const unready = describeUnreadySites(sites);
     expect(unready.map((s) => s.code)).toEqual(["B", "C"]);
-    expect(unready[0].problems).toEqual(["connectivity not verified", "data-use policy not accepted"]);
-    expect(unready[1].problems).toEqual(["no readiness check has been recorded"]);
+    expect(unready[0].problems).toEqual(["data-use policy not accepted"]);
+    expect(unready[1].problems).toEqual(["no sign-off has been recorded"]);
   });
 
   it("names the sites and the fix in the message", () => {
@@ -119,7 +119,8 @@ describe("execution gate message", () => {
     expect(message).toContain("Site B (B)");
     expect(message).toContain("Site C (C)");
     expect(message).not.toContain("Site A");
-    expect(message).toMatch(/record a PASSED readiness check/);
+    expect(message).toMatch(/site attestation/);
+    expect(message).not.toMatch(/connectivity|kit/i);
     expect(message).not.toContain("allSitesReady");
   });
 

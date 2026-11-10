@@ -1,3 +1,4 @@
+import { siteSignedOff } from "@/lib/site-signoff";
 import type { StudyWorkspaceSection } from "@/lib/study-workspace";
 
 type SummaryRecord = Record<string, any>;
@@ -78,7 +79,7 @@ export function activeDeployment(study: StudySummaryInput) {
 }
 
 export function readyStudySites(study: StudySummaryInput) {
-  return (study.studySites ?? []).filter((site) => normalizedStatus(site.readinessChecks?.[0]?.status) === "PASSED");
+  return (study.studySites ?? []).filter((site) => siteSignedOff(site.readinessChecks?.[0]));
 }
 
 export function connectedStudySites(study: StudySummaryInput) {

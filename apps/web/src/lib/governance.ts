@@ -1,4 +1,5 @@
-import type { EthicsStatus, GovernanceStatus, PipelineVersionStatus, ReadinessStatus } from "@prisma/client";
+import type { EthicsStatus, GovernanceStatus, PipelineVersionStatus } from "@prisma/client";
+import { siteSignedOff, type SiteSignoffInput } from "@/lib/site-signoff";
 import { REQUIREMENT_ORDER, type RequirementId } from "@/lib/requirements-catalog";
 
 type ProtocolMetadata = {
@@ -28,9 +29,8 @@ type EthicsRecord = {
   status: EthicsStatus;
 };
 
-type SiteReadiness = {
-  status: ReadinessStatus;
-};
+/** The latest readiness check of a site (null = none recorded). Only the human sign-off fields count. */
+type SiteReadiness = SiteSignoffInput | null;
 
 type StudyActivationInput = ProtocolMetadata & {
   ethics?: EthicsRecord[];
@@ -127,7 +127,7 @@ export function pipelineExecutionGate(input: PipelineExecutionInput): { allowed:
   if (input.pipelineApprovalStatus !== "APPROVED") missing.push("approvedPipelineVersion");
   if (input.pipelineValidationStatus !== "PASSED") missing.push("passedPipelineValidation");
   if (input.readinessChecks.length === 0) missing.push("readySites");
-  if (input.readinessChecks.some((check) => check.status !== "PASSED")) missing.push("allSitesReady");
+  if (input.readinessChecks.some((check) => !siteSignedOff(check))) missing.push("allSitesReady");
 
   return { allowed: missing.length === 0, missing };
 }
@@ -137,9 +137,6 @@ export type SiteReadinessSnapshot = {
   name: string;
   /** Latest readiness check for the site, or null when none has been recorded. */
   check: {
-    status: ReadinessStatus;
-    connectivityVerified?: boolean | null;
-    kitInstalled?: boolean | null;
     dependenciesVerified?: boolean | null;
     policyAccepted?: boolean | null;
   } | null;
@@ -147,21 +144,18 @@ export type SiteReadinessSnapshot = {
 
 export type UnreadySite = { code: string; name: string; problems: string[] };
 
-/** Sites whose latest readiness check is missing or not PASSED, with what is still open for each. */
+/** Sites with no recorded sign-off, with what is still open for each. Decided from the human fields, not the stored status. */
 export function describeUnreadySites(sites: SiteReadinessSnapshot[]): UnreadySite[] {
   const unready: UnreadySite[] = [];
   for (const site of sites) {
     if (!site.check) {
-      unready.push({ code: site.code, name: site.name, problems: ["no readiness check has been recorded"] });
+      unready.push({ code: site.code, name: site.name, problems: ["no sign-off has been recorded"] });
       continue;
     }
-    if (site.check.status === "PASSED") continue;
+    if (siteSignedOff(site.check)) continue;
     const problems: string[] = [];
-    if (!site.check.kitInstalled) problems.push("site kit not confirmed installed");
-    if (!site.check.connectivityVerified) problems.push("connectivity not verified");
     if (!site.check.dependenciesVerified) problems.push("dependencies not verified");
     if (!site.check.policyAccepted) problems.push("data-use policy not accepted");
-    if (problems.length === 0) problems.push(`readiness status is ${site.check.status}, not PASSED`);
     unready.push({ code: site.code, name: site.name, problems });
   }
   return unready;
@@ -171,7 +165,7 @@ const GATE_EXPLANATIONS: Record<string, string> = {
   ethicsApproval: "ethics approval is not recorded as approved (add or update it under the study's Governance)",
   approvedPipelineVersion: "the pipeline version is not approved (an authorised reviewer must approve it)",
   passedPipelineValidation: "pipeline validation has not passed (publish the version and wait for its checks)",
-  readySites: "no participating sites are selected (add at least one site and record its readiness)"
+  readySites: "no participating sites are selected (add at least one site and record its sign-off)"
 };
 
 /** One human-readable sentence per unmet execution requirement; names unready sites and the fix. */
@@ -180,11 +174,11 @@ export function executionGateMessage(missing: string[], unreadySites: UnreadySit
   for (const key of missing) {
     if (key === "allSitesReady") {
       if (unreadySites.length === 0) {
-        parts.push("some sites have not passed their readiness check (open Sites and record readiness for each)");
+        parts.push("some sites have not been signed off (open Sites and record the site sign-off for each)");
       } else {
         const detail = unreadySites.map((site) => `${site.name} (${site.code}): ${site.problems.join(", ")}`).join("; ");
         parts.push(
-          `${unreadySites.length} site(s) are not ready: ${detail}. Ask each site operator to finish onboarding, then record a PASSED readiness check for the site under Sites`
+          `${unreadySites.length} site(s) are not ready: ${detail}. Ask each site operator to confirm the open items in the site attestation under Sites`
         );
       }
     } else {
