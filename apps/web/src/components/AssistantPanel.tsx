@@ -1,6 +1,6 @@
 "use client";
 
-import { ClearOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
+import { ClearOutlined, FullscreenExitOutlined, FullscreenOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
 import { Alert, Button, Input, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
 import { AgentHistoryPopover } from "@/components/AgentHistoryPopover";
 import { ChangesTimeline } from "@/components/ChangesTimeline";
@@ -322,6 +322,7 @@ export function AssistantPanel({
   const [context, setContext] = useState<ContextInfo | null>(null);
   const [includeFile, setIncludeFile] = useState(true);
   const [selection, setSelection] = useState<{ path: string; text: string } | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const messagesRef = useRef<ChatMessage[]>([]);
   const nextId = useRef(1);
   const abortRef = useRef<AbortController | null>(null);
@@ -343,6 +344,16 @@ export function AssistantPanel({
   }, []);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Diffs and the publish panel open in the page behind the full-width assistant, so leave full width first.
+  const reviewProposal = (id: string) => {
+    setExpanded(false);
+    onReviewProposal(id);
+  };
+  const openPublish = () => {
+    setExpanded(false);
+    onOpenPublish?.();
+  };
 
   const applyView = useCallback((next: ThreadView | null) => {
     viewRef.current = next;
@@ -796,7 +807,7 @@ export function AssistantPanel({
         head={commit}
         busy={busyProposal === id}
         error={cardErrors[id]}
-        onReview={() => onReviewProposal(id)}
+        onReview={() => reviewProposal(id)}
         onAccept={() => void acceptCard(id)}
         onReject={() => void rejectCard(id)}
         onRegenerate={() => {
@@ -1052,7 +1063,7 @@ export function AssistantPanel({
   const unsavedNote = unsavedPaths.length > 0;
 
   return (
-    <aside className="fedlify-ws-assistant" aria-label="Project assistant">
+    <aside className={["fedlify-ws-assistant", expanded ? "is-expanded" : ""].join(" ")} aria-label="Project assistant">
       <div className="fedlify-ws-assistant-head">
         <div>
           <strong><RobotOutlined /> Assistant</strong>
@@ -1068,9 +1079,14 @@ export function AssistantPanel({
               <Button size="small" type="text" icon={<ClearOutlined />} onClick={clearChat} disabled={messages.length === 0} aria-label="Clear conversation" />
             </Tooltip>
           )}
-          <Tooltip title="Collapse assistant">
-            <Button size="small" type="text" icon={<MenuUnfoldOutlined />} onClick={onToggle} aria-label="Collapse assistant" />
+          <Tooltip title={expanded ? "Exit full width" : "Full width"}>
+            <Button size="small" type="text" icon={expanded ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => setExpanded((current) => !current)} aria-label={expanded ? "Exit full width" : "Full width"} aria-pressed={expanded} data-testid="assistant-expand" />
           </Tooltip>
+          {expanded ? null : (
+            <Tooltip title="Collapse assistant">
+              <Button size="small" type="text" icon={<MenuUnfoldOutlined />} onClick={onToggle} aria-label="Collapse assistant" />
+            </Tooltip>
+          )}
         </span>
       </div>
 
@@ -1099,7 +1115,7 @@ export function AssistantPanel({
             studyId={studyId}
             projectId={projectId}
             refreshKey={timelineKey}
-            onReviewProposal={onReviewProposal}
+            onReviewProposal={reviewProposal}
             onOpenThread={(id) => void selectThread(id)}
           />
         </div>
@@ -1124,7 +1140,7 @@ export function AssistantPanel({
             <div className="fedlify-ws-proposal-actions">
               <Button size="small" disabled={streaming} onClick={() => explainFailure(notice.kind)}>Explain</Button>
               {stale && onOpenPublish ? (
-                <Button size="small" type="primary" onClick={onOpenPublish}>Publish latest</Button>
+                <Button size="small" type="primary" onClick={openPublish}>Publish latest</Button>
               ) : (
                 <Button size="small" type="primary" disabled={streaming} onClick={() => proposeFix(notice.kind)}>Propose fix</Button>
               )}

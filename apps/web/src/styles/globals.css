@@ -6282,3 +6282,28 @@ h4.ant-typography {
 .fedlify-ws-changes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .fedlify-ws-changes-list li { border-left: 2px solid var(--ant-color-border, #d9d9d9); padding-left: 10px; display: flex; flex-direction: column; gap: 2px; }
 .fedlify-ws-changes-head { display: flex; align-items: center; gap: 6px; }
+
+/* Confirmation popups: keep them a readable size wherever they open. */
+.ant-popconfirm {
+  max-width: min(340px, calc(100vw - 24px));
+}
+
+/* Full-width assistant: covers the page so the editor behind it stays mounted. Antd popups and modals stack above 900. */
+.fedlify-ws-assistant.is-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  width: auto;
+  height: auto;
+  max-height: none;
+  border-radius: 0;
+}
+
+.fedlify-ws-assistant.is-expanded .fedlify-ws-log {
+  padding-inline: max(16px, calc((100% - 1040px) / 2));
+}
+
+.fedlify-ws-assistant.is-expanded .fedlify-ws-composer {
+  width: min(1040px, calc(100% - 32px));
+  margin-inline: auto;
+}
