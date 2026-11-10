@@ -21,7 +21,7 @@ export const STUDY_WORKSPACE_SECTIONS = [
     key: "team",
     label: "Team",
     title: "Team and access",
-    subtitle: "Manage study members, role-scoped invitations, and site-aware access."
+    subtitle: "The people who work on this study and what each of them can do."
   },
   {
     key: "pipeline",
@@ -112,4 +112,22 @@ export function activeStudyNavKey(pathname: string, section: StudyWorkspaceSecti
   if (sub === "runs") return "results";
   if (section === "pipeline" || section === "run") return "code";
   return section;
+}
+
+/**
+ * Which sidebar a person gets. `site-only`: they work at a site and have no study of their own, so the only entry is
+ * "My site". `both`: the study sidebar plus an extra "My site" entry. `study`: the study sidebar (also the fallback
+ * when the account details could not be loaded).
+ */
+export type SidebarMode = "study" | "site-only" | "both";
+
+export function sidebarMode(me: { landing?: string | null; sites?: unknown[] | null } | null | undefined): SidebarMode {
+  if (!me) return "study";
+  if (me.landing === "/my-site") return "site-only";
+  return (me.sites?.length ?? 0) > 0 ? "both" : "study";
+}
+
+/** The sidebar entry that "My site" highlights for a pathname. */
+export function isMySitePath(pathname: string): boolean {
+  return pathname === "/my-site" || pathname.startsWith("/my-site/") || pathname.startsWith("/sites/");
 }

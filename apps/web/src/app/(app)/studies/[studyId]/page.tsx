@@ -41,7 +41,7 @@ import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { normalizeRichTextValue, RichTextContent, RichTextEditor, richTextHasText } from "@/components/RichTextEditor";
 import { RequirementsChatWindow } from "@/components/RequirementsChatWindow";
-import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
+import { TeamSection, type TeamStudy } from "./sections/TeamSection";
 import { StatusTag } from "@/components/StatusTag";
 import { StudySitesTable } from "@/components/StudySitesTable";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
@@ -193,16 +193,24 @@ function groupedStudyMembers(members: StudyDetail["members"]) {
   );
 }
 
+function siteContactCounts(studySites: EntityRecord[], invitations: EntityRecord[]) {
+  const counts: Record<string, { people: number; waiting: number }> = {};
+  for (const site of studySites) {
+    const people = new Set((site.members ?? []).map((member: EntityRecord) => String(member.userId)));
+    counts[String(site.id)] = { people: people.size, waiting: 0 };
+  }
+  for (const invitation of invitations) {
+    const id = invitation.studySiteId ? String(invitation.studySiteId) : null;
+    if (id && counts[id] && (invitation.status ?? "PENDING") === "PENDING") counts[id].waiting += 1;
+  }
+  return counts;
+}
+
 const CREATE_FORM_META = {
   studyDesign: {
     title: "Edit study design",
     subtitle: "Update the study design, scientific question, outcomes, analysis, and AI/federated governance plans.",
     backLabel: "Study protocol"
-  },
-  invite: {
-    title: "Add study member",
-    subtitle: "Invite one person and assign one or more study roles.",
-    backLabel: "Team and access"
   },
   ethics: {
     title: "Record ethics decision",
@@ -565,9 +573,8 @@ export default function StudyDetailPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [siteToken, setSiteToken] = useState<string | null>(null);
   const [templates, setTemplates] = useState<EntityRecord[]>([]);
-  const [activeCreate, setActiveCreate] = useState<"studyDesign" | "invite" | "ethics" | "document" | "site" | "job" | null>(null);
+  const [activeCreate, setActiveCreate] = useState<"studyDesign" | "ethics" | "document" | "site" | "job" | null>(null);
   const [protocolTab, setProtocolTab] = useState("review");
-  const [teamTab, setTeamTab] = useState("members");
   const [runTab, setRunTab] = useState("readiness");
   const [resultsTab, setResultsTab] = useState("models");
   const [ethicsEditingRecord, setEthicsEditingRecord] = useState<EntityRecord | null>(null);
@@ -576,8 +583,6 @@ export default function StudyDetailPage() {
   const [jobLogLoadingId, setJobLogLoadingId] = useState<string | null>(null);
   const [jobLogDetail, setJobLogDetail] = useState<JobLogsPayload | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  // Shown once after an invitation is created: the token is only known at creation time and email may not be configured.
-  const [lastInvite, setLastInvite] = useState<{ email: string; inviteUrl: string; emailSent: boolean } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
 
   function openCreate(mode: NonNullable<typeof activeCreate>) {
@@ -596,7 +601,6 @@ export default function StudyDetailPage() {
   function closeCreate() {
     setActiveCreate(null);
     setFormError(null);
-    setLastInvite(null);
     setSelectedFile(null);
     setEthicsEditingRecord(null);
   }
@@ -639,6 +643,12 @@ export default function StudyDetailPage() {
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         if (response.status === 403 || response.status === 404) {
+          const meResponse = await fetch("/api/v1/me", { cache: "no-store" }).catch(() => null);
+          const meBody = meResponse?.ok ? await meResponse.json().catch(() => null) : null;
+          if (meBody?.landing === "/my-site") {
+            router.replace("/my-site");
+            return;
+          }
           const studiesResponse = await fetch("/api/v1/studies?status=active", { cache: "no-store" });
           const studiesBody = await studiesResponse.json().catch(() => null);
           const studies = studiesResponse.ok ? ((studiesBody?.studies ?? []) as StudySummary[]) : [];
@@ -680,7 +690,6 @@ export default function StudyDetailPage() {
     setMemberRoleEditingId(null);
     // A link can open a protocol tab directly (?section=protocol&tab=ethics or tab=requirements).
         setProtocolTab(activeSection === "protocol" && (linkedTab === "ethics" || linkedTab === "requirements") ? linkedTab : "review");
-    if (activeSection !== "team") setTeamTab("members");
     if (activeSection !== "run") setRunTab("readiness");
     if (activeSection !== "results") setResultsTab("models");
   }, [activeSection, linkedTab]);
@@ -1065,64 +1074,6 @@ export default function StudyDetailPage() {
 
     if (mode === "studyDesign") {
       return renderStudyDesignEditForm();
-    }
-
-    if (mode === "invite") {
-      return (
-        <div className="fedlify-inline-create-card">
-          <Form
-            layout="vertical"
-            className="fedlify-inline-create-form"
-            onFinish={async (values) => {
-              const result = await post(`/api/v1/studies/${studyId}/invitations`, values, "Invitation created.");
-              if (result?.inviteUrl) {
-                setLastInvite({ email: String(values.email), inviteUrl: String(result.inviteUrl), emailSent: Boolean(result.emailSent) });
-              } else if (result) {
-                closeCreate();
-              }
-            }}
-          >
-            <FormError title="Invitation was not sent" message={formError} />
-            {lastInvite ? (
-              <Alert
-                type={lastInvite.emailSent ? "success" : "warning"}
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={lastInvite.emailSent ? `Invitation emailed to ${lastInvite.email}` : `Invitation created for ${lastInvite.email}. Email is not configured, so send this link yourself.`}
-                description={
-                  <Typography.Text copyable={{ text: lastInvite.inviteUrl }} style={{ wordBreak: "break-all" }}>
-                    {lastInvite.inviteUrl}
-                  </Typography.Text>
-                }
-              />
-            ) : null}
-            <div className="fedlify-intake-field-grid">
-              <Form.Item name="email" label="Recipient email" rules={[{ required: true, type: "email" }]}>
-                <Input placeholder="member@institution.ca" />
-              </Form.Item>
-              <Form.Item
-                name="roles"
-                label="Study roles"
-                initialValue={["DATA_SCIENTIST"]}
-                rules={[{ required: true, message: "Select at least one study role." }]}
-                extra="Assign multiple roles when one person is responsible for more than one study function."
-              >
-                <Select
-                  mode="multiple"
-                  placeholder="Select one or more roles"
-                  options={STUDY_ROLE_OPTIONS}
-                />
-              </Form.Item>
-            </div>
-            <Space className="fedlify-form-actions">
-              <Button onClick={closeCreate}>Cancel</Button>
-              <Button type="primary" htmlType="submit" icon={<MailOutlined />} className="fedlify-dark-action" loading={formSubmitting}>
-                Send role invitation
-              </Button>
-            </Space>
-          </Form>
-        </div>
-      );
     }
 
     if (mode === "ethics") {
@@ -2274,100 +2225,7 @@ export default function StudyDetailPage() {
     }
 
     if (section === "team") {
-      const memberGroups = groupedStudyMembers(currentStudy.members);
-      return (
-        <div className="fedlify-section-stack">
-          <Tabs
-            className="fedlify-card-tabs fedlify-workspace-tabs"
-            activeKey={teamTab}
-            onChange={setTeamTab}
-            items={[
-              {
-                key: "members",
-                label: "Members",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <WorkspaceCardGrid>
-                      <WorkspaceActionCard
-                        icon={<PlusOutlined />}
-                        title={memberGroups.length === 0 ? "Add first study member" : "Add study member"}
-                        description={
-                          memberGroups.length === 0
-                            ? "No study members yet. Invite people and assign one or more study roles."
-                            : "Invite people and assign one or more study roles."
-                        }
-                        onClick={() => openCreate("invite")}
-                      />
-                      {memberGroups.map((member) => {
-                        const roles = member.roles ?? uniqueValues(member.memberships.map((membership: EntityRecord) => membership.role));
-                        return (
-                          <WorkspaceRecordCard
-                            key={member.id}
-                            icon={<MailOutlined />}
-                            title={member.user.name ?? member.user.email}
-                            description={member.user.email}
-                            meta={[
-                              `${roles.length} study role${roles.length === 1 ? "" : "s"} assigned`,
-                              roles.map((role: string) => displayEnum(role)).join(", ")
-                            ]}
-                            actionsMenu={
-                              <EntityActionMenu
-                                items={[
-                                  { key: "view", label: "View member", icon: <EyeOutlined />, onClick: () => openDetail("member", member.id, "team") },
-                                  { key: "roles", label: "Edit study roles", icon: <EditOutlined />, onClick: () => {
-                                    openDetail("member", member.id, "team");
-                                    setMemberRoleEditingId(String(member.id));
-                                  } }
-                                ]}
-                              />
-                            }
-                            onClick={() => openDetail("member", member.id, "team")}
-                          />
-                        );
-                      })}
-                    </WorkspaceCardGrid>
-                  </div>
-                )
-              },
-              {
-                key: "invitations",
-                label: "Pending invitations",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <WorkspaceCardGrid>
-                      <WorkspaceActionCard
-                        icon={<PlusOutlined />}
-                        title={currentStudy.invitations.length === 0 ? "Send first invitation" : "Send invitation"}
-                        description={
-                          currentStudy.invitations.length === 0
-                            ? "No invitations issued. Add study members or site staff when they need study-scoped access."
-                            : "Invite study members or site staff when they need study-scoped access."
-                        }
-                        onClick={() => openCreate("invite")}
-                      />
-                      {currentStudy.invitations.map((invitation) => {
-                        const roles = Array.isArray(invitation.roles) && invitation.roles.length > 0 ? invitation.roles : [invitation.role];
-                        return (
-                          <WorkspaceRecordCard
-                            key={text(invitation.id, `${invitation.email}-${invitation.createdAt}`)}
-                            icon={<MailOutlined />}
-                            title={text(invitation.email, "Invitation")}
-                            description={`Expires ${formatDate(invitation.expiresAt)}`}
-                            status={<StatusTag value={status(invitation.status, "PENDING")} />}
-                            meta={[`${roles.length} study role${roles.length === 1 ? "" : "s"}`, roles.map((role: string) => displayEnum(role)).join(", ")]}
-                            actionsMenu={<EntityActionMenu items={[{ key: "view", label: "View invitation", icon: <EyeOutlined />, onClick: () => openDetail("invitation", String(invitation.id), "team") }]} />}
-                            onClick={() => openDetail("invitation", String(invitation.id), "team")}
-                          />
-                        );
-                      })}
-                    </WorkspaceCardGrid>
-                  </div>
-                )
-              }
-            ]}
-          />
-        </div>
-      );
+      return <TeamSection studyId={studyId} study={currentStudy as unknown as TeamStudy} onChanged={() => load(activeSection)} />;
     }
 
     if (section === "sites") {
@@ -2381,7 +2239,12 @@ export default function StudyDetailPage() {
               description={`Give this site access code to the person setting up the runner at the site, and keep it private: ${siteToken}`}
             />
           ) : null}
-          <StudySitesTable studyId={studyId} onRegister={() => openCreate("site")} />
+          <StudySitesTable
+            studyId={studyId}
+            onRegister={() => openCreate("site")}
+            siteContacts={siteContactCounts(currentStudy.studySites, currentStudy.invitations)}
+            onInvited={() => load(activeSection)}
+          />
         </div>
       );
     }

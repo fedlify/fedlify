@@ -1,6 +1,7 @@
 "use client";
 
 import { ExperimentOutlined, FolderOpenOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
+import type { SiteRole, StudyRole } from "@prisma/client";
 import { Button, Typography } from "antd";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -9,6 +10,8 @@ import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
 import { CardGrid, EntityCard, StatCard } from "@/components/DataCards";
 import { CardGridSkeleton, InlineLoadError } from "@/components/LoadStates";
 import { StatusTag } from "@/components/StatusTag";
+import { describeStudyRoles } from "@/lib/plain-roles";
+import { groupStudyRoles, siteRolesLabel } from "@/lib/team-roles";
 
 type MeResponse = {
   user?: {
@@ -27,16 +30,18 @@ type MeResponse = {
     }>;
     studyMembers?: Array<{
       id: string;
-      role: string;
+      role: StudyRole;
       study: { id: string; title: string; organization: { name: string } };
     }>;
   };
+  sites?: Array<{ studySiteId: string; name: string; studyTitle: string; roles: SiteRole[] }>;
 };
 
 export default function ProfilePage() {
   const router = useRouter();
   const { data: session } = useSession();
   const [profile, setProfile] = useState<MeResponse["user"] | null>(null);
+  const [siteAccess, setSiteAccess] = useState<NonNullable<MeResponse["sites"]>>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -48,6 +53,7 @@ export default function ProfilePage() {
       const body = (await response.json().catch(() => null)) as MeResponse | null;
       if (!response.ok) throw new Error("Profile information could not be loaded.");
       setProfile(body?.user ?? null);
+      setSiteAccess(body?.sites ?? []);
     } catch (error) {
       setProfile(null);
       setLoadError(error instanceof Error ? error.message : "Profile information could not be loaded.");
@@ -63,14 +69,15 @@ export default function ProfilePage() {
   const userName = profile?.profile?.displayName || profile?.name || session?.user?.name || "Fedlify user";
   const userEmail = profile?.email || session?.user?.email || "Signed in";
   const organizations = profile?.orgMemberships ?? [];
-  const studies = profile?.studyMembers ?? [];
+  const studies = useMemo(() => groupStudyRoles(profile?.studyMembers ?? []), [profile?.studyMembers]);
 
   const stats = useMemo(
     () => [
       { label: "Organizations", value: organizations.length, icon: <TeamOutlined /> },
-      { label: "Study roles", value: studies.length, icon: <ExperimentOutlined /> }
+      { label: "Studies", value: studies.length, icon: <ExperimentOutlined /> },
+      { label: "Sites", value: siteAccess.length, icon: <TeamOutlined /> }
     ],
-    [organizations.length, studies.length]
+    [organizations.length, studies.length, siteAccess.length]
   );
 
   return (
@@ -124,6 +131,27 @@ export default function ProfilePage() {
             </CardGrid>
           )}
 
+          {siteAccess.length > 0 ? (
+            <>
+              <SectionHeader title="Your sites" />
+              <CardGrid>
+                {siteAccess.map((site) => (
+                  <EntityCard
+                    key={site.studySiteId}
+                    title={site.name}
+                    subtitle={site.studyTitle}
+                    status={<StatusTag value={siteRolesLabel(site.roles)} />}
+                    actions={
+                      <Button icon={<FolderOpenOutlined />} onClick={() => router.push(`/sites/${site.studySiteId}`)}>
+                        Open
+                      </Button>
+                    }
+                  />
+                ))}
+              </CardGrid>
+            </>
+          ) : null}
+
           <SectionHeader title="Study roles" />
           {studies.length === 0 ? (
             <Typography.Text className="fedlify-muted">No study roles recorded.</Typography.Text>
@@ -131,10 +159,10 @@ export default function ProfilePage() {
             <CardGrid>
               {studies.map((membership) => (
                 <EntityCard
-                  key={membership.id}
+                  key={membership.study.id}
                   title={membership.study.title}
                   subtitle={membership.study.organization.name}
-                  status={<StatusTag value={membership.role} />}
+                  status={<StatusTag value={describeStudyRoles(membership.roles).label} />}
                   actions={
                     <Button icon={<FolderOpenOutlined />} onClick={() => router.push(`/studies/${membership.study.id}`)}>
                       Open

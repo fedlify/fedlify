@@ -22,6 +22,7 @@ import type { StartPath } from "@/lib/pipeline-start";
 import { PreflightChecklist, PreflightApiError, failingCount, postWithChecklist, thingsToFix, usePreflight } from "@/components/PreflightChecklist";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
 import { kitStateLabel, statusLabel, TERMS } from "@/lib/terms";
+import { useStudyPermissions } from "@/lib/use-permissions";
 import { ApiError, apiCall } from "@/lib/web-api";
 
 type Version = {
@@ -244,8 +245,12 @@ export default function StudyProjectsPage() {
   const publishFailing = failingCount(publishCheck.result);
   const runFailing = failingCount(runCheck.result);
   // Until the overview says otherwise a person may act; the server still decides.
-  const mayPublish = overview?.can?.approvePipeline ?? true;
-  const mayRun = overview?.can?.submitJob ?? true;
+  const { can: studyCan, loading: permissionsLoading } = useStudyPermissions(studyId);
+  const mayPublish = permissionsLoading ? (overview?.can?.approvePipeline ?? true) : Boolean(studyCan.approvePipeline);
+  const mayRun = permissionsLoading ? (overview?.can?.submitJob ?? true) : Boolean(studyCan.submitJob);
+  const mayStop = permissionsLoading ? true : Boolean(studyCan.abortJob);
+  const maySaveModel = permissionsLoading ? true : Boolean(studyCan.manage || studyCan.approveRelease);
+  const mayManageSites = permissionsLoading ? true : Boolean(studyCan.manageSites || studyCan.manageSiteProfiles);
   const publishBlocked = publishCheck.result ? !publishCheck.result.ok : false;
   const runBlocked = Boolean(activeJob) || (runCheck.result ? !runCheck.result.ok : runCheck.error ? runBlockers.length > 0 : true);
 
@@ -810,23 +815,26 @@ export default function StudyProjectsPage() {
             render: (_, row) => (
               <div>
                 {row.name} ({row.code})
-                <Details items={[{ label: TERMS.siteId, value: <code>{row.nvflareClientName}</code>, copyText: row.nvflareClientName }]} />
+                <Details
+                  items={[
+                    { label: TERMS.siteId, value: <code>{row.nvflareClientName}</code>, copyText: row.nvflareClientName },
+                    { label: "Certificate", value: row.provisioned ? "Issued" : overview?.aggregator ? "Issued when you republish" : "Issued on publish" }
+                  ]}
+                />
               </div>
             )
-          },
-          {
-            title: "Certificate",
-            render: (_, row) => (row.provisioned ? <Tag color="green">Issued</Tag> : <Tag>{overview?.aggregator ? "Issued when you republish" : "Issued on publish"}</Tag>)
           },
           {
             title: TERMS.siteKit,
             render: (_, row) =>
               row.kitReleased ? (
                 <Tag color={row.needsNewKit ? "orange" : "green"}>{kitStateLabel(row.needsNewKit ? "OUTDATED" : "RELEASED")}</Tag>
-              ) : (
+              ) : mayManageSites ? (
                 <Button size="small" type="link" onClick={() => leaveTo(`/sites/${row.studySiteId}`)}>
                   Release site kit
                 </Button>
+              ) : (
+                <Tag>{kitStateLabel("NOT_RELEASED")}</Tag>
               )
           },
           {
@@ -944,12 +952,12 @@ export default function StudyProjectsPage() {
                 <Button size="small" onClick={() => followJob(row.id)} disabled={!row.nvflareJobId}>
                   Metrics
                 </Button>
-                {ACTIVE_JOB.has(row.status) ? (
+                {ACTIVE_JOB.has(row.status) && mayStop ? (
                   <Button size="small" danger icon={<StopOutlined />} onClick={() => void abortRun(row.id)}>
                     Stop
                   </Button>
                 ) : null}
-                {row.status === "COMPLETED" && !row.result ? (
+                {row.status === "COMPLETED" && !row.result && maySaveModel ? (
                   <Button size="small" onClick={() => void syncResult(row.id)}>
                     Save model
                   </Button>

@@ -6745,3 +6745,18 @@ h4.ant-typography {
 }
 
 .fedlify-next-step-attention { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; }
+
+/* Team: invite modal role cards and role pickers */
+.fedlify-role-cards { display: grid; gap: 8px; width: 100%; }
+.fedlify-role-card { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--fedlify-border, #d9d9d9); border-radius: 8px; cursor: pointer; }
+.fedlify-role-card.is-selected { border-color: var(--fedlify-ink, #1f2937); background: rgba(0, 0, 0, 0.03); }
+.fedlify-role-card.is-disabled { cursor: not-allowed; opacity: 0.6; }
+.fedlify-role-card-text { padding-left: 24px; color: var(--fedlify-muted, #6b7280); font-size: var(--fedlify-text-sm, 13px); }
+.fedlify-role-card-reason { padding-left: 24px; color: var(--fedlify-muted, #6b7280); font-size: var(--fedlify-text-sm, 13px); font-style: italic; }
+.fedlify-advanced-roles .ant-checkbox-group { display: grid; gap: 6px; }
+
+/* Site page: people list and "Having problems?" disclosure */
+.fedlify-site-people { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.fedlify-site-people li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.fedlify-site-problems { border: 1px solid var(--fedlify-line); border-radius: 12px; }
+.fedlify-site-problem { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }

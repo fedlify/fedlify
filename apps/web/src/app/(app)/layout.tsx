@@ -5,6 +5,7 @@ import {
   CloudDownloadOutlined,
   ClusterOutlined,
   DashboardOutlined,
+  HomeOutlined,
   MailOutlined,
   MenuFoldOutlined,
   RobotOutlined,
@@ -20,7 +21,10 @@ import { StudyQuickMenu } from "@/components/StudyQuickMenu";
 import { UserMenu } from "@/components/UserMenu";
 import {
   activeStudyNavKey,
+  isMySitePath,
   normalizeStudyWorkspaceSection,
+  sidebarMode,
+  type SidebarMode,
   STUDY_NAV_ITEMS,
   type StudyNavKey,
   studyNavHref
@@ -37,6 +41,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { data: session, status } = useSession();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null);
+  const [mode, setMode] = useState<SidebarMode | null>(null);
   const currentStudySection = normalizeStudyWorkspaceSection(searchParams.get("section"));
 
   const loadSelectedStudy = useCallback(async () => {
@@ -89,6 +94,39 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     };
   }, [loadSelectedStudy, session]);
 
+  // Who is this person here for? Site contacts get a minimal sidebar; everyone else keeps the study sidebar.
+  const loadMode = useCallback(async () => {
+    try {
+      const response = await fetch("/api/v1/me", { cache: "no-store" });
+      if (!response.ok) {
+        setMode("study");
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      setMode(sidebarMode(body));
+    } catch {
+      setMode("study");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    void loadMode();
+    const refresh = () => void loadMode();
+    window.addEventListener("fedlify:studiesUpdated", refresh);
+    return () => window.removeEventListener("fedlify:studiesUpdated", refresh);
+  }, [loadMode, session]);
+
+  // A site-only person has no study to open: send study pages (and the empty
+  // default study) back to My site instead of showing an access error.
+  useEffect(() => {
+    // Creating a study of their own (/studies/manage) stays open to them.
+    const startingOwnStudy = pathname.startsWith("/studies/manage");
+    if (mode === "site-only" && !startingOwnStudy && (pathname.startsWith("/studies") || pathname.startsWith("/templates"))) {
+      router.replace("/my-site");
+    }
+  }, [mode, pathname, router]);
+
   useEffect(() => {
     if (status !== "loading" && !session) {
       router.replace(`/signin?callbackUrl=${encodeURIComponent(pathname)}`);
@@ -108,9 +146,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     []
   );
 
-  const menuItems = useMemo(
-    () =>
-      STUDY_NAV_ITEMS.map((item) => ({
+  const menuItems = useMemo(() => {
+    const mySite = {
+      key: "site:mine",
+      icon: <HomeOutlined />,
+      label: "My site",
+      onClick: () => router.push("/my-site")
+    };
+    if (mode === null) return [];
+    if (mode === "site-only") return [mySite];
+    const studyItems = STUDY_NAV_ITEMS.map((item) => ({
         key: `study:${item.key}`,
         icon: studyNavIcons[item.key],
         label: item.key === "code" ? <span title="Code, publish and run the study pipeline">{item.label}</span> : item.label,
@@ -118,9 +163,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         onClick: () => {
           if (selectedStudyId) router.push(studyNavHref(selectedStudyId, item.key));
         }
-      })),
-    [router, selectedStudyId, studyNavIcons]
-  );
+      }));
+    return mode === "both" ? [...studyItems, mySite] : studyItems;
+  }, [mode, router, selectedStudyId, studyNavIcons]);
 
   function toggleSidebar() {
     setSidebarCollapsed((current) => {
@@ -153,6 +198,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         collapsedWidth={72}
         collapsed={sidebarCollapsed}
         collapsible
+        breakpoint="md"
+        // On a phone the menu starts closed so it does not take half the screen; this choice is not remembered.
+        onBreakpoint={(broken) => {
+          if (broken) setSidebarCollapsed(true);
+        }}
         trigger={null}
         theme="light"
         className={`fedlify-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}
@@ -180,6 +230,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           mode="inline"
           inlineCollapsed={sidebarCollapsed}
           selectedKeys={(() => {
+            if (pathname.startsWith("/my-site") || (mode === "site-only" && isMySitePath(pathname))) return ["site:mine"];
             const key = activeStudyNavKey(pathname, currentStudySection);
             return key ? [`study:${key}`] : [];
           })()}
@@ -188,7 +239,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </Sider>
       <Layout className="fedlify-main-shell">
         <Header className="fedlify-app-header">
-          <StudyQuickMenu />
+          {mode === "site-only" ? <span /> : <StudyQuickMenu />}
           <div className="fedlify-header-actions">
             <UserMenu />
           </div>

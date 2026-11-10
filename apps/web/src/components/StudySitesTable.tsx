@@ -4,16 +4,33 @@ import { PlusOutlined } from "@ant-design/icons";
 import { Alert, Button, Popover, Tag } from "antd";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { InvitePersonModal } from "@/components/InvitePersonModal";
 import { RecordTable } from "@/components/RecordTable";
 import { StatusTag } from "@/components/StatusTag";
 import { formatHeartbeat, type SiteOverviewRow } from "@/lib/site-overview";
 import { kitStateLabel } from "@/lib/terms";
+import { useStudyPermissions } from "@/lib/use-permissions";
 import { ApiError, apiCall } from "@/lib/web-api";
 
 /** The study's Sites page: one table (site, institution, sign-off, site kit, code version, connection, last report) and a row action to the site page. */
 
-export function StudySitesTable({ studyId, onRegister, canRegister = true }: { studyId: string; onRegister?: () => void; canRegister?: boolean }) {
+export function StudySitesTable({
+  studyId,
+  onRegister,
+  canRegister = true,
+  siteContacts,
+  onInvited
+}: {
+  studyId: string;
+  onRegister?: () => void;
+  canRegister?: boolean;
+  /** People and waiting invitations per site (by study site id), when the page already has them. */
+  siteContacts?: Record<string, { people: number; waiting: number }>;
+  onInvited?: () => void | Promise<void>;
+}) {
   const router = useRouter();
+  const { can } = useStudyPermissions(studyId);
+  const [inviteSiteId, setInviteSiteId] = useState<string | null>(null);
   const [rows, setRows] = useState<SiteOverviewRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +51,7 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
   return (
     <div className="fedlify-section-stack">
       {error ? <Alert type="error" showIcon message="Sites could not be loaded" description={error} action={<Button size="small" onClick={() => void load()}>Retry</Button>} /> : null}
-      {onRegister && canRegister ? (
+      {onRegister && canRegister && can.manageSites ? (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <Button icon={<PlusOutlined />} onClick={onRegister}>
             Add site
@@ -82,17 +99,51 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
             dataIndex: "lastHeartbeatAt",
             render: (value: string | null) => <span title={value ?? undefined}>{formatHeartbeat(value)}</span>
           },
+          ...(siteContacts
+            ? [
+                {
+                  title: "People",
+                  key: "people",
+                  render: (_: unknown, row: SiteOverviewRow) => {
+                    const entry = siteContacts[row.studySiteId];
+                    if (!entry) return <span className="fedlify-muted">-</span>;
+                    return (
+                      <span>
+                        {entry.people === 1 ? "1 person" : `${entry.people} people`}
+                        {entry.waiting > 0 ? <span className="fedlify-muted"> ({entry.waiting} waiting to accept)</span> : null}
+                      </span>
+                    );
+                  }
+                }
+              ]
+            : []),
           {
             title: "",
             key: "action",
             render: (_, row) => (
-              <Button size="small" onClick={() => router.push(`/sites/${row.studySiteId}`)} aria-label={`Open ${row.name}`}>
-                Open
-              </Button>
+              <span style={{ display: "inline-flex", gap: 8 }}>
+                <Button size="small" onClick={() => router.push(`/sites/${row.studySiteId}`)} aria-label={`Open ${row.name}`}>
+                  Open
+                </Button>
+                {can.manageSites ? (
+                  <Button size="small" onClick={() => setInviteSiteId(row.studySiteId)} aria-label={`Invite site contact for ${row.name}`}>
+                    Invite site contact
+                  </Button>
+                ) : null}
+              </span>
             )
           }
         ]}
         pagination={false}
+      />
+      <InvitePersonModal
+        open={inviteSiteId !== null}
+        studyId={studyId}
+        can={can}
+        sites={(rows ?? []).map((row) => ({ id: row.studySiteId, name: row.name }))}
+        presetSiteId={inviteSiteId}
+        onClose={() => setInviteSiteId(null)}
+        onInvited={() => void onInvited?.()}
       />
     </div>
   );

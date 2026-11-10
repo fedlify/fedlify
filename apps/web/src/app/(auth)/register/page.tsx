@@ -1,9 +1,9 @@
 "use client";
 
 import { UserAddOutlined } from "@ant-design/icons";
-import { Button, Card, Form, Input, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Typography, message } from "antd";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { FormError } from "@/components/FormFeedback";
 
@@ -15,6 +15,7 @@ type RegisterForm = {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const invite = useSearchParams().get("invite");
   const [messageApi, contextHolder] = message.useMessage();
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export default function RegisterPage() {
     }
 
     messageApi.success("Account created. Sign in to continue.");
-    router.push("/signin");
+    router.push(invite ? `/signin?invite=${encodeURIComponent(invite)}` : "/signin");
   }
 
   return (
@@ -44,6 +45,15 @@ export default function RegisterPage() {
         <Typography.Paragraph className="fedlify-muted">
           A default governed study workspace is created automatically after registration.
         </Typography.Paragraph>
+        {invite ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="You have been invited"
+            description="Create your account with the same email address the invitation was sent to. You will accept it after you sign in."
+          />
+        ) : null}
         <Form layout="vertical" onFinish={onFinish}>
           <FormError title="Account was not created" message={formError} />
           <Form.Item name="name" label="Full name" rules={[{ required: true, min: 2 }]}>
@@ -64,7 +74,7 @@ export default function RegisterPage() {
           </Button>
         </Form>
         <Typography.Paragraph style={{ marginTop: 16, marginBottom: 0 }}>
-          Already have an account? <Link href="/signin">Sign in</Link>
+          Already have an account? <Link href={invite ? `/signin?invite=${encodeURIComponent(invite)}` : "/signin"}>Sign in</Link>
         </Typography.Paragraph>
       </Card>
     </main>

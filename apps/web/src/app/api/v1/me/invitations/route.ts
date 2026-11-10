@@ -18,7 +18,10 @@ export async function GET() {
 
   const invitations = await prisma.invitation.findMany({
     where: { email: user.email.toLowerCase(), status: "PENDING", expiresAt: { gt: new Date() } },
-    include: { study: { select: { id: true, title: true, slug: true, organization: { select: { name: true } } } } },
+    include: {
+      study: { select: { id: true, title: true, slug: true, organization: { select: { name: true } } } },
+      studySite: { select: { id: true, name: true } }
+    },
     orderBy: { createdAt: "desc" }
   });
   const inviterIds = [...new Set(invitations.map((invitation) => invitation.invitedById))];
@@ -33,7 +36,11 @@ export async function GET() {
       studyId: invitation.studyId,
       studyTitle: invitation.study.title,
       organizationName: invitation.study.organization.name,
-      roles: invitation.roles.length > 0 ? invitation.roles : [invitation.role],
+      // A site invitation has no study roles: it names the site and the site roles instead.
+      roles: invitation.studySiteId ? [] : invitation.roles.length > 0 ? invitation.roles : [invitation.role],
+      studySiteId: invitation.studySiteId ?? null,
+      siteName: invitation.studySite?.name ?? null,
+      siteRoles: invitation.studySiteId ? invitation.siteRoles : [],
       invitedBy: inviterById.get(invitation.invitedById)?.name ?? inviterById.get(invitation.invitedById)?.email ?? null,
       expiresAt: invitation.expiresAt,
       createdAt: invitation.createdAt

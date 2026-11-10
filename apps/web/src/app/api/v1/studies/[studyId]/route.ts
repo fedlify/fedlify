@@ -86,7 +86,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     include: {
       organization: true,
       members: { include: { user: { select: { id: true, name: true, email: true } } } },
-      invitations: { orderBy: { createdAt: "desc" } },
+      invitations: { omit: { tokenHash: true }, orderBy: { createdAt: "desc" } },
       ethics: { orderBy: { createdAt: "desc" } },
       documents: { orderBy: { createdAt: "desc" } },
       requirementResponses: { select: { requirementId: true, updatedAt: true }, orderBy: { requirementId: "asc" } },

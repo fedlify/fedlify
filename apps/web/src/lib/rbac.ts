@@ -21,6 +21,11 @@ export type StudyAction =
   | "viewLogs"
   | "audit";
 
+export const STUDY_ACTIONS: readonly StudyAction[] = [
+  "read", "manage", "activateStudy", "invite", "uploadDocument", "manageEthics", "manageSites", "manageSiteProfiles", "assignSiteRoles",
+  "runAgent", "approvePipeline", "submitJob", "abortJob", "approveRelease", "downloadRelease", "downloadPipelineBundle", "viewLogs", "audit"
+];
+
 const permissionsByRole: Record<StudyRole, StudyAction[]> = {
   PRINCIPAL_INVESTIGATOR: [
     "read",
@@ -114,6 +119,11 @@ export type SiteAction =
   | "rotateSiteToken"
   | "acceptSitePolicy"
   | "audit";
+
+export const SITE_ACTIONS: readonly SiteAction[] = [
+  "read", "manageProfile", "updateReadiness", "assignMembers", "viewLogs", "downloadRelease", "downloadJoinKit", "downloadPipelineBundle",
+  "rotateSiteToken", "acceptSitePolicy", "audit"
+];
 
 const permissionsBySiteRole: Record<SiteRole, SiteAction[]> = {
   SITE_PI: ["read", "acceptSitePolicy", "viewLogs", "downloadPipelineBundle", "audit"],
@@ -274,12 +284,15 @@ export async function assertCanGrantRoles(userId: string, studyId: string, roles
   throw error;
 }
 
-export async function canAccessSite(userId: string, siteId: string, action: SiteAction): Promise<boolean> {
+/** Several site permissions for one person with a single site lookup and a single study lookup. */
+export async function canAccessSiteActions<T extends SiteAction>(userId: string, siteId: string, actions: readonly T[]): Promise<Record<T, boolean>> {
+  const result = Object.fromEntries(actions.map((action) => [action, false])) as Record<T, boolean>;
   const site = await prisma.studySite.findUnique({
     where: { id: siteId },
     select: {
       id: true,
       studyId: true,
+      participationStatus: true,
       members: {
         where: { userId },
         select: { role: true }
@@ -287,16 +300,23 @@ export async function canAccessSite(userId: string, siteId: string, action: Site
     }
   });
 
-  if (!site) return false;
+  if (!site) return result;
+  // A turned-off site gives its own members nothing; people with study-level rights are unaffected.
+  const siteTurnedOff = site.participationStatus === "DISABLED";
 
-  if (await canAccessStudy(userId, site.studyId, "manageSites")) return true;
-  if (action === "downloadRelease" && (await canAccessStudy(userId, site.studyId, "downloadRelease"))) return true;
-  if (action === "downloadPipelineBundle" && (await canAccessStudy(userId, site.studyId, "downloadPipelineBundle"))) {
-    return true;
+  const study = await canAccessStudyActions(userId, site.studyId, ["manageSites", "downloadRelease", "downloadPipelineBundle", "viewLogs"] as const);
+  for (const action of actions) {
+    if (study.manageSites) result[action] = true;
+    else if (action === "downloadRelease" && study.downloadRelease) result[action] = true;
+    else if (action === "downloadPipelineBundle" && study.downloadPipelineBundle) result[action] = true;
+    else if (action === "viewLogs" && study.viewLogs) result[action] = true;
+    else result[action] = !siteTurnedOff && site.members.some((member) => siteRoleCan(member.role, action));
   }
-  if (action === "viewLogs" && (await canAccessStudy(userId, site.studyId, "viewLogs"))) return true;
+  return result;
+}
 
-  return site.members.some((member) => siteRoleCan(member.role, action));
+export async function canAccessSite(userId: string, siteId: string, action: SiteAction): Promise<boolean> {
+  return (await canAccessSiteActions(userId, siteId, [action]))[action];
 }
 
 export async function canAccessAnyStudySite(userId: string, studyId: string, action: SiteAction): Promise<boolean> {
@@ -304,12 +324,13 @@ export async function canAccessAnyStudySite(userId: string, studyId: string, act
   if (action === "downloadPipelineBundle" && (await canAccessStudy(userId, studyId, "downloadPipelineBundle"))) return true;
   if (action === "viewLogs" && (await canAccessStudy(userId, studyId, "viewLogs"))) return true;
 
-  const site = await prisma.studySite.findFirst({
-    where: { studyId, members: { some: { userId } } },
-    select: { members: { where: { userId }, select: { role: true } } }
+  // Any of the person's sites in this study counts, not just the first one found.
+  const memberships = await prisma.siteMember.findMany({
+    where: { userId, studySite: { studyId, participationStatus: { not: "DISABLED" } } },
+    select: { role: true }
   });
 
-  return Boolean(site?.members.some((member) => siteRoleCan(member.role, action)));
+  return memberships.some((member) => siteRoleCan(member.role, action));
 }
 
 export async function assertStudyAccess(userId: string, studyId: string, action: StudyAction): Promise<void> {
@@ -322,7 +343,7 @@ export async function assertStudyAccess(userId: string, studyId: string, action:
 
 export async function assertSiteAccess(userId: string, siteId: string, action: SiteAction): Promise<void> {
   if (!(await canAccessSite(userId, siteId, action))) {
-    const error = new Error("You do not have permission to perform this action for this participant site.");
+    const error = new Error("You do not have permission to perform this action for this site.");
     error.name = "ForbiddenError";
     throw error;
   }

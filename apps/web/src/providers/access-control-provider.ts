@@ -15,6 +15,8 @@ export const accessControlProvider: AccessControlProvider = {
     if (isAuditor && action !== "delete") return { can: true };
     if (resource === "audit" && !isAuditor) return { can: false };
 
-    return { can: true };
+    // No blanket yes: nothing in the app calls this for per-study or per-site buttons. Those use the permissions
+    // endpoints through useStudyPermissions / useSitePermissions (lib/use-permissions.ts).
+    return { can: false, reason: "Ask the permissions endpoint for this study or site." };
   }
 };

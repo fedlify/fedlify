@@ -57,11 +57,11 @@ export function summarizeSiteRuntime(input: RuntimeInput): SiteRuntime {
   if (active) {
     if (kit === "NOT_RELEASED") nextStep = "Create a site kit for this site.";
     else if (kit === "OUTDATED") nextStep = "The code version changed, so this site needs a new site kit.";
-    else if (!lastBeat) nextStep = "Unlock the site kit on the site's computer, then start the runner with ./fedlify-runner.sh start.";
-    else if (silent) nextStep = `The runner last reported ${ago}. It has stopped or the computer is offline. In the site kit folder, run ./fedlify-runner.sh start.`;
-    else if (noData) nextStep = "The runner found no data files. Put the site's CSV file in the site kit's data folder.";
-    else if (isImageMismatch(check.state)) nextStep = check.state === "OUTDATED" ? `This site is not on ${versionLabel || "the published pipeline version"}. In the site kit folder, run ./fedlify-runner.sh update.` : "This site has not reported its code version yet.";
-    else if (connected === false) nextStep = "The runner is reporting, but the study server does not list this site. Check that the computer can reach the study server on port 443.";
+    else if (!lastBeat) nextStep = "Ask your IT team to unlock the site kit and start the runner on the site's computer. Their steps are on the Get site kit tab.";
+    else if (silent) nextStep = `The runner last reported ${ago}. It has stopped or the computer is offline. Ask your IT team to start the runner again (the steps are on the Get site kit tab).`;
+    else if (noData) nextStep = "The runner is connected but found no data files. Ask your IT team to put the site's CSV file in the data folder of the site kit.";
+    else if (isImageMismatch(check.state)) nextStep = check.state === "OUTDATED" ? `This site is not on ${versionLabel || "the published pipeline version"}. Ask your IT team to update the runner (the steps are on the Get site kit tab).` : "This site has not reported its code version yet.";
+    else if (connected === false) nextStep = "The runner is reporting, but the study server does not list this site yet. Ask your IT team to check that the site's computer can reach the study server.";
   }
 
   const stages: SiteStage[] = [

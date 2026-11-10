@@ -13,6 +13,15 @@ export default function DashboardPage() {
   const routeToOverview = useCallback(async () => {
     setLoadError(null);
     try {
+      // People who only work at a site land on their site, not on a study workspace.
+      const meResponse = await fetch("/api/v1/me", { cache: "no-store" }).catch(() => null);
+      if (meResponse?.ok) {
+        const me = await meResponse.json().catch(() => null);
+        if (me?.landing === "/my-site") {
+          router.replace("/my-site");
+          return;
+        }
+      }
       const response = await fetch("/api/v1/studies?status=active", { cache: "no-store" });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "Study workspaces could not be loaded.");

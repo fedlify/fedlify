@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
-import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
+import { assertSiteAccess, canAccessSite, canAccessStudy, isForbiddenError } from "@/lib/rbac";
 import { markStaleSitesOffline } from "@/lib/site-presence";
 import { SITE_ONBOARDING_STEPS } from "@/lib/site-onboarding";
 import { summarizeSiteRuntime } from "@/lib/site-runtime";
@@ -49,10 +49,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
           heartbeats: { orderBy: { createdAt: "desc" }, take: 5 }
         }
       },
-      organization: true,
+      organization: { select: { id: true, name: true } },
       resourceProfile: true,
       dataProfile: true,
-      members: { include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: "desc" } },
       readinessChecks: { orderBy: { createdAt: "desc" }, take: 5 },
       joinPackages: { omit: { downloadGrantHash: true, downloadGrantExpiresAt: true }, orderBy: { createdAt: "desc" }, take: 5 },
       nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 5 },
@@ -62,30 +61,65 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
 
   if (!studySite) return problem(404, "Site not found.", "not_found");
 
+  // A person with access to this one site (and no study access) sees only this site's history, not other sites' events.
+  const studyWide = await canAccessStudy(authResult.userId, studySite.studyId, "read");
   const auditFilters = [
     { targetId: siteId },
     ...(studySite.siteId ? [{ targetId: studySite.siteId }] : []),
-    { action: { startsWith: "site." } }
+    ...(studyWide ? [{ action: { startsWith: "site." } }] : [])
   ];
+  const canSeeInvitations = await canAccessSite(authResult.userId, siteId, "assignMembers");
+  // Everyone on the site list is visible to study readers and to site administrators; anyone else sees only themselves.
+  const members = await prisma.siteMember.findMany({
+    where: { studySiteId: siteId, ...(studyWide || canSeeInvitations ? {} : { userId: authResult.userId }) },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { createdAt: "desc" }
+  });
+  const pendingInvitations = canSeeInvitations
+    ? await prisma.invitation.findMany({
+        where: { studySiteId: siteId, status: "PENDING", expiresAt: { gt: new Date() } },
+        select: { id: true, email: true, siteRoles: true, expiresAt: true, createdAt: true },
+        orderBy: { createdAt: "desc" }
+      })
+    : [];
 
+  const pipelineWhere = {
+    project: { studyId: studySite.studyId },
+    validationStatus: "PASSED" as const,
+    approvalStatus: { in: ["VALIDATED" as const, "APPROVED" as const] }
+  };
   const [approvedReleases, pipelineVersions, activeDeployment, auditEvents] = await Promise.all([
-    prisma.kitRelease.findMany({
-      where: { studyId: studySite.studyId, status: "APPROVED" },
-      include: { artifacts: true },
-      orderBy: { approvedAt: "desc" }
-    }),
-    prisma.pipelineVersion.findMany({
-      where: {
-        project: { studyId: studySite.studyId },
-        validationStatus: "PASSED",
-        approvalStatus: { in: ["VALIDATED", "APPROVED"] }
-      },
-      include: {
-        project: { include: { template: true } },
-        ciRuns: { orderBy: { startedAt: "desc" }, take: 3 }
-      },
-      orderBy: { createdAt: "desc" }
-    }),
+    studyWide
+      ? prisma.kitRelease.findMany({
+          where: { studyId: studySite.studyId, status: "APPROVED" },
+          include: { artifacts: true },
+          orderBy: { approvedAt: "desc" }
+        })
+      : // A site-only person gets the release names and the files meant for every site or for this site: no storage keys.
+        prisma.kitRelease.findMany({
+          where: { studyId: studySite.studyId, status: "APPROVED" },
+          select: {
+            id: true,
+            version: true,
+            approvedAt: true,
+            artifacts: {
+              where: { OR: [{ siteId: null }, ...(studySite.siteId ? [{ siteId: studySite.siteId }] : [])] },
+              select: { id: true, kind: true, filename: true, siteId: true }
+            }
+          },
+          orderBy: { approvedAt: "desc" }
+        }),
+    studyWide
+      ? prisma.pipelineVersion.findMany({
+          where: pipelineWhere,
+          include: { project: { include: { template: true } }, ciRuns: { orderBy: { startedAt: "desc" }, take: 3 } },
+          orderBy: { createdAt: "desc" }
+        })
+      : prisma.pipelineVersion.findMany({
+          where: pipelineWhere,
+          select: { id: true, version: true, gitCommit: true, validationStatus: true, approvalStatus: true, createdAt: true },
+          orderBy: { createdAt: "desc" }
+        }),
     prisma.nvflareDeployment.findFirst({ where: { studyId: studySite.studyId, active: true }, orderBy: { updatedAt: "desc" } }),
     prisma.auditEvent.findMany({
       where: {
@@ -122,8 +156,12 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
 
   return json({
     onboardingSteps: SITE_ONBOARDING_STEPS,
-    studySite,
-    activeDeployment,
+    studySite: { ...studySite, members },
+    pendingInvitations,
+    // The study server's addresses, storage keys and the other sites stay with the study team.
+    activeDeployment: studyWide || !activeDeployment
+      ? activeDeployment
+      : { id: activeDeployment.id, status: activeDeployment.status, pipelineVersionId: activeDeployment.pipelineVersionId, updatedAt: activeDeployment.updatedAt },
     runtime,
     approvedReleases,
     pipelineVersions,

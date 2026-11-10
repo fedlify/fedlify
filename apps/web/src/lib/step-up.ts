@@ -55,7 +55,7 @@ export async function verifyStepUp(context: StepUpContext): Promise<StepUpResult
       context,
       403,
       "password_not_set",
-      "This account has no password (it signs in with Google or an email link), so it cannot confirm this action. Ask an administrator to set a password for the account, or use a password account."
+      "You signed in with Google, so this account has no password to confirm with. Ask your study lead to create or download the site kit for this site."
     );
   }
   if (typeof context.password !== "string" || context.password.length === 0 || context.password.length > 1024) {

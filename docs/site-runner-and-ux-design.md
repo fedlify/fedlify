@@ -552,3 +552,17 @@ Two shared computations keep the Summary page and the Code & run page saying the
 **Next step** (`src/lib/next-step.ts`, `resolveStudySteps`): maps the study onto the six phases (Authorize, Prepare, Approve, Deploy, Execute, Validate), gives each a status phrase and tone, picks the current one, and attaches the failing pre-flight items as blockers and one permission-aware action. `GET /api/v1/studies/{id}/next-step` serves it.
 
 **Where shown:** the Summary page ("Next step" card and six-step list) and the Publish and Start run panels of Code & run ("Before you publish", "Before you start", and the "N things to fix" rail text). Both render items with `components/PreflightChecklist.tsx`.
+
+## Site invitations, My site and plain roles (2026-11-12)
+
+Problem: hospital staff could not get into their own site. Nothing assigned a site role, the study list showed only studies the person belonged to, and buttons led to "forbidden".
+
+**Site invitations.** A study lead (study permission `manageSites`) invites one person to ONE site: Team or Sites tab, "Invite site contact" (POST `/api/v1/studies/[studyId]/invitations` with `studySiteId`). The invitation stores `studySiteId` and `siteRoles` (default SITE_ADMIN + SITE_PI, shown as "Site contact"). Accepting it creates only SiteMember rows for that site: no study membership and no organisation membership, so there is no path from a site role to study access. Study-role invitations still go through `assertCanGrantRoles`.
+
+**My site.** `GET /api/v1/me` returns `sites` and `landing` (`landingFor` in `lib/landing.ts`). A person with a site and no real study (an untouched default study is ignored) lands on `/my-site`. One site redirects straight to the site page; several show a list. The sidebar shows only "My site" for such people, study URLs redirect to `/my-site`, and an unaccepted site invitation sends them to `/my-site` where the invitation card is shown. The site page has four tabs: Get site kit, Your data, Sign-off, Activity, plus a collapsed "Having problems?" area.
+
+**Plain roles.** `lib/plain-roles.ts`: Study lead, Researcher, Approver, Site contact, Observer, mapped onto the detailed roles, which stay under "Advanced". Site contact is SiteMember SITE_ADMIN + SITE_PI with no StudyMember row.
+
+**Permissions hook.** `lib/use-permissions.ts`: `useStudyPermissions(studyId)` and `useSitePermissions(siteId)` read `GET /api/v1/studies/[id]/permissions` and `GET /api/v1/sites/[id]/permissions` (never 403; `can` is empty while loading, so buttons start disabled). The site answer also gives `backHref`. Screens show a button only when `can.x` is true. The Refine access control provider is now default-deny.
+
+**Known limits.** No invitation revoke and no study-member remove routes yet. Activity shows other actors as "Someone on the study team" until the site route includes actor names. Role grants a coordinator cannot make are rejected by the server rather than disabled up front.

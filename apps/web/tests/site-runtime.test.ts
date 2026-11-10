@@ -28,7 +28,7 @@ describe("summarizeSiteRuntime", () => {
     const r = summarizeSiteRuntime({ ...base, heartbeat: { ...base.heartbeat, createdAt: "2026-11-10T05:00:00Z" } });
     expect(r.connected).toBe(false);
     expect(status(r, "runner")).toMatchObject({ tone: "error" });
-    expect(r.nextStep).toContain("fedlify-runner.sh start");
+    expect(r.nextStep).toContain("start the runner");
   });
   it("flags missing data files", () => {
     const r = summarizeSiteRuntime({ ...base, heartbeat: { ...base.heartbeat, metadata: { imageDigest: sha("a"), csvCount: 0 } } });

@@ -34,6 +34,40 @@ export async function POST(request: NextRequest) {
     return problem(403, "This invitation belongs to a different email address.", "forbidden");
   }
 
+  if (invitation.studySiteId) {
+    const studySiteId = invitation.studySiteId;
+    // The site must still exist in this study and still be taking part; turning a site off withdraws its invitations.
+    const targetSite = await prisma.studySite.findUnique({ where: { id: studySiteId }, select: { studyId: true, participationStatus: true } });
+    if (!targetSite || targetSite.studyId !== invitation.studyId || targetSite.participationStatus === "DISABLED") {
+      return problem(409, "This site is no longer taking part, so the invitation cannot be accepted. Ask your study lead.", "invalid_state");
+    }
+    const siteRoles = invitation.siteRoles.length > 0 ? invitation.siteRoles : (["SITE_ADMIN", "SITE_PI"] as const);
+    // Site only: SiteMember rows for this one site. No StudyMember and no OrgMembership, so the person sees nothing else.
+    await prisma.$transaction(async (tx) => {
+      for (const role of siteRoles) {
+        await tx.siteMember.upsert({
+          where: { studySiteId_userId_role: { studySiteId, userId: authResult.userId, role } },
+          update: {},
+          create: { studySiteId, userId: authResult.userId, role, invitedById: invitation.invitedById }
+        });
+      }
+      await tx.invitation.update({ where: { id: invitation.id }, data: { status: "ACCEPTED", acceptedAt: new Date() } });
+    });
+
+    await audit({
+      actorUserId: authResult.userId,
+      orgId: invitation.orgId,
+      studyId: invitation.studyId,
+      action: "invitation.site.accept",
+      targetType: "Invitation",
+      targetId: invitation.id,
+      metadata: { studySiteId, siteRoles: [...siteRoles] },
+      request
+    });
+
+    return json({ siteId: studySiteId });
+  }
+
   const roles = invitation.roles.length > 0 ? invitation.roles : [invitation.role];
 
   await prisma.$transaction(async (tx) => {

@@ -582,6 +582,9 @@ model Invitation {
   email        String
   role         StudyRole
   roles        StudyRole[]      @default([])
+  // Site invitation: the person is added to this one site only (no study or organisation membership).
+  studySiteId  String?
+  siteRoles    SiteRole[]       @default([])
   tokenHash    String           @unique
   status       InvitationStatus @default(PENDING)
   expiresAt    DateTime
@@ -589,11 +592,13 @@ model Invitation {
   invitedById  String
   study        Study            @relation(fields: [studyId], references: [id], onDelete: Cascade)
   organization Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  studySite    StudySite?       @relation(fields: [studySiteId], references: [id], onDelete: Cascade)
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
   @@index([studyId, status])
   @@index([email, status])
+  @@index([studySiteId])
 }
 
 model Site {
@@ -637,6 +642,7 @@ model StudySite {
   resourceProfile       SiteResourceProfile?
   dataProfile           SiteDataProfile?
   members               SiteMember[]
+  invitations           Invitation[]
   readinessChecks       SiteReadinessCheck[]
   joinPackages          SiteJoinPackage[]
   nvflareStatuses       NvflareSiteStatus[]
