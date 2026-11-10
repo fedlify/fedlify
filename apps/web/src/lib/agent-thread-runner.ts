@@ -39,6 +39,7 @@ import {
   type TurnMode
 } from "@/lib/agent-thread-types";
 import { sha256 } from "@/lib/crypto";
+import { openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
 
 export const AGENT_PLAN_INVALID_ACTION = "pipeline_project.agent_plan_invalid";
 
@@ -151,6 +152,19 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
       return bail(problem(500, "The message could not be saved, so the assistant was not called.", "persist_failed"));
     }
 
+    // Control plane, shadow only: evaluated and recorded beside the turn, never awaited here, never changes the reply.
+    const control = openAssistantTurn({
+      studyId,
+      projectId,
+      threadId: thread.id,
+      userId,
+      mode: "ask",
+      clientTurnId: input.clientTurnId ?? userTurn.id,
+      userText: input.message,
+      selection: input.selection?.text ?? null,
+      turnIds: [userTurn.id, assistantTurn.id]
+    });
+
     let history: Awaited<ReturnType<typeof loadHistory>>;
     try {
       history = boundHistory(await loadHistory(thread.id, { beforeSeq: userTurn.seq }));
@@ -183,12 +197,14 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
     } catch (error) {
       console.error("agent thread: could not prepare the reply", error instanceof Error ? error.message : "unknown error");
       await finalizeTurn(assistantTurn.id, { status: "error" }).catch(() => undefined);
+      void control.done("error", { model: config.model });
       return bail(problem(500, "The reply could not be prepared. Try again.", "persist_failed"));
     }
 
 
     const fail = async (message: string, code: string) => {
       await finalizeTurn(assistantTurn.id, { status: "error" }).catch(() => undefined);
+      void control.done("error", { model: config.model });
       return bail(problem(502, message, code));
     };
 
@@ -224,6 +240,7 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
       if (finalized) return;
       finalized = true;
       await finalizeTurn(assistantTurn.id, { status, content: text }).catch((error) => console.error("agent thread: finalize failed", error instanceof Error ? error.message : "unknown error"));
+      void control.done(status, { model: config.model });
     };
 
     const stream = new ReadableStream<Uint8Array>({
@@ -361,6 +378,7 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
   }
   const release = acquireSlot(`project-agent-plans:${userId}`, 1);
   if (!release) return problem(429, "A plan is already being written. Wait for it to finish.", "rate_limited");
+  let control: ReturnType<typeof openAssistantTurn> = { done: async () => undefined };
   try {
     // The original request: the message itself, or the last user message when answering questions.
     let message: string;
@@ -415,6 +433,21 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
     }
     if (thread.mode === "ask") await setThreadMode(thread.id, "plan").catch(() => undefined);
 
+    // Control plane, shadow only (see runAskTurn). The safety net in `finally` records "error" if no path below did.
+    control = openAssistantTurn({
+      studyId,
+      projectId,
+      threadId: thread.id,
+      userId,
+      mode: trigger.kind === "answers" ? "answers" : "plan",
+      clientTurnId: clientTurnId ?? userTurn.id,
+      userText: trigger.kind === "message" ? trigger.message : "",
+      selection: trigger.kind === "message" ? (trigger.selection?.text ?? null) : null,
+      answers: trigger.kind === "answers" ? trigger.answers : null,
+      turnIds: [userTurn.id]
+    });
+    const finishControl = (outcome: AssistantOutcome, assistantTurnId?: string) => void control.done(outcome, { model: config.model, turnIds: assistantTurnId ? [assistantTurnId] : [] });
+
     const state = questionState(await loadQaTurns(thread.id));
     const history = boundHistory(await loadHistory(thread.id, { beforeSeq: userTurn.seq }));
     const reqHash = requirementsHash(responses);
@@ -435,6 +468,7 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
         metadata: { threadId: thread.id, userTurnId: userTurn.id, assistantTurnId: turn?.turn.id ?? null, code, model: config.model, contextHash: context.hash },
         request
       }).catch(() => undefined);
+      finishControl("error", turn?.turn.id);
       return problem(status, text, code);
     };
 
@@ -482,12 +516,14 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
         request
       });
       const assistantDto = turnDto(assistant.turn);
+      finishControl("done", assistant.turn.id);
       return planResponse({ userTurn: userDto, assistantTurn: assistantDto, questions: { threadId: thread.id, turnId: assistantDto.id, seq: assistantDto.seq, payload } }, input.wantsSse);
     }
 
     if (result.disposition === "REFUSE" || result.plan.steps.length === 0) {
       const text = result.rationale || "The assistant did not propose a plan for this request.";
       const assistant = await appendTurn({ threadId: thread.id, role: "ASSISTANT", content: text, model: config.model, promptVersion: PLAN_PROMPT_VERSION, contextHash: context.hash, baseCommit });
+      finishControl("refused", assistant.turn.id);
       return planResponse({ userTurn: userDto, assistantTurn: turnDto(assistant.turn), refused: true }, input.wantsSse);
     }
 
@@ -532,8 +568,11 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
       request
     });
     const assistantDto = turnDto(assistant.turn);
+    finishControl("done", assistant.turn.id);
     return planResponse({ userTurn: userDto, assistantTurn: assistantDto, plan: { threadId: thread.id, turnId: assistantDto.id, seq: assistantDto.seq, plan: planDto(plan) } }, input.wantsSse, 201);
   } finally {
+    // No-op when an outcome was already recorded; covers the paths that return a problem or throw.
+    void control.done("error", { model: config.model });
     release();
   }
 }

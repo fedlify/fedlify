@@ -52,6 +52,10 @@ spec:
             # Persisted assistant history, plan mode and changes timeline. Unset or false restores the stateless panel.
             - name: AGENT_THREADS_ENABLED
               value: "true"
+            # Control plane over assistant turns: off | shadow | enforce. shadow evaluates and records every turn and never
+            # blocks; enforce behaves like shadow until the enforcement phase ships.
+            - name: ASSISTANT_CONTROL_MODE
+              value: "shadow"
             - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
               value: fedlify-study-pipeline-ci
             - name: GITEA_BASE_URL

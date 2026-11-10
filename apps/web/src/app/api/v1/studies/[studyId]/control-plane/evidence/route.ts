@@ -17,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     await assertStudyAccess(authResult.userId, studyId, "read");
     const [evidence, quarantine] = await Promise.all([
       prisma.evidenceRecord.findMany({ where: { studyId }, orderBy: { createdAt: "desc" } }),
-      prisma.quarantineRecord.findMany({ where: { studyId }, orderBy: { createdAt: "desc" } })
+      prisma.quarantineRecord.findMany({ where: { studyId, NOT: { sourceType: "ASSISTANT_TURN_SHADOW" } }, orderBy: { createdAt: "desc" } })
     ]);
     return json({ evidence, quarantine });
   } catch (error) {

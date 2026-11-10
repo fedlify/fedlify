@@ -1110,6 +1110,12 @@ model AgentProposal {
   turnId                 String?
   rejectedById           String?
   rejectedAt             DateTime?
+  // Control-plane links; reserved in the shadow phase, written when enforcement arrives.
+  workItemId             String?
+  artifactRevisionId     String?
+  approvalBindingId      String?
+  verificationStatus     String?
+  decisionRecordId       String?
   project                PipelineProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   thread                 AgentThread?        @relation(fields: [threadId], references: [id], onDelete: SetNull)
   plan                   AgentPlan?          @relation(fields: [planId], references: [id], onDelete: SetNull)
@@ -1202,6 +1208,10 @@ model AgentTurn {
   proposalId    String?
   inputTokens   Int?
   outputTokens  Int?
+  // Control-plane shadow record of this turn (see docs/fedlify-v3-control-plane.md, "Assistant shadow mode").
+  workItemId    String?
+  controlState  String?
+  stopCondition String?
   createdAt     DateTime      @default(now())
   thread        AgentThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
@@ -1212,22 +1222,27 @@ model AgentTurn {
 }
 
 model AgentPlan {
-  id               String          @id @default(cuid())
-  threadId         String
-  version          Int
-  summary          String
-  steps            Json
-  assumptions      Json
-  baseCommit       String
-  contextHash      String
-  requirementsHash String
-  status           AgentPlanStatus @default(DRAFT)
-  approvedStepIds  Json?
-  decidedById      String?
-  decidedAt        DateTime?
-  createdAt        DateTime        @default(now())
-  thread           AgentThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  proposals        AgentProposal[]
+  id                 String          @id @default(cuid())
+  threadId           String
+  version            Int
+  summary            String
+  steps              Json
+  assumptions        Json
+  baseCommit         String
+  contextHash        String
+  requirementsHash   String
+  status             AgentPlanStatus @default(DRAFT)
+  approvedStepIds    Json?
+  decidedById        String?
+  decidedAt          DateTime?
+  // Control-plane links; reserved in the shadow phase, written when enforcement arrives.
+  workItemId         String?
+  artifactRevisionId String?
+  approvalBindingId  String?
+  verificationStatus String?
+  createdAt          DateTime        @default(now())
+  thread             AgentThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  proposals          AgentProposal[]
 
   @@unique([threadId, version])
 }
@@ -1607,12 +1622,16 @@ model WorkItem {
   expiresAt         DateTime?
   startedAt         DateTime?
   completedAt       DateTime?
+  // What the work item was raised for, e.g. sourceType "agent_thread" with the thread id.
+  sourceType        String?
+  sourceId          String?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
   @@unique([studyId, idempotencyKey])
   @@index([studyId, status])
   @@index([skillContractId])
+  @@index([sourceType, sourceId])
 }
 
 model FactProposal {
@@ -1720,6 +1739,8 @@ model ApprovalBinding {
   expiresAt          DateTime?
   invalidatedAt      DateTime?
   invalidationReason String?
+  // True when the approver is the requester (recorded, not blocked, in the shadow phase).
+  selfApproved       Boolean               @default(false)
   version            Int                   @default(1)
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt

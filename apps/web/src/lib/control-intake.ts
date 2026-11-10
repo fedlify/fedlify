@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { classifyEvidence, contentHash } from "@/lib/control-plane";
+import { classifyEvidence, contentHash, redactSecrets } from "@/lib/control-plane";
 import { sha256 } from "@/lib/crypto";
 import {
   evaluateApprovalPayload,
@@ -207,6 +207,221 @@ export function inspectIntake(input: AuthoritativeIntake): IntakeResolution | nu
     return resolution("Intake classifier", disposition.classification === "QUARANTINED" ? "QUARANTINE" : "POLICY_STOP", disposition.classification === "QUARANTINED" ? "4" : "5", disposition.classification === "QUARANTINED" ? "QUARANTINED" : "STOPPED", disposition.reasonCodes, transitions.intake, false);
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Assistant intake profile.
+//
+// The probe profile above (inspectIntake / resolveDeterministicIntake) is tuned to the evaluation probes and to
+// attachments: it quarantines on a bare column name such as patient_id, on "#!/bin/bash" and on any "password="
+// look-alike. That is right for uploaded evidence and wrong for chat, where a clinical PI routinely writes "drop the
+// patient_id column". This profile is for text the person typed or pasted in ONE turn (message, editor selection,
+// answers to questions). It must never be applied to repository files or the context pack.
+//
+// Rules that stay as they are: credentials, active content / script injection, prompt injection, model weights.
+// The raw clinical data rule is narrowed to row-shaped data: an identifier-like header with values on two or more
+// delimited lines, several identifier records, or a pasted array of patient records. The mere mention of a column
+// name is clear.
+// ---------------------------------------------------------------------------------------------------------------
+
+export type AssistantIntakeReason = { code: "SENSITIVE_CONTENT" | "RAW_CLINICAL_DATA" | "ACTIVE_CONTENT" | "PROMPT_INJECTION" | "MODEL_UPDATE_ARTIFACT"; layer: AuthoritativeLayer };
+export type AssistantIntakeResult = {
+  verdict: "clear" | "quarantine";
+  reasons: AssistantIntakeReason[];
+  /** Empty when clear. Never contains clinical rows, and has secrets, long tokens and digit runs masked. */
+  redactedPreview: string;
+};
+
+const ID_FIELD = /(patientunitstayid|patienthealthsystemstayid|uniquepid|patient_?id|subject_?id|record_?id|encounter_?id|person_?id|hadm_?id|stay_?id|\bmrn\b|medical_?record(_?number)?|\bssn\b)/i;
+const ID_VALUE_KEYS = /["']?(patientunitstayid|patienthealthsystemstayid|uniquepid|patient_?id|subject_?id|record_?id|encounter_?id|person_?id|hadm_?id|mrn|ssn)["']?\s*[:=]\s*["']?[A-Za-z]{0,4}[-_]?\d{3,}/gi;
+/** Header fields that identify a person without being a database id: a table of these plus clinical columns is patient rows. */
+const WEAK_IDENTITY_FIELD = /^(id|name|first_?name|last_?name|full_?name|dob|date_?of_?birth|birth_?date|address|phone|email)$/i;
+const CLINICAL_KEYS = /(patient|subject|mrn|dob|birth|\bage\b|\bsex\b|gender|diagnos|icd|admission|discharge|\bname\b|address|phone|ssn|lab|vital)/i;
+
+function splitFields(line: string, delimiter: string): string[] {
+  const fields = line.split(delimiter).map((field) => field.trim());
+  if (delimiter === "|") {
+    if (fields[0] === "") fields.shift();
+    if (fields[fields.length - 1] === "") fields.pop();
+  }
+  return fields;
+}
+
+function isPatientHeader(header: string[]): boolean {
+  const short = header.filter((field) => field.length <= 40);
+  if (short.some((field) => ID_FIELD.test(field))) return true;
+  const weak = short.filter((field) => WEAK_IDENTITY_FIELD.test(field)).length;
+  const clinical = short.filter((field) => WEAK_IDENTITY_FIELD.test(field) || CLINICAL_KEYS.test(field)).length;
+  return weak >= 1 && clinical >= 2;
+}
+
+/** An identifier-like header line followed by two or more delimited data lines of the same width that carry digits. */
+function hasDelimitedPatientRows(lines: string[]): boolean {
+  for (const delimiter of [",", "\t", "|", ";"]) {
+    for (let index = 0; index < lines.length; index += 1) {
+      const header = splitFields(lines[index]!, delimiter);
+      if (header.length < 2) continue;
+      if (!isPatientHeader(header)) continue;
+      let rows = 0;
+      for (const line of lines.slice(index + 1, index + 40)) {
+        if (/^[\s|:-]+$/.test(line)) continue;
+        const fields = splitFields(line, delimiter);
+        if (fields.length === header.length && /\d/.test(line)) rows += 1;
+        else break;
+      }
+      if (rows >= 2) return true;
+    }
+  }
+  return false;
+}
+
+/** Three or more lines that each start with an identifier-like value followed by at least three more delimited fields. */
+function hasHeaderlessRecords(lines: string[]): boolean {
+  let run = 0;
+  for (const line of lines) {
+    if (/^["']?[A-Za-z]{0,4}[-_]?\d{5,}["']?(\s*[,;\t|]\s*[^,;\t|\s][^,;\t|]*){2,}[,;\t|]\s*[^,;\t|]+$/.test(line)) {
+      run += 1;
+      if (run >= 3) return true;
+    } else run = 0;
+  }
+  return false;
+}
+
+/** A pasted JSON array of two or more objects that look like patient records. */
+function hasJsonPatientRecords(text: string): boolean {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start === -1 || end <= start) return false;
+  try {
+    const parsed: unknown = JSON.parse(text.slice(start, end + 1));
+    if (!Array.isArray(parsed) || parsed.length < 2) return false;
+    const objects = parsed.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+    if (objects.length < 2) return false;
+    const keys = new Set(objects.flatMap((item) => Object.keys(item)));
+    const clinical = [...keys].filter((key) => CLINICAL_KEYS.test(key));
+    return objects.every((item) => Object.keys(item).length >= 3) && clinical.length >= 2;
+  } catch {
+    return false;
+  }
+}
+
+export function hasRowShapedClinicalData(text: string): boolean {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (hasDelimitedPatientRows(lines) || hasHeaderlessRecords(lines) || hasJsonPatientRecords(text)) return true;
+  // Repeated identifier key/value pairs with different values, as in JSON lines, YAML records or records pasted one
+  // after the other. One identifier alone ("patient_id: 42") is not row-shaped.
+  const keyed = new Set((text.match(ID_VALUE_KEYS) ?? []).map((match) => match.toLowerCase().replace(/\s+/g, "")));
+  if (keyed.size >= 2) return true;
+  // Two or more different dates of birth with a label.
+  const births = new Set((text.match(/\b(?:dob|date of birth|born)\b[^\n]{0,12}?(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})/gi) ?? []).map((match) => match.toLowerCase()));
+  if (births.size >= 2) return true;
+  // A single real identifier value ("MRN 4471920"), or a social security number written with its label.
+  return /\b(mrn|medical record number|uniquepid|patientunitstayid)\s*[:=#]?\s*\d{5,}/i.test(text) || /(ssn|social(?: security)?(?: number)?)\W{0,12}\d{3}-\d{2}-\d{4}\b/i.test(text);
+}
+
+// An assignment whose name ends in a credential word: password, DB_PASSWORD, "api_key", NEXTAUTH_SECRET, token ...
+// The word must end the name, so token_budget and max_tokens are not matched.
+const STRONG_NAME = "password|passwd|pwd|secret[_ -]?(?:access[_ -]?)?key|client[_ -]?secret|api[_ -]?key|access[_ -]?key|access[_ -]?token|auth[_ -]?token|private[_ -]?key|model_write_token";
+const WEAK_NAME = "secret|token|credentials?|pw";
+const SECRET_KEYWORD = new RegExp(`(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,30}[_-]){0,6}(${STRONG_NAME}|${WEAK_NAME})["']?\\s*[:=]\\s*["']?([^\\s,;}"']+)`, "gi");
+const STRONG_NAME_ONLY = new RegExp(`(?:${STRONG_NAME})$`, "i");
+const NOT_A_SECRET_VALUE = /^(?:\$|\{|<|%|\[|\(|\.\.\.|\*+$|x{3,}$|(?:os\.environ|os\.getenv|process\.env|(?:settings|config|cfg|self|this|secrets|vars|args|params|request)\.)|(?:env|getenv|none|null|true|false|str|string|int|bool|required|optional|field|secretstr)(?=$|[\[()=:|,])|your[_-]|change_?me|changeme|example|placeholder|dummy)/i;
+
+function hasSecretAssignment(text: string): boolean {
+  for (const match of text.matchAll(SECRET_KEYWORD)) {
+    const value = match[2] ?? "";
+    if (NOT_A_SECRET_VALUE.test(value)) continue;
+    // Weak names (token, secret, credentials, pw) also appear in ordinary prose: require a value that looks like one.
+    if (!STRONG_NAME_ONLY.test(match[1] ?? "") && !(value.length >= 6 && /\d/.test(value))) continue;
+    return true;
+  }
+  return false;
+}
+
+const TOKEN_SHAPES: RegExp[] = [
+  /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/i,
+  /\bbearer\s+(?=[a-z0-9._~+/=-]*\d)[a-z0-9._~+/=-]{16,}/i,
+  /\bauthorization:\s*basic\s+[A-Za-z0-9+/=]{12,}/i,
+  /\bsk-[A-Za-z0-9_-]{16,}/,
+  /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/,
+  /\b(?:AKIA|ASIA)[0-9A-Z]{12,}/,
+  /\bgh[pousr]_[A-Za-z0-9]{30,}/,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/,
+  /\bglpat-[A-Za-z0-9_-]{15,}/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+  /\bAIza[0-9A-Za-z_-]{30,}/,
+  /\bSG\.[\w-]{16,}\.[\w-]{16,}/,
+  /\bhf_[A-Za-z0-9]{30,}/,
+  /\bnpm_[A-Za-z0-9]{30,}/,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}/,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:(?![^\s@/]*[${}])[^\s@/]{3,}@/i
+];
+
+const ACTIVE_CONTENT_SHAPES: RegExp[] = [
+  // A script element with a source, a closing tag, or code in it. The bare tag name in a question is not matched.
+  /<script\b[^>]*\bsrc\s*=/i,
+  /<script\b[\s\S]*<\/script/i,
+  /<script\b[^>]*>[^<\n]{0,200}[(;=]/i,
+  /<iframe\b/i,
+  /<(object|embed)\b/i,
+  // Inline handlers with a string or bare value; a JSX handler such as onClick={fn} is not matched.
+  /<[a-z][^>]*\bon[a-z]{3,}\s*=\s*(?!\{)\S/i,
+  /\bjavascript:\s*\S/i,
+  /<style\b[^>]*>[^<]*@import/i,
+  /<form\b[^>]*\baction\s*=\s*["']?https?:/i,
+  /<meta\b[^>]*http-equiv\s*=\s*["']?refresh/i,
+  /\bdata:text\/html/i,
+  /\bdata:[^,\s]*;base64,\s*(?:PHNjcmlwdD|PHN2Zy|PGh0bWw)/i
+];
+
+const INJECTION_SHAPES: RegExp[] = [
+  /\b(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+|your\s+)?(previous|prior|above|earlier|system|platform)\s+(instructions|rules|prompts?|messages?)/i,
+  /\b(ignore|disregard|forget)\s+(all|any|your|the)\s+instructions\b/i,
+  /\b(ignore|disregard|forget)\s+(everything|all|anything)\s+(above|before|prior|previous|earlier)\b/i,
+  /\b(ignore|disregard|forget)\s+(what|everything)\s+you\s+(were|have been)\s+(told|instructed|given)/i,
+  /\b(override|bypass)\s+(your|the|all)\s+(system prompt|safeguards|safety\s+\w+|restrictions|guardrails|instructions)\b/i,
+  /\bfollow my (rules|instructions) instead\b/i,
+  /\byou are no longer (bound|restricted|limited|constrained)\b/i,
+  /\bact as\s+(dan|an? unrestricted|an? jailbroken)\b/i,
+  /\b(reveal|print|repeat|show)\s+(me\s+)?(your|the)\s+(system prompt|hidden instructions)/i,
+  /\byou are now (in )?(dan|developer mode|an unrestricted|jailbroken)/i,
+  /(connect to the local ehr|reviewer-only note to ai|change allowed_tools)/i,
+  /system message:[\s\S]{0,80}(ignore|override)/i
+];
+
+const MODEL_UPDATE_SHAPES: RegExp[] = [
+  /(file_class:\s*training-time model update|serialized gradient\/update|tensor payload)/i,
+  /[A-Za-z0-9+/]{300,}={0,2}/,
+  /\bH4sI[A-Za-z0-9+/]{100,}/,
+  /PK\x03\x04/,
+  // A bracketed array of 30 or more long decimals, or a very long unbracketed list. A shorter metrics list is ordinary.
+  /\[\s*(?:-?\d*\.\d{3,}\s*,\s*){30,}/,
+  /(?:-?\d+\.\d{3,}\s*,\s*){200,}/,
+  /\btensor\(\s*\[/i
+];
+
+/**
+ * The preview kept in the ledger. It never contains any of the text: the same message can carry an injection phrase
+ * next to patient details or a password written in words that no pattern matches. Only reason codes and sizes remain.
+ */
+function assistantPreview(text: string, reasons: AssistantIntakeReason[]): string {
+  return `[withheld: ${reasons.map(({ code }) => code).join(", ")}; ${text.split(/\r?\n/).length} lines, ${text.length} characters]`;
+}
+
+/**
+ * Model-free inspection of what a person typed or pasted into the assistant in one turn. Pure and fast: no I/O.
+ * Pass the message, the editor selection and flattened answers; never repository files or the context pack.
+ */
+export function inspectAssistantIntake(text: string): AssistantIntakeResult {
+  const layer: AuthoritativeLayer = "Intake classifier";
+  const reasons: AssistantIntakeReason[] = [];
+  if (hasSecretAssignment(text) || TOKEN_SHAPES.some((shape) => shape.test(text))) reasons.push({ code: "SENSITIVE_CONTENT", layer });
+  if (hasRowShapedClinicalData(text)) reasons.push({ code: "RAW_CLINICAL_DATA", layer });
+  if (ACTIVE_CONTENT_SHAPES.some((shape) => shape.test(text))) reasons.push({ code: "ACTIVE_CONTENT", layer });
+  if (INJECTION_SHAPES.some((shape) => shape.test(text))) reasons.push({ code: "PROMPT_INJECTION", layer });
+  if (MODEL_UPDATE_SHAPES.some((shape) => shape.test(text))) reasons.push({ code: "MODEL_UPDATE_ARTIFACT", layer });
+  if (reasons.length === 0) return { verdict: "clear", reasons, redactedPreview: "" };
+  return { verdict: "quarantine", reasons, redactedPreview: assistantPreview(text, reasons) };
 }
 
 /**

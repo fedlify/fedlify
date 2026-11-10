@@ -110,3 +110,15 @@ export function agentThreadsEnabled(): boolean {
   const value = clean(process.env.AGENT_THREADS_ENABLED)?.toLowerCase();
   return value === "true" || value === "1" || value === "on" || value === "yes";
 }
+
+export type AssistantControlMode = "off" | "shadow" | "enforce";
+
+/**
+ * How the control plane treats assistant turns: ASSISTANT_CONTROL_MODE = off | shadow | enforce.
+ * Unset or any unknown value means off. In this phase "enforce" behaves exactly like "shadow": every turn is
+ * evaluated and recorded and nothing is blocked. Enforcement arrives in the next phase.
+ */
+export function assistantControlMode(): AssistantControlMode {
+  const value = clean(process.env.ASSISTANT_CONTROL_MODE)?.toLowerCase();
+  return value === "shadow" || value === "enforce" ? value : "off";
+}

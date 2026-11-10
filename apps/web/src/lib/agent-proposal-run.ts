@@ -6,6 +6,7 @@
  * repository here; accept stays the only route that commits.
  */
 
+import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import {
@@ -30,6 +31,7 @@ import { prisma } from "@/lib/prisma";
 import { acquireSlot, rateLimit } from "@/lib/rate-limit";
 import { isSensitiveFilePath } from "@/lib/repo-checks";
 import { agentThreadsEnabled, openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
 
 const MAX_OUTPUT_TOKENS = 24_000;
 const UPSTREAM_TIMEOUT_MS = 150_000;
@@ -99,6 +101,10 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
 
   let claimedPlanId: string | null = null;
   let succeeded = false;
+  // Control plane, shadow only: evaluated and recorded beside the request, never awaited, never changes the result.
+  let control: ReturnType<typeof openAssistantTurn> = { done: async () => undefined };
+  let outcome: AssistantOutcome = "error";
+  let controlTurnId: string | undefined;
   try {
     const repo = await loadProjectRepo(studyId, projectId);
     if (!repo.ok) return repo.response;
@@ -150,16 +156,30 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
 
     // Store the request before the model is called; if that fails the model is not called.
     let userSeq: number | undefined;
+    let userTurnId: string | undefined;
     if (thread && !plan) {
       try {
         const appended = await appendTurn({ threadId: thread.id, role: "USER", content: input.message, actorUserId: userId, clientTurnId: input.clientTurnId ?? null, filePath: input.filePath ?? null, selection: input.selectionRange ?? null });
         if (appended.duplicate) return json({ duplicate: true, turn: turnDto(appended.turn) });
         userSeq = appended.turn.seq;
+        userTurnId = appended.turn.id;
       } catch (error) {
         console.error("agent thread: could not store the turn", error instanceof Error ? error.message : "unknown error");
         return problem(500, "The request could not be saved, so the assistant was not called.", "persist_failed");
       }
     }
+    control = openAssistantTurn({
+      studyId,
+      projectId,
+      threadId: thread?.id ?? null,
+      userId,
+      mode: plan ? "agent" : "edit",
+      clientTurnId: input.clientTurnId ?? (plan ? `plan:${plan.id}` : `edit:${randomUUID()}`),
+      // What the person typed this turn; the plan section and repository files are not part of it.
+      userText: input.message,
+      selection: input.selection ?? null,
+      turnIds: userTurnId ? [userTurnId] : []
+    });
     const history = thread ? boundHistory(await loadHistory(thread.id, userSeq ? { beforeSeq: userSeq } : {})) : boundHistory(input.history);
 
     // Notes in the thread are best effort for failures, but required for a stored proposal (see below).
@@ -202,6 +222,7 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
     }
     const { proposal } = result;
     if (proposal.files.length === 0) {
+      outcome = "no_changes";
       await note("MESSAGE", proposal.rationale.slice(0, 4000));
       return json({ error: { code: "no_changes", message: "The assistant did not propose any file changes.", details: [proposal.rationale.slice(0, 1000)] } }, { status: 422 });
     }
@@ -259,6 +280,8 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
       }
     }
     succeeded = true;
+    outcome = "done";
+    controlTurnId = proposalTurn?.id;
 
     await audit({
       actorUserId: userId,
@@ -286,6 +309,8 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
     );
   } finally {
     if (claimedPlanId && !succeeded) await transitionPlan(claimedPlanId, ["EXECUTED"], "APPROVED").catch(() => undefined);
+    // No-op when control was never opened; records "error" unless an outcome was set above.
+    void control.done(outcome, { model: config.model, turnIds: controlTurnId ? [controlTurnId] : [] });
     release();
   }
 }
