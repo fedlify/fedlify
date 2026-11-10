@@ -6307,3 +6307,69 @@ h4.ant-typography {
   width: min(1040px, calc(100% - 32px));
   margin-inline: auto;
 }
+
+/* Assistant proposal review: file list beside the diff, actions pinned at the bottom. */
+.fedlify-monaco-frame[hidden] { display: none; }
+
+.fedlify-proposal-review {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 520px;
+  background: var(--fedlify-panel);
+}
+
+.fedlify-proposal-review.is-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  min-height: 0;
+}
+
+.fedlify-proposal-review-head,
+.fedlify-proposal-review-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 14px;
+}
+
+.fedlify-proposal-review-head { border-bottom: 1px solid var(--fedlify-line); }
+.fedlify-proposal-review-foot { border-top: 1px solid var(--fedlify-line); }
+.fedlify-proposal-review-foot > .ant-typography { flex: 1 1 320px; font-size: 12px; }
+.fedlify-proposal-review-title { display: flex; align-items: center; gap: 8px; flex: 1 1 280px; min-width: 0; }
+.fedlify-proposal-review-title > .ant-typography { min-width: 0; }
+.fedlify-proposal-review-title .ant-tag { margin-inline-end: 0; flex-shrink: 0; }
+.fedlify-proposal-review-tools,
+.fedlify-proposal-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fedlify-proposal-review-body { display: flex; flex: 1 1 0; min-height: 0; }
+
+.fedlify-proposal-review-files {
+  flex: 0 0 clamp(170px, 20%, 300px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--fedlify-line);
+}
+
+.fedlify-proposal-review-files-head { padding: 8px 12px; font-size: 12px; color: var(--ant-color-text-secondary, #667085); }
+.fedlify-proposal-review-files ul { list-style: none; margin: 0; padding: 0 6px 8px; overflow-y: auto; }
+.fedlify-proposal-review-files li { display: flex; align-items: flex-start; gap: 8px; padding: 6px; border-radius: 6px; }
+.fedlify-proposal-review-files li.is-selected { background: rgba(114, 46, 209, 0.1); }
+.fedlify-proposal-review-files li.is-skipped .fedlify-proposal-path { color: var(--ant-color-text-tertiary, #98a2b3); text-decoration: line-through; }
+.fedlify-proposal-review-files button { display: flex; flex-direction: column; flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.fedlify-proposal-review-files .fedlify-proposal-path { overflow-wrap: anywhere; white-space: normal; }
+.fedlify-proposal-review-files .fedlify-proposal-counts { font-size: 12px; }
+.fedlify-proposal-review-diff { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; }
+.fedlify-proposal-review-filebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--fedlify-line); }
+.fedlify-proposal-review-filebar code { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fedlify-proposal-review-editor { flex: 1 1 0; min-height: 0; background: #101828; }
+
+@media (max-width: 760px) {
+  .fedlify-proposal-review-body { flex-direction: column; }
+  .fedlify-proposal-review-files { flex: 0 0 auto; max-height: 30%; border-right: 0; border-bottom: 1px solid var(--fedlify-line); }
+}
+
+.fedlify-code-file-preview:has(.fedlify-proposal-review) > .fedlify-code-file-title { display: none; }

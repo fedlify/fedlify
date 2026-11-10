@@ -26,8 +26,9 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "rea
 import type { Monaco } from "@monaco-editor/react";
 import { FieldGrid, FieldRow } from "@/components/EntityDetail";
 import { InlineLoadError } from "@/components/LoadStates";
+import { ProposalReviewView } from "@/components/ProposalReviewView";
 import { StatusTag } from "@/components/StatusTag";
-import { SCAN_NOTICE, type ProposalFileSummary, type ProposalStatus } from "@/lib/agent-proposal-client";
+import { type ProposalFileSummary, type ProposalStatus } from "@/lib/agent-proposal-client";
 
 const FEDLIFY_EDITOR_THEME = "fedlify-vs-dark";
 const NVFLARE_CONFIG_LANGUAGE = "nvflare-conf";
@@ -1102,63 +1103,41 @@ export function CodeReviewPanel({
               ) : null}
             </Space>
           </div>
-          {proposalReview ? (
-            <div className="fedlify-proposal-toolbar" role="group" aria-label="Review assistant proposal">
-              <div className="fedlify-proposal-head">
-                <strong>{proposalReview.title}</strong>
-                <Tag color={proposalStale ? "orange" : "purple"}>{proposalStale ? (proposalReview.status === "PROPOSED" ? (proposalFilesUnknown ? "Loading" : "Stale") : proposalReview.status.toLowerCase()) : "Proposed by assistant"}</Tag>
-                <span className="fedlify-muted">{proposalAcceptedPaths.length} of {proposalReview.files.length} file(s) selected</span>
-              </div>
-              <Alert type="info" showIcon message={SCAN_NOTICE} />
-              {proposalFilesUnknown ? (
-                <Alert type="info" showIcon message={loading ? "Loading current files…" : "The current files could not be loaded, so this change cannot be reviewed yet."} />
-              ) : null}
-              {proposalStale && proposalReview.status === "PROPOSED" && !proposalFilesUnknown ? (
-                <Alert type="warning" showIcon message="The saved code changed after this proposal was written." description="Close this review and ask the assistant again so the change applies to the latest commit." />
-              ) : null}
-              <ul className="fedlify-proposal-files">
-                {proposalReview.files.map((file) => {
-                  const accepted = Boolean(proposalReview.accepted[file.path]);
-                  return (
-                    <li key={file.path} className={file.path === proposalFile?.path ? "is-selected" : ""}>
-                      <button type="button" className="fedlify-proposal-file" onClick={() => setProposalPath(file.path)}>
-                        <span className="fedlify-proposal-path">{file.path}</span>
-                        <span className="fedlify-proposal-counts">
-                          <span className="is-add">+{file.added}</span> <span className="is-del">-{file.removed}</span>
-                          {file.action !== "update" ? <em> {file.action}</em> : null}
-                        </span>
-                      </button>
-                      <Segmented
-                        size="small"
-                        value={accepted ? "accept" : "reject"}
-                        disabled={proposalStale || proposalReview.busy}
-                        aria-label={`Decision for ${file.path}`}
-                        options={[{ label: "Accept", value: "accept" }, { label: "Reject", value: "reject" }]}
-                        onChange={(value) => onProposalToggle?.(file.path, value === "accept")}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-              <Space wrap>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<CheckCircleOutlined />}
-                  loading={proposalReview.busy}
-                  disabled={proposalStale || proposalAcceptedPaths.length === 0}
-                  onClick={() => onProposalAccept?.()}
-                >
-                  {`Commit ${proposalAcceptedPaths.length} selected file${proposalAcceptedPaths.length === 1 ? "" : "s"}`}
-                </Button>
-                <Button size="small" danger disabled={proposalReview.busy || !["PROPOSED", "STALE"].includes(proposalReview.status)} onClick={() => onProposalReject?.()}>
-                  Reject proposal
-                </Button>
-                <Button size="small" onClick={() => onProposalClose?.()}>
-                  Close review
-                </Button>
-              </Space>
-            </div>
+          {proposalReview && proposalFile ? (
+            <ProposalReviewView
+              proposal={proposalReview}
+              currentPath={proposalFile.path}
+              stale={Boolean(proposalStale)}
+              filesUnknown={proposalFilesUnknown}
+              filesLoading={loading}
+              onSelect={setProposalPath}
+              onToggle={onProposalToggle}
+              onAccept={onProposalAccept}
+              onReject={onProposalReject}
+              onClose={onProposalClose}
+              renderDiff={(file, view) => (
+                <MonacoDiffEditor
+                  key={`proposal-${proposalReview.id}-${file.path}-${view.sideBySide}-${view.changesOnly}`}
+                  beforeMount={configureMonaco}
+                  height="100%"
+                  language={monacoLanguage(files.find((candidate) => candidate.path === file.path)?.language ?? file.path.split(".").pop() ?? "text")}
+                  original={files.find((candidate) => candidate.path === file.path)?.content ?? ""}
+                  modified={file.content ?? ""}
+                  theme={FEDLIFY_EDITOR_THEME}
+                  options={{
+                    automaticLayout: true,
+                    fontSize: 14,
+                    hideUnchangedRegions: { enabled: view.changesOnly },
+                    minimap: { enabled: false },
+                    readOnly: true,
+                    renderSideBySide: view.sideBySide,
+                    useInlineViewWhenSpaceIsLimited: false,
+                    scrollBeyondLastLine: false,
+                    wordWrap: "on"
+                  }}
+                />
+              )}
+            />
           ) : null}
           {changedFiles.length > 0 && !proposalReview ? (
             <div className="fedlify-code-change-toolbar">
@@ -1203,27 +1182,8 @@ export function CodeReviewPanel({
           {validation ? (
             <Alert className="fedlify-code-inline-alert" type={validation.status === "PASSED" ? "success" : "error"} showIcon message={validation.summary} />
           ) : null}
-          <div className="fedlify-monaco-frame">
-            {proposalFile ? (
-              <MonacoDiffEditor
-                key={`proposal-${proposalReview?.id}-${proposalFile.path}`}
-                beforeMount={configureMonaco}
-                height="100%"
-                language={monacoLanguage(files.find((file) => file.path === proposalFile.path)?.language ?? proposalFile.path.split(".").pop() ?? "text")}
-                original={files.find((file) => file.path === proposalFile.path)?.content ?? ""}
-                modified={proposalFile.content ?? ""}
-                theme={FEDLIFY_EDITOR_THEME}
-                options={{
-                  automaticLayout: true,
-                  fontSize: 14,
-                  minimap: { enabled: false },
-                  readOnly: true,
-                  renderSideBySide: true,
-                  scrollBeyondLastLine: false,
-                  wordWrap: "on"
-                }}
-              />
-            ) : activeEditorMode === "diff" && selectedChange ? (
+          <div className="fedlify-monaco-frame" hidden={Boolean(proposalReview && proposalFile)}>
+            {activeEditorMode === "diff" && selectedChange ? (
               <MonacoDiffEditor
                 beforeMount={configureMonaco}
                 height="100%"
