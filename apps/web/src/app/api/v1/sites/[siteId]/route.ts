@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { assertSiteAccess, isForbiddenError } from "@/lib/rbac";
 import { markStaleSitesOffline } from "@/lib/site-presence";
 import { SITE_ONBOARDING_STEPS } from "@/lib/site-onboarding";
+import { summarizeSiteRuntime } from "@/lib/site-runtime";
+import { adapterSystemInfo, nvflareClientName } from "@/lib/study-runtime";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ siteId: string }> }) {
   const authResult = await requireUser();
@@ -95,10 +97,34 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
     })
   ]);
 
+  const clientName = nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName });
+  let listedByAggregator: boolean | null = null;
+  if (activeDeployment?.status === "ACTIVE") {
+    try {
+      listedByAggregator = (await adapterSystemInfo({ studyId: studySite.studyId, adapterUrl: activeDeployment.adapterUrl })).clients.some((client) => client.name === clientName);
+    } catch {
+      // The page shows the connection as unknown.
+    }
+  }
+  const liveVersion = activeDeployment?.pipelineVersionId
+    ? await prisma.pipelineVersion.findUnique({ where: { id: activeDeployment.pipelineVersionId }, select: { id: true, version: true, gitCommit: true } })
+    : null;
+  const activeKit = studySite.joinPackages.find((item) => item.status === "ACTIVE" && item.expiresAt > new Date()) ?? null;
+  const runtime = summarizeSiteRuntime({
+    code: studySite.code,
+    clientName,
+    deployment: activeDeployment,
+    liveVersion,
+    activeKit,
+    heartbeat: studySite.site?.heartbeats[0] ?? null,
+    listedByAggregator
+  });
+
   return json({
     onboardingSteps: SITE_ONBOARDING_STEPS,
     studySite,
     activeDeployment,
+    runtime,
     approvedReleases,
     pipelineVersions,
     auditEvents

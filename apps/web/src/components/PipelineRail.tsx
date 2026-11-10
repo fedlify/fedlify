@@ -15,7 +15,7 @@ type PipelineRailProps = {
   onAction: (stage: StageSummary) => void;
 };
 
-const toneIcon: Record<StageTone, ReactNode> = {
+export const toneIcon: Record<StageTone, ReactNode> = {
   idle: <ClockCircleOutlined />,
   active: <LoadingOutlined spin />,
   ok: <CheckCircleFilled />,

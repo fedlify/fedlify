@@ -12,13 +12,14 @@ import {
 } from "@ant-design/icons";
 import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Tabs, Tag, Typography, message } from "antd";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { CardGrid, EntityCard } from "@/components/DataCards";
 import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { StatusTag } from "@/components/StatusTag";
-import { GateChecklist, WorkflowRail, type GateItem, type WorkflowStep } from "@/components/WorkflowRail";
+import { toneIcon } from "@/components/PipelineRail";
+import type { SiteRuntime } from "@/lib/site-runtime";
 import {
   DATA_MODALITY_OPTIONS,
   normalizeMultiSelectValue,
@@ -31,6 +32,7 @@ type SiteDashboard = {
   onboardingSteps: string[];
   studySite: EntityRecord;
   activeDeployment?: EntityRecord | null;
+  runtime: SiteRuntime;
   approvedReleases: EntityRecord[];
   pipelineVersions: EntityRecord[];
   auditEvents: EntityRecord[];
@@ -55,86 +57,22 @@ function formatDate(value: unknown) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
-function stepState(passed: boolean, blocked = false): WorkflowStep["state"] {
-  if (passed) return "done";
-  return blocked ? "blocked" : "current";
+function shortImage(value: string | null) {
+  const sha = value?.match(/sha256:([0-9a-f]{12})/)?.[1];
+  return sha ? `sha256:${sha}` : "Not reported";
 }
 
-function buildSiteWorkflow(input: {
-  site: EntityRecord;
-  activeDeployment?: EntityRecord | null;
-  activeJoinPackage?: EntityRecord | null;
-  latestReadiness?: EntityRecord | null;
-  latestStatus?: EntityRecord | null;
-}): WorkflowStep[] {
-  const policyAccepted = Boolean(input.latestReadiness?.policyAccepted);
-  const kitDownloaded = Boolean(input.activeJoinPackage);
-  const kitInstalled = Boolean(input.latestReadiness?.kitInstalled);
-  const dependenciesVerified = Boolean(input.latestReadiness?.dependenciesVerified);
-  const connected = input.latestStatus?.status === "CONNECTED";
-  return [
-    {
-      label: "Accept participation",
-      detail: displayEnum(input.site.participationStatus, "Invited"),
-      state: stepState(["KIT_RELEASED", "CONNECTED", "DEGRADED"].includes(String(input.site.participationStatus)))
-    },
-    {
-      label: "Review governance",
-      detail: displayEnum(input.site.study?.governanceStatus, "Incomplete"),
-      state: stepState(policyAccepted, !input.site.study?.governanceStatus)
-    },
-    {
-      label: "Download startup kit",
-      detail: kitDownloaded ? `Generated ${formatDate(input.activeJoinPackage?.createdAt)}` : "Generate a site-specific package",
-      state: stepState(kitDownloaded, input.activeDeployment?.status !== "ACTIVE")
-    },
-    {
-      label: "Install local runner",
-      detail: kitInstalled ? "Site marked the runner installed" : "Run Docker Compose at the site",
-      state: stepState(kitInstalled, !kitDownloaded)
-    },
-    {
-      label: "Pass readiness",
-      detail: input.latestReadiness?.status ? displayEnum(input.latestReadiness.status) : "Checklist incomplete",
-      state: stepState(input.latestReadiness?.status === "PASSED", !dependenciesVerified || !policyAccepted)
-    },
-    {
-      label: "Join federation",
-      detail: connected ? "Heartbeat received" : "Waiting for Fedlify heartbeat",
-      state: stepState(connected, input.latestReadiness?.status !== "PASSED")
-    }
-  ];
-}
-
-function buildSiteGateItems(input: {
-  site: EntityRecord;
-  activeDeployment?: EntityRecord | null;
-  activeJoinPackage?: EntityRecord | null;
-  latestReadiness?: EntityRecord | null;
-  latestStatus?: EntityRecord | null;
-}): GateItem[] {
-  return [
-    {
-      label: "Aggregator address available",
-      detail: text(input.activeDeployment?.serverAddress, "No active deployment"),
-      passed: input.activeDeployment?.status === "ACTIVE" && Boolean(input.activeDeployment?.serverAddress)
-    },
-    {
-      label: "Site startup kit generated",
-      detail: input.activeJoinPackage ? `Expires ${formatDate(input.activeJoinPackage.expiresAt)}` : "No active startup kit",
-      passed: Boolean(input.activeJoinPackage)
-    },
-    {
-      label: "Local policy accepted",
-      detail: input.latestReadiness?.policyAcceptedAt ? formatDate(input.latestReadiness.policyAcceptedAt) : "Policy not accepted",
-      passed: Boolean(input.latestReadiness?.policyAccepted)
-    },
-    {
-      label: "Heartbeat connected",
-      detail: input.latestStatus?.observedAt ? formatDate(input.latestStatus.observedAt) : formatDate(input.latestStatus?.createdAt),
-      passed: input.latestStatus?.status === "CONNECTED"
-    }
-  ];
+function Facts({ items }: { items: Array<[string, ReactNode]> }) {
+  return (
+    <div className="fedlify-governance-grid">
+      {items.map(([label, value]) => (
+        <div key={label} className="fedlify-governance-field">
+          <span className="fedlify-governance-label">{label}</span>
+          <span className="fedlify-governance-value">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function SiteOnboardingPage() {
@@ -153,7 +91,7 @@ export default function SiteOnboardingPage() {
   const [stepUp, setStepUp] = useState<{ mode: "create" } | { mode: "download"; packageId: string } | null>(null);
   const [stepUpPassword, setStepUpPassword] = useState("");
   const [stepUpError, setStepUpError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("governance");
+  const [activeTab, setActiveTab] = useState("runner");
   const [messageApi, contextHolder] = message.useMessage();
 
   const load = useCallback(async () => {
@@ -324,7 +262,7 @@ export default function SiteOnboardingPage() {
   const site = dashboard?.studySite;
   const activeDeployment = dashboard?.activeDeployment;
   const latestReadiness = site?.readinessChecks?.[0];
-  const latestStatus = site?.nvflareStatuses?.[0] ?? site?.site?.heartbeats?.[0];
+  const runtime = dashboard?.runtime;
   const activeJoinPackage = useMemo(
     () =>
       site?.joinPackages?.find(
@@ -347,33 +285,6 @@ export default function SiteOnboardingPage() {
     "cd fedlify-site-kit",
     `FEDLIFY_SITE_TOKEN=${enrollmentToken ?? "<token-from-fedlify>"} ./fedlify-runner.sh start`
   ].join("\n");
-  const onboardingWorkflow = useMemo(
-    () =>
-      site
-        ? buildSiteWorkflow({
-            site,
-            activeDeployment,
-            activeJoinPackage,
-            latestReadiness,
-            latestStatus
-          })
-        : [],
-    [activeDeployment, activeJoinPackage, latestReadiness, latestStatus, site]
-  );
-  const gateItems = useMemo(
-    () =>
-      site
-        ? buildSiteGateItems({
-            site,
-            activeDeployment,
-            activeJoinPackage,
-            latestReadiness,
-            latestStatus
-          })
-        : [],
-    [activeDeployment, activeJoinPackage, latestReadiness, latestStatus, site]
-  );
-
   if (loading && !dashboard) {
     return (
       <AppPage>
@@ -390,7 +301,7 @@ export default function SiteOnboardingPage() {
     );
   }
 
-  if (!dashboard || !site) return <Alert type="error" message="Site onboarding dashboard could not be loaded." />;
+  if (!dashboard || !site || !runtime) return <Alert type="error" message="Site onboarding dashboard could not be loaded." />;
 
   return (
     <>
@@ -427,17 +338,24 @@ export default function SiteOnboardingPage() {
           subtitle={`${text(site.institutionName, "Institution")} - ${text(site.study?.title, "Study")}`}
           backLabel="Participant sites"
           onBack={() => router.push(`/studies/${site.studyId}?section=sites`)}
-          badges={
-            <Space wrap>
-              <StatusTag value={site.participationStatus} />
-              <StatusTag value={latestReadiness?.status ?? "PENDING"} />
-            </Space>
-          }
+          actions={<Button icon={<ReloadOutlined />} onClick={() => void load()} aria-label="Refresh site status" />}
         />
 
         <div className="fedlify-section-stack">
-          <WorkflowRail steps={onboardingWorkflow} />
-          <GateChecklist items={gateItems} />
+          <nav className="fedlify-ws-rail" aria-label="Site status">
+            {runtime.stages.map((stage) => (
+              <div key={stage.key} className={["fedlify-ws-stage", `is-${stage.tone}`].join(" ")}>
+                <button type="button" className="fedlify-ws-stage-main" onClick={() => setActiveTab(stage.tab)}>
+                  <span className="fedlify-ws-stage-icon" aria-hidden>{toneIcon[stage.tone]}</span>
+                  <span className="fedlify-ws-stage-copy">
+                    <strong>{stage.title}</strong>
+                    <span title={stage.status}>{stage.status}</span>
+                  </span>
+                </button>
+              </div>
+            ))}
+          </nav>
+          {runtime.nextStep ? <Alert type="warning" showIcon message="Next step" description={runtime.nextStep} data-testid="site-next-step" /> : null}
 
           <FormError title="Site onboarding request failed" message={formError} />
 
@@ -471,94 +389,31 @@ export default function SiteOnboardingPage() {
             }}
             items={[
               {
-                key: "governance",
-                label: "Governance",
+                key: "runner",
+                label: "Get runner",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <div className="fedlify-governance-grid">
-                      <div className="fedlify-governance-field">
-                        <span className="fedlify-governance-label">Study status</span>
-                        <span className="fedlify-governance-value">{displayEnum(site.study?.status)}</span>
+                    <section className="fedlify-site-panel">
+                      <div className="fedlify-site-panel-head">
+                        <strong>1. Startup kit</strong>
+                        <Tag color={runtime.kitState === "RELEASED" ? "green" : "orange"}>{runtime.kitState === "RELEASED" ? "Released" : runtime.kitState === "OUTDATED" ? "New kit needed" : "Not released"}</Tag>
                       </div>
-                      <div className="fedlify-governance-field">
-                        <span className="fedlify-governance-label">Governance status</span>
-                        <span className="fedlify-governance-value">{displayEnum(site.study?.governanceStatus)}</span>
-                      </div>
-                      <div className="fedlify-governance-field">
-                        <span className="fedlify-governance-label">Risk level</span>
-                        <span className="fedlify-governance-value">{displayEnum(site.study?.riskLevel)}</span>
-                      </div>
-                      <div className="fedlify-governance-field">
-                        <span className="fedlify-governance-label">Intended use</span>
-                        <span className="fedlify-governance-value">{text(site.study?.intendedUse)}</span>
-                      </div>
-                      <div className="fedlify-governance-field fedlify-governance-full">
-                        <span className="fedlify-governance-label">Research question</span>
-                        <span className="fedlify-governance-value">{text(site.study?.researchQuestion)}</span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              },
-              {
-                key: "startup",
-                label: "Startup kit",
-                children: (
-                  <div className="fedlify-tab-panel">
-                    <div className="fedlify-tab-toolbar">
-                      <div />
-                      <div className="fedlify-tab-toolbar-actions">
-                        <Button icon={<CopyOutlined />} onClick={() => void navigator.clipboard.writeText(runnerCommand)}>
-                          Copy runner command
+                      <Typography.Text type="secondary">
+                        {activeJoinPackage ? `Created ${formatDate(activeJoinPackage.createdAt)}, expires ${formatDate(activeJoinPackage.expiresAt)}. A kit carries this site's identity, so only release it to this site's operator.` : "Creates this site's identity and an encrypted download."}
+                      </Typography.Text>
+                      <Space wrap>
+                        <Button type={activeJoinPackage ? "default" : "primary"} icon={<CloudDownloadOutlined />} loading={submitting} onClick={() => askPassword({ mode: "create" })}>
+                          {activeJoinPackage ? "Create new kit" : "Create encrypted kit"}
                         </Button>
-                      </div>
-                    </div>
-                    <CardGrid>
-                      <EntityCard
-                        title="Aggregator deployment"
-                        subtitle={text(activeDeployment?.name, "No active deployment")}
-                        status={<StatusTag value={activeDeployment?.status ?? "NOT_STARTED"} />}
-                        meta={[
-                          `Server: ${text(activeDeployment?.serverAddress)}`,
-                          `Admin: ${text(activeDeployment?.adminAddress)}`,
-                          `Runtime: ${text(activeDeployment?.runtimeMode, "local-docker")}`
-                        ]}
-                      />
-                      <EntityCard
-                        title="Site startup package"
-                        subtitle="Fedlify runner, NVFLARE client identity, site agent configuration, and install manifest."
-                        status={<StatusTag value={activeJoinPackage?.status ?? "NOT_CREATED"} />}
-                        meta={[
-                          `Client: ${text(site.site?.nvflareClientName)}`,
-                          `Latest package: ${activeJoinPackage ? formatDate(activeJoinPackage.createdAt) : "Not generated"}`,
-                          `Expires: ${activeJoinPackage ? formatDate(activeJoinPackage.expiresAt) : "Not set"}`
-                        ]}
-                        actions={
-                          <Space wrap>
-                            <Button icon={<CloudDownloadOutlined />} loading={submitting} onClick={() => askPassword({ mode: "create" })}>
-                              Create encrypted kit
-                            </Button>
-                            {activeJoinPackage ? (
-                              <Button icon={<CloudDownloadOutlined />} onClick={() => askPassword({ mode: "download", packageId: activeJoinPackage.id })}>
-                                Download latest
-                              </Button>
-                            ) : null}
-                            <Button icon={<ReloadOutlined />} loading={submitting} onClick={() => void rotateToken()}>
-                              Rotate token
-                            </Button>
-                          </Space>
-                        }
-                      />
-                      <EntityCard
-                        title="Connection status"
-                        subtitle={`Last signal ${latestStatus?.observedAt ? formatDate(latestStatus.observedAt) : formatDate(latestStatus?.createdAt)}`}
-                        status={<StatusTag value={latestStatus?.status ?? "OFFLINE"} />}
-                        meta={[
-                          `Heartbeat endpoint: /api/v1/sites/${text(site.site?.id, "site-id")}/heartbeat`,
-                          `NVFLARE job: ${text(latestStatus?.currentJobId)}`
-                        ]}
-                      />
-                    </CardGrid>
+                        {activeJoinPackage ? (
+                          <Button type="primary" icon={<CloudDownloadOutlined />} onClick={() => askPassword({ mode: "download", packageId: activeJoinPackage.id })}>
+                            Download kit
+                          </Button>
+                        ) : null}
+                        <Button icon={<ReloadOutlined />} loading={submitting} onClick={() => void rotateToken()}>
+                          Rotate token
+                        </Button>
+                      </Space>
                     {kitPassphrase ? (
                       <Alert
                         type="warning"
@@ -589,29 +444,109 @@ export default function SiteOnboardingPage() {
                         }
                       />
                     ) : null}
-                    <Space wrap>
-                      <Tag color="orange">Revocation: partial</Tag>
-                      <Typography.Text type="secondary">
-                        Creating a new kit or rotating the token revokes the old kit and token. The site&apos;s NVFLARE certificate cannot be re-issued yet, so a
-                        kit that was already unlocked keeps a valid certificate until the study is republished with new site identities.
+                      <Typography.Text type="secondary" className="fedlify-site-note">
+                        Creating a new kit or rotating the token revokes the old kit and token. The site&apos;s NVFLARE certificate cannot be re-issued yet, so a kit that was already unlocked keeps a valid certificate until the study is republished with new site identities.
                       </Typography.Text>
-                    </Space>
-                    <pre className="fedlify-command-panel">{runnerCommand}</pre>
-                    <Alert
-                      type="info"
-                      showIcon
-                      message="The runner owns the Docker complexity"
-                      description={
-                        <>
-                          The download is an encrypted kit with unlock scripts. Unlocking needs age or Docker, and creates a folder only the unlocking account can read.
-                          Before the kit arrives, the site can check its machine and install Docker with the public{" "}
-                          <a href="/get-ready" target="_blank" rel="noreferrer">Get ready page</a>. On Windows the runner runs inside WSL 2 (there is no native Windows runner).
-                        </>
-                      }
-                    />
+                    </section>
+
+                    <section className="fedlify-site-panel">
+                      <div className="fedlify-site-panel-head">
+                        <strong>2. Install and start the runner</strong>
+                        <Button size="small" icon={<CopyOutlined />} onClick={() => void navigator.clipboard.writeText(runnerCommand)}>Copy commands</Button>
+                      </div>
+                      <Typography.Text type="secondary">
+                        Check the machine and install Docker first with the public <a href="/get-ready" target="_blank" rel="noreferrer">Get ready page</a>. Unlocking needs age or Docker. On Windows the runner runs inside WSL 2.
+                      </Typography.Text>
+                      <pre className="fedlify-command-panel">{runnerCommand}</pre>
+                    </section>
+
+                    {runtime.imageFix.length > 0 ? (
+                      <section className="fedlify-site-panel">
+                        <div className="fedlify-site-panel-head">
+                          <strong>3. Bring this site up to date</strong>
+                          <Tag color="orange">{runtime.imageState === "OUTDATED" ? "Outdated" : "Not reported"}</Tag>
+                        </div>
+                        <ol className="fedlify-site-steps">{runtime.imageFix.map((step) => <li key={step}>{step}</li>)}</ol>
+                      </section>
+                    ) : null}
+
+                    <section className="fedlify-site-panel">
+                      <div className="fedlify-site-panel-head"><strong>Connection</strong></div>
+                      <Facts
+                        items={[
+                          ["Aggregator", runtime.live?.hostname ? `${runtime.live.hostname}:443` : "Nothing published"],
+                          ["Serving", runtime.live?.version ? `${runtime.live.version}${runtime.live.gitCommit ? ` (${runtime.live.gitCommit.slice(0, 8)})` : ""}` : "Nothing published"],
+                          ["NVFLARE client", runtime.clientName],
+                          ["Runner's last report", runtime.lastHeartbeatLabel]
+                        ]}
+                      />
+                    </section>
                     {inlineManifest ? (
                       <pre className="fedlify-detail-json">{JSON.stringify(inlineManifest, null, 2)}</pre>
                     ) : null}
+                  </div>
+                )
+              },
+              {
+                key: "readiness",
+                label: "Readiness",
+                children: (
+                  <div className="fedlify-tab-panel">
+                    <section className="fedlify-site-panel">
+                      <div className="fedlify-site-panel-head"><strong>Machine evidence</strong><Typography.Text type="secondary">Reported by the site&apos;s runner, {runtime.lastHeartbeatLabel.toLowerCase()}</Typography.Text></div>
+                      <Facts
+                        items={[
+                          ["Runner", text(runtime.evidence.runner, "Not reported")],
+                          ["Container", `${text(runtime.evidence.container, "Not reported")}${runtime.evidence.health ? `, ${runtime.evidence.health}` : ""}`],
+                          ["Restarts", text(runtime.evidence.restarts, "Not reported")],
+                          ["Data files found", text(runtime.evidence.dataFiles, "Not reported")],
+                          ["Disk free", runtime.evidence.diskFreeGb === null ? "Not reported" : `${runtime.evidence.diskFreeGb} GB`],
+                          ["GPUs", text(runtime.evidence.gpus, "Not reported")],
+                          ["Study image", shortImage(runtime.evidence.reportedImage)]
+                        ]}
+                      />
+                    </section>
+                    <div className="fedlify-site-panel-head"><strong>Site attestation</strong><Typography.Text type="secondary">Confirmed by a person responsible for this site</Typography.Text></div>
+                    <div className="fedlify-inline-create-card">
+                      <Form
+                        key={latestReadiness?.id ?? "readiness"}
+                        layout="vertical"
+                        className="fedlify-inline-create-form"
+                        initialValues={{
+                          dependenciesVerified: latestReadiness?.dependenciesVerified ?? false,
+                          policyAccepted: latestReadiness?.policyAccepted ?? false,
+                          notes: latestReadiness?.notes
+                        }}
+                        onFinish={async (values) => {
+                          // Connectivity and installation are facts the runner reports, so they are not typed in by hand.
+                          await patch(`/api/v1/sites/${siteId}/governance`, { readiness: { ...values, connectivityVerified: runtime.connected === true, kitInstalled: runtime.lastHeartbeatAt !== null } }, "Site attestation saved.");
+                        }}
+                      >
+                        <div className="fedlify-readiness-checks">
+                          <Form.Item name="dependenciesVerified" valuePropName="checked">
+                            <Checkbox>Runtime dependencies verified</Checkbox>
+                          </Form.Item>
+                          <Form.Item name="policyAccepted" valuePropName="checked">
+                            <Checkbox>Local policy accepted by authorized site staff</Checkbox>
+                          </Form.Item>
+                        </div>
+                        <Form.Item name="notes" label="Readiness notes">
+                          <Input.TextArea rows={3} />
+                        </Form.Item>
+                        <Space className="fedlify-form-actions">
+                          <Button
+                            icon={<SafetyCertificateOutlined />}
+                            onClick={() => void post(`/api/v1/sites/${siteId}/policy-acceptance`, {}, "Local policy accepted.")}
+                            loading={submitting}
+                          >
+                            Accept policy
+                          </Button>
+                          <Button type="primary" htmlType="submit" icon={<CheckCircleOutlined />} className="fedlify-dark-action" loading={submitting}>
+                            Save attestation
+                          </Button>
+                        </Space>
+                      </Form>
+                    </div>
                   </div>
                 )
               },
@@ -681,63 +616,38 @@ export default function SiteOnboardingPage() {
                 )
               },
               {
-                key: "readiness",
-                label: "Readiness",
+                key: "governance",
+                label: "Governance",
                 children: (
                   <div className="fedlify-tab-panel">
-                    <div className="fedlify-inline-create-card">
-                      <Form
-                        key={latestReadiness?.id ?? "readiness"}
-                        layout="vertical"
-                        className="fedlify-inline-create-form"
-                        initialValues={{
-                          connectivityVerified: latestReadiness?.connectivityVerified ?? false,
-                          kitInstalled: latestReadiness?.kitInstalled ?? false,
-                          dependenciesVerified: latestReadiness?.dependenciesVerified ?? false,
-                          policyAccepted: latestReadiness?.policyAccepted ?? false,
-                          notes: latestReadiness?.notes
-                        }}
-                        onFinish={async (values) => {
-                          await patch(`/api/v1/sites/${siteId}/governance`, { readiness: values }, "Site readiness updated.");
-                        }}
-                      >
-                        <div className="fedlify-readiness-checks">
-                          <Form.Item name="connectivityVerified" valuePropName="checked">
-                            <Checkbox>Fedlify heartbeat or NVFLARE client connection verified</Checkbox>
-                          </Form.Item>
-                          <Form.Item name="kitInstalled" valuePropName="checked">
-                            <Checkbox>Startup kit installed in the local site environment</Checkbox>
-                          </Form.Item>
-                          <Form.Item name="dependenciesVerified" valuePropName="checked">
-                            <Checkbox>Runtime dependencies verified</Checkbox>
-                          </Form.Item>
-                          <Form.Item name="policyAccepted" valuePropName="checked">
-                            <Checkbox>Local policy accepted by authorized site staff</Checkbox>
-                          </Form.Item>
-                        </div>
-                        <Form.Item name="notes" label="Readiness notes">
-                          <Input.TextArea rows={3} />
-                        </Form.Item>
-                        <Space className="fedlify-form-actions">
-                          <Button
-                            icon={<SafetyCertificateOutlined />}
-                            onClick={() => void post(`/api/v1/sites/${siteId}/policy-acceptance`, {}, "Local policy accepted.")}
-                            loading={submitting}
-                          >
-                            Accept policy
-                          </Button>
-                          <Button type="primary" htmlType="submit" icon={<CheckCircleOutlined />} className="fedlify-dark-action" loading={submitting}>
-                            Run readiness check
-                          </Button>
-                        </Space>
-                      </Form>
+                    <div className="fedlify-governance-grid">
+                      <div className="fedlify-governance-field">
+                        <span className="fedlify-governance-label">Study status</span>
+                        <span className="fedlify-governance-value">{displayEnum(site.study?.status)}</span>
+                      </div>
+                      <div className="fedlify-governance-field">
+                        <span className="fedlify-governance-label">Governance status</span>
+                        <span className="fedlify-governance-value">{displayEnum(site.study?.governanceStatus)}</span>
+                      </div>
+                      <div className="fedlify-governance-field">
+                        <span className="fedlify-governance-label">Risk level</span>
+                        <span className="fedlify-governance-value">{displayEnum(site.study?.riskLevel)}</span>
+                      </div>
+                      <div className="fedlify-governance-field">
+                        <span className="fedlify-governance-label">Intended use</span>
+                        <span className="fedlify-governance-value">{text(site.study?.intendedUse)}</span>
+                      </div>
+                      <div className="fedlify-governance-field fedlify-governance-full">
+                        <span className="fedlify-governance-label">Research question</span>
+                        <span className="fedlify-governance-value">{text(site.study?.researchQuestion)}</span>
+                      </div>
                     </div>
                   </div>
                 )
               },
               {
                 key: "pipeline",
-                label: "Pipeline review",
+                label: "Published code",
                 children: (
                   <div className="fedlify-tab-panel">
                     {dashboard.pipelineVersions.length === 0 && sourceArtifacts.length === 0 ? (
@@ -752,8 +662,8 @@ export default function SiteOnboardingPage() {
                           <EntityCard
                             key={version.id}
                             title={`${text(version.project?.name, "Pipeline")} ${text(version.version, "")}`}
-                            subtitle={text(version.project?.template?.name, "NVFLARE template")}
-                            status={<StatusTag value={version.approvalStatus} />}
+                            subtitle={version.id === runtime.live?.versionId ? "Serving now" : "Earlier version"}
+                            status={version.id === runtime.live?.versionId ? <Tag color="green">Live</Tag> : <StatusTag value={version.approvalStatus} />}
                             meta={[
                               `Validation: ${displayEnum(version.validationStatus)}`,
                               `Commit: ${text(version.gitCommit)}`,
