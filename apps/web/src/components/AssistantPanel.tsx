@@ -82,6 +82,8 @@ type AssistantPanelProps = {
   onToggle: () => void;
   askRequest: AskRequest | null;
   onReviewProposal: (id: string) => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
   onAcceptProposal: (id: string, paths?: string[]) => Promise<ProposalActionResult>;
   onRejectProposal: (id: string) => Promise<{ ok: true } | ProposalFailure>;
   /** Set by the page when a proposal is decided from the diff view, so the card here follows. */
@@ -290,6 +292,8 @@ export function AssistantPanel({
   onToggle,
   askRequest,
   onReviewProposal,
+  expanded,
+  onExpandedChange,
   onAcceptProposal,
   onRejectProposal,
   proposalSync,
@@ -322,7 +326,6 @@ export function AssistantPanel({
   const [context, setContext] = useState<ContextInfo | null>(null);
   const [includeFile, setIncludeFile] = useState(true);
   const [selection, setSelection] = useState<{ path: string; text: string } | null>(null);
-  const [expanded, setExpanded] = useState(false);
   const messagesRef = useRef<ChatMessage[]>([]);
   const nextId = useRef(1);
   const abortRef = useRef<AbortController | null>(null);
@@ -345,13 +348,10 @@ export function AssistantPanel({
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Diffs and the publish panel open in the page behind the full-width assistant, so leave full width first.
-  const reviewProposal = (id: string) => {
-    setExpanded(false);
-    onReviewProposal(id);
-  };
+  // The publish panel is part of the page behind the full-width assistant, so leave full width first.
+  // A diff review opens over the assistant instead, so closing it returns to this same view.
   const openPublish = () => {
-    setExpanded(false);
+    onExpandedChange(false);
     onOpenPublish?.();
   };
 
@@ -807,7 +807,7 @@ export function AssistantPanel({
         head={commit}
         busy={busyProposal === id}
         error={cardErrors[id]}
-        onReview={() => reviewProposal(id)}
+        onReview={() => onReviewProposal(id)}
         onAccept={() => void acceptCard(id)}
         onReject={() => void rejectCard(id)}
         onRegenerate={() => {
@@ -1080,7 +1080,7 @@ export function AssistantPanel({
             </Tooltip>
           )}
           <Tooltip title={expanded ? "Exit full width" : "Full width"}>
-            <Button size="small" type="text" icon={expanded ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => setExpanded((current) => !current)} aria-label={expanded ? "Exit full width" : "Full width"} aria-pressed={expanded} data-testid="assistant-expand" />
+            <Button size="small" type="text" icon={expanded ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => onExpandedChange(!expanded)} aria-label={expanded ? "Exit full width" : "Full width"} aria-pressed={expanded} data-testid="assistant-expand" />
           </Tooltip>
           {expanded ? null : (
             <Tooltip title="Collapse assistant">
@@ -1115,7 +1115,7 @@ export function AssistantPanel({
             studyId={studyId}
             projectId={projectId}
             refreshKey={timelineKey}
-            onReviewProposal={reviewProposal}
+            onReviewProposal={onReviewProposal}
             onOpenThread={(id) => void selectThread(id)}
           />
         </div>

@@ -109,6 +109,8 @@ export type ProposalReviewState = {
 
 type CodeReviewPanelProps = {
   proposalReview?: ProposalReviewState | null;
+  proposalForceFullWidth?: boolean;
+  onProposalExitFullWidth?: () => void;
   onProposalToggle?: (path: string, accepted: boolean) => void;
   onProposalAccept?: () => void;
   onProposalReject?: () => void;
@@ -404,6 +406,8 @@ export function CodeReviewPanel({
   saveLabel = "Preview change",
   controlRef,
   proposalReview,
+  proposalForceFullWidth,
+  onProposalExitFullWidth,
   onProposalToggle,
   onProposalAccept,
   onProposalReject,
@@ -1115,6 +1119,8 @@ export function CodeReviewPanel({
               onAccept={onProposalAccept}
               onReject={onProposalReject}
               onClose={onProposalClose}
+              forceExpanded={proposalForceFullWidth}
+              onExitFullWidth={onProposalExitFullWidth}
               renderDiff={(file, view) => (
                 <MonacoDiffEditor
                   key={`proposal-${proposalReview.id}-${file.path}-${view.sideBySide}-${view.changesOnly}`}

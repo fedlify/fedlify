@@ -134,6 +134,7 @@ export default function StudyProjectsPage() {
   const [expandedRounds, setExpandedRounds] = useState<readonly Key[]>([]);
   const [dirtyPath, setDirtyPath] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(true);
+  const [assistantExpanded, setAssistantExpanded] = useState(false);
   const [askRequest, setAskRequest] = useState<AskRequest | null>(null);
   const [conflict, setConflict] = useState<{ file: SourceFile; content: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -997,6 +998,8 @@ export default function StudyProjectsPage() {
                   onDirtyChange={setDirtyPath}
                   controlRef={editorControl}
                   proposalReview={review}
+                  proposalForceFullWidth={assistantExpanded}
+                  onProposalExitFullWidth={() => setAssistantExpanded(false)}
                   onProposalToggle={(path, accepted) => setReview((current) => (current ? { ...current, accepted: { ...current.accepted, [path]: accepted } } : current))}
                   onProposalAccept={() => {
                     if (!review) return;
@@ -1040,6 +1043,8 @@ export default function StudyProjectsPage() {
               onToggle={toggleAssistant}
               askRequest={askRequest}
               onReviewProposal={(id) => void openProposalReview(id)}
+              expanded={assistantExpanded}
+              onExpandedChange={setAssistantExpanded}
               onAcceptProposal={decideProposalAccept}
               onRejectProposal={decideProposalReject}
               proposalSync={proposalSync}

@@ -20,6 +20,9 @@ type Props = {
   onAccept?: () => void;
   onReject?: () => void;
   onClose?: () => void;
+  /** The assistant is full width, so a normal-width review would be hidden behind it. */
+  forceExpanded?: boolean;
+  onExitFullWidth?: () => void;
   renderDiff: (file: ProposalFileSummary, view: DiffViewOptions) => ReactNode;
 };
 
@@ -28,7 +31,7 @@ type Prefs = DiffViewOptions & { expanded: boolean };
 // Review is a focused task, so it opens full width until the person chooses otherwise.
 const DEFAULT_PREFS: Prefs = { expanded: true, sideBySide: true, changesOnly: true };
 
-export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown, filesLoading, onSelect, onToggle, onAccept, onReject, onClose, renderDiff }: Props) {
+export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown, filesLoading, onSelect, onToggle, onAccept, onReject, onClose, forceExpanded, onExitFullWidth, renderDiff }: Props) {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
 
   useEffect(() => {
@@ -46,6 +49,12 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
     });
   }
 
+  const expanded = prefs.expanded || Boolean(forceExpanded);
+  function toggleExpanded() {
+    changePrefs({ expanded: !expanded });
+    if (expanded) onExitFullWidth?.();
+  }
+
   const { files, accepted, busy } = proposal;
   const index = Math.max(0, files.findIndex((file) => file.path === currentPath));
   const current = files[index];
@@ -54,7 +63,7 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
   const tag = stale ? (proposal.status === "PROPOSED" ? (filesUnknown ? "Loading" : "Stale") : proposal.status.toLowerCase()) : "Proposed by assistant";
 
   return (
-    <div className={["fedlify-proposal-review", prefs.expanded ? "is-expanded" : ""].join(" ")} role="group" aria-label="Review assistant proposal" data-testid="proposal-review">
+    <div className={["fedlify-proposal-review", expanded ? "is-expanded" : ""].join(" ")} role="group" aria-label="Review assistant proposal" data-testid="proposal-review">
       <header className="fedlify-proposal-review-head">
         <div className="fedlify-proposal-review-title">
           <Typography.Text strong ellipsis={{ tooltip: proposal.title }}>{proposal.title}</Typography.Text>
@@ -64,8 +73,8 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
         <div className="fedlify-proposal-review-tools">
           <Segmented size="small" value={prefs.changesOnly ? "changes" : "full"} onChange={(value) => changePrefs({ changesOnly: value === "changes" })} options={[{ label: "Changes only", value: "changes" }, { label: "Full file", value: "full" }]} aria-label="How much of the file to show" />
           <Segmented size="small" value={prefs.sideBySide ? "split" : "inline"} onChange={(value) => changePrefs({ sideBySide: value === "split" })} options={[{ label: "Side by side", value: "split" }, { label: "Inline", value: "inline" }]} aria-label="Diff layout" />
-          <Tooltip title={prefs.expanded ? "Exit full width" : "Full width"}>
-            <Button size="small" type="text" icon={prefs.expanded ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => changePrefs({ expanded: !prefs.expanded })} aria-label={prefs.expanded ? "Exit full width" : "Full width"} aria-pressed={prefs.expanded} data-testid="proposal-review-expand" />
+          <Tooltip title={expanded ? "Exit full width" : "Full width"}>
+            <Button size="small" type="text" icon={expanded ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={toggleExpanded} aria-label={expanded ? "Exit full width" : "Full width"} aria-pressed={expanded} data-testid="proposal-review-expand" />
           </Tooltip>
           <Tooltip title="Close review">
             <Button size="small" type="text" icon={<CloseOutlined />} onClick={() => onClose?.()} aria-label="Close review" />
