@@ -112,6 +112,9 @@ type CodeReviewPanelProps = {
   proposalReview?: ProposalReviewState | null;
   /** Short explanation shown at the end of the compact branch and commit row. */
   contextNote?: string;
+  /** The page shows the files, code and assistant without the app chrome. */
+  fullScreen?: boolean;
+  onFullScreenChange?: (fullScreen: boolean) => void;
   proposalForceFullWidth?: boolean;
   onProposalExitFullWidth?: () => void;
   onProposalToggle?: (path: string, accepted: boolean) => void;
@@ -410,6 +413,8 @@ export function CodeReviewPanel({
   controlRef,
   proposalReview,
   contextNote,
+  fullScreen = false,
+  onFullScreenChange,
   proposalForceFullWidth,
   onProposalExitFullWidth,
   onProposalToggle,
@@ -582,13 +587,10 @@ export function CodeReviewPanel({
 
   const editorRef = useRef<{ getSelectedText: () => string } | null>(null);
   const askRef = useRef<() => void>(() => undefined);
-  const [editorFullScreen, setEditorFullScreen] = useState(false);
   const saveRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     askRef.current = () => {
       if (!selectedFile || !onAskAssistant) return;
-      // The assistant is on the page behind a full-screen editor.
-      setEditorFullScreen(false);
       const selection = editorRef.current?.getSelectedText().trim();
       onAskAssistant({ path: selectedFile.path, selection: selection ? selection.slice(0, 20000) : undefined });
     };
@@ -1028,7 +1030,7 @@ export function CodeReviewPanel({
             {explorerView === "changes" ? <>{renderChangeList()}</> : <div className="fedlify-code-tree">{renderSourceTree(sourceTree)}</div>}
           </aside>
         ) : null}
-        <section className={["fedlify-code-file-preview", editorFullScreen && statusBar ? "is-fullscreen" : ""].join(" ")}>
+        <section className="fedlify-code-file-preview">
           <div className="fedlify-code-file-title">
             <div className="fedlify-code-file-title-main">
               <strong>{proposalFile ? proposalFile.path : (displayedPath ?? "No file selected")}</strong>
@@ -1049,8 +1051,8 @@ export function CodeReviewPanel({
             </div>
             <Space className="fedlify-code-editor-actions" wrap>
               {statusBar ? (
-                <Tooltip title={editorFullScreen ? "Exit full screen" : "Full screen"}>
-                  <Button size="small" type="text" icon={editorFullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => setEditorFullScreen((current) => !current)} aria-label={editorFullScreen ? "Exit full screen" : "Full screen"} aria-pressed={editorFullScreen} data-testid="editor-fullscreen" />
+                <Tooltip title={fullScreen ? "Exit full screen" : "Full screen"}>
+                  <Button size="small" type="text" icon={fullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => onFullScreenChange?.(!fullScreen)} aria-label={fullScreen ? "Exit full screen" : "Full screen"} aria-pressed={fullScreen} data-testid="editor-fullscreen" />
                 </Tooltip>
               ) : null}
               {hideExplorer ? null : (

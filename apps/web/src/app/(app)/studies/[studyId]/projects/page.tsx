@@ -137,6 +137,7 @@ export default function StudyProjectsPage() {
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [assistantExpanded, setAssistantExpanded] = useState(false);
   const [filesOpen, setFilesOpen] = useState(true);
+  const [workspaceFullScreen, setWorkspaceFullScreen] = useState(false);
   const [askRequest, setAskRequest] = useState<AskRequest | null>(null);
   const [conflict, setConflict] = useState<{ file: SourceFile; content: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -981,7 +982,7 @@ export default function StudyProjectsPage() {
         <>
           <PipelineRail stages={stages} activeStage={activeStage} currentStage={currentStage} onSelect={setActiveStage} onAction={handleStageAction} />
 
-          <div className={["fedlify-ws-grid", assistantOpen ? "has-assistant" : "assistant-collapsed", filesOpen ? "" : "files-collapsed"].join(" ")}>
+          <div className={["fedlify-ws-grid", assistantOpen ? "has-assistant" : "assistant-collapsed", filesOpen ? "" : "files-collapsed", workspaceFullScreen ? "is-fullscreen" : ""].join(" ")}>
             {filesOpen ? (
               <aside className="fedlify-ws-side" aria-label="Files and checks">
                 <div className="fedlify-ws-section-title">
@@ -1009,6 +1010,8 @@ export default function StudyProjectsPage() {
             <main className="fedlify-ws-centre">
               <div hidden={activeStage !== "code"} className="fedlify-ws-code">
                 <CodeReviewPanel
+                  fullScreen={workspaceFullScreen}
+                  onFullScreenChange={setWorkspaceFullScreen}
                   contextNote={`Every save is a commit to ${project.defaultBranch}. Publishing builds exactly the saved commit.`}
                   hideHeader
                   hideExplorer
@@ -1083,7 +1086,10 @@ export default function StudyProjectsPage() {
               onRejectProposal={decideProposalReject}
               proposalSync={proposalSync}
               failures={assistantFailures}
-              onOpenPublish={() => setActiveStage("publish")}
+              onOpenPublish={() => {
+                setWorkspaceFullScreen(false);
+                setActiveStage("publish");
+              }}
               startPrompt={startPrompt}
               onStartPromptConsumed={(id) => setStartPrompt((current) => (current?.id === id ? null : current))}
               unconnectedSites={unconnectedSites}

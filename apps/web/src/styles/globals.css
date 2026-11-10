@@ -6480,14 +6480,14 @@ h4.ant-typography {
   cursor: not-allowed;
 }
 
-/* Full-screen code editor. */
-.fedlify-code-file-preview.is-fullscreen {
+/* Full-screen workspace: files, code and assistant stay; the app menus and page header step aside. */
+.fedlify-ws-grid.is-fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 950;
-  height: auto !important;
-  border: 0;
-  border-radius: 0;
+  z-index: 940;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--fedlify-bg);
 }
 
 /* Review context in its modal. */
@@ -6524,3 +6524,13 @@ h4.ant-typography {
 }
 .fedlify-ws-failure-head,
 .fedlify-ws-msg.is-system .fedlify-ws-proposal-actions { align-self: stretch; }
+
+@media (min-width: 1281px) {
+  .fedlify-ws-grid.is-fullscreen { grid-template-rows: minmax(0, 1fr); align-items: stretch; overflow: hidden; }
+  .fedlify-ws-grid.is-fullscreen.has-assistant { right: var(--fedlify-ws-assistant-width); }
+  .fedlify-ws-grid.is-fullscreen.assistant-collapsed { right: 44px; }
+  .fedlify-ws-grid.is-fullscreen .fedlify-ws-assistant { top: 0; }
+  .fedlify-ws-grid.is-fullscreen .fedlify-ws-side,
+  .fedlify-ws-grid.is-fullscreen .fedlify-ws-centre,
+  .fedlify-ws-grid.is-fullscreen .fedlify-ws-code { height: 100%; min-height: 0; }
+}
