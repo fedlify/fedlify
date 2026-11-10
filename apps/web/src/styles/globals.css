@@ -1047,28 +1047,6 @@ h4.ant-typography {
   overflow-wrap: anywhere;
 }
 
-.fedlify-summary-dashboard-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  gap: 14px;
-}
-
-.fedlify-summary-dashboard-grid .fedlify-workspace-record-card {
-  min-height: 156px;
-  grid-template-columns: 1fr;
-  align-content: start;
-}
-
-.fedlify-summary-dashboard-grid .fedlify-workspace-card-meta {
-  width: 100%;
-  min-width: 0;
-  padding-left: 46px;
-  justify-content: flex-start;
-}
-
-.fedlify-summary-dashboard-grid .fedlify-workspace-card-data {
-  margin-top: 2px;
-}
-
 .fedlify-navigation-grid {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
@@ -6613,3 +6591,157 @@ h4.ant-typography {
   font: inherit;
   font-size: var(--fedlify-text-xs);
 }
+
+/* Summary: next step card and the six study steps */
+.fedlify-next-step-card {
+  display: grid;
+  gap: 10px;
+  padding: 20px 22px;
+  border: 1px solid var(--fedlify-primary);
+  border-radius: 12px;
+  background: var(--fedlify-soft);
+}
+
+.fedlify-next-step-card.is-complete {
+  border-color: #2f8f5b;
+}
+
+.fedlify-next-step-eyebrow {
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fedlify-next-step-title {
+  margin: 0;
+  color: var(--fedlify-ink);
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.fedlify-next-step-done-icon {
+  color: #2f8f5b;
+}
+
+.fedlify-next-step-text {
+  margin: 0;
+  color: var(--fedlify-ink);
+  font-size: var(--fedlify-text-md);
+  overflow-wrap: anywhere;
+}
+
+.fedlify-next-step-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fedlify-next-step-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fedlify-text-md);
+}
+
+.fedlify-next-step-list-icon {
+  flex: none;
+  margin-top: 3px;
+  color: #c4423f;
+}
+
+.fedlify-next-step-list-detail {
+  color: var(--fedlify-muted);
+}
+
+.fedlify-next-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fedlify-next-step-actions:empty {
+  display: none;
+}
+
+.fedlify-next-step-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
+}
+
+.fedlify-next-step-row {
+  cursor: default;
+}
+
+/* Preflight checklist (Publish and Run panels) */
+.fedlify-preflight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 8px;
+  background: var(--fedlify-soft);
+}
+
+.fedlify-preflight-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fedlify-preflight-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fedlify-text-md);
+}
+
+.fedlify-preflight-icon {
+  flex: none;
+  line-height: 22px;
+}
+
+.fedlify-preflight-list li.is-ok .fedlify-preflight-icon {
+  color: #2f8f4e;
+}
+
+.fedlify-preflight-list li.is-fail .fedlify-preflight-icon {
+  color: #d48806;
+}
+
+.fedlify-preflight-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fedlify-preflight-text {
+  color: var(--fedlify-ink);
+}
+
+.fedlify-preflight-detail,
+.fedlify-preflight-owner,
+.fedlify-preflight-reason {
+  color: var(--fedlify-muted);
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-preflight-side {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.fedlify-next-step-attention { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; }

@@ -79,7 +79,10 @@ export type AdapterMetricRecord = {
 
 type AdapterTarget = { adapterUrl: string | null; studyId: string };
 
-async function adapterFetch(target: AdapterTarget, path: string, init?: RequestInit): Promise<Response> {
+/** Read-only status calls (who is connected) must not hold a page for the long job-submission timeout. */
+export const ADAPTER_STATUS_TIMEOUT_MS = 5_000;
+
+async function adapterFetch(target: AdapterTarget, path: string, init?: RequestInit, timeoutMs?: number): Promise<Response> {
   if (!target.adapterUrl) throw new StudyRuntimeError("This study has no published aggregator yet.", 409);
   let response: Response;
   try {
@@ -87,7 +90,7 @@ async function adapterFetch(target: AdapterTarget, path: string, init?: RequestI
       ...init,
       headers: { authorization: `Bearer ${studyAdapterToken(target.studyId)}`, ...(init?.body ? { "content-type": "application/json" } : {}) },
       cache: "no-store",
-      signal: AbortSignal.timeout(Number(process.env.FEDLIFY_ADAPTER_TIMEOUT_MS ?? 60_000))
+      signal: AbortSignal.timeout(timeoutMs ?? Number(process.env.FEDLIFY_ADAPTER_TIMEOUT_MS ?? 60_000))
     });
   } catch (error) {
     throw new StudyRuntimeError(`Aggregator adapter is unreachable: ${error instanceof Error ? error.message : "network error"}`);
@@ -99,8 +102,8 @@ async function adapterFetch(target: AdapterTarget, path: string, init?: RequestI
   return response;
 }
 
-export async function adapterSystemInfo(target: AdapterTarget): Promise<AdapterSystemInfo> {
-  return (await adapterFetch(target, "/system-info")).json();
+export async function adapterSystemInfo(target: AdapterTarget, options: { timeoutMs?: number } = {}): Promise<AdapterSystemInfo> {
+  return (await adapterFetch(target, "/system-info", undefined, options.timeoutMs)).json();
 }
 
 export async function adapterSubmitJob(

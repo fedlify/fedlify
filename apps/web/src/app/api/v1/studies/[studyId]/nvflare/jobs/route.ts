@@ -2,17 +2,18 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
-import { isSitePresent } from "@/lib/site-presence";
+import { evaluatePreflight, PREFLIGHT_SITE_PREFIXES, type PreflightItem, type PreflightResult } from "@/lib/preflight";
+import { fetchConnectedClients, loadRunContext, runPreflightSnapshot } from "@/lib/preflight-data";
 import { checkSiteImages, describeImageMismatch, isImageMismatch, siteImageFixSteps } from "@/lib/site-image";
 import { audit } from "@/lib/audit";
-import { describeUnreadySites, executionGateMessage, latestEthicsStatus, pipelineExecutionGate } from "@/lib/governance";
+import { describeUnreadySites, executionGateMessage } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
 import { submitNvflareJob } from "@/lib/nvflare";
 import { pipelineRunWorkspacePath, prepareNvflareJobWorkspaceForRun, runtimeParametersForSelectedSites } from "@/lib/pipeline-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { buildRunSnapshot, ownClientNames, resolveRunViewer } from "@/lib/run-evidence";
-import { adapterSubmitJob, adapterSystemInfo, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
+import { adapterSubmitJob, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
 
 const submitJobSchema = z.object({
   pipelineVersionId: z.string().min(1),
@@ -25,6 +26,11 @@ const submitJobSchema = z.object({
     .optional(),
   commandSummary: z.string().trim().max(2000).optional()
 });
+
+/** A plain 409 in the usual error shape, with the checklist added under details. */
+function problemWithItems(status: number, message: string, code: string, items: PreflightItem[]) {
+  return json({ error: { code, message, details: { items } } }, { status });
+}
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ studyId: string }> }) {
   const authResult = await requireUser();
@@ -97,39 +103,29 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   const parsed = submitJobSchema.safeParse(await request.json());
   if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "The run request is not valid.");
 
-  const [study, pipelineVersion] = await Promise.all([
-    prisma.study.findUnique({
-      where: { id: studyId },
-      include: { ethics: { orderBy: { createdAt: "desc" }, take: 1 } }
-    }),
-    prisma.pipelineVersion.findUnique({
-      where: { id: parsed.data.pipelineVersionId },
-      include: { project: true }
-    })
-  ]);
+  const ctx = await loadRunContext(studyId, { pipelineVersionId: parsed.data.pipelineVersionId, studySiteIds: parsed.data.studySiteIds });
+  const { study, pipelineVersion, studySites, deployment } = ctx;
 
   if (!study) return problem(404, "Study not found.", "not_found");
   if (!pipelineVersion || pipelineVersion.project.studyId !== studyId) {
     return problem(404, "Pipeline version not found for this study.", "pipeline_not_found");
   }
 
-  const studySites = await prisma.studySite.findMany({
-    where: {
-      studyId,
-      // Same rule as publish: a disabled site neither blocks nor takes part in a run.
-      participationStatus: { not: "DISABLED" },
-      ...(parsed.data.studySiteIds?.length ? { id: { in: parsed.data.studySiteIds } } : {})
-    },
-    include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 }, site: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true, metadata: true } } } } }
-  });
-
-  const gate = pipelineExecutionGate({
-    ethicsStatus: latestEthicsStatus(study.ethics),
-    pipelineApprovalStatus: pipelineVersion.approvalStatus,
-    pipelineValidationStatus: pipelineVersion.validationStatus,
-    readinessChecks: studySites.map((site) => site.readinessChecks[0] ?? null)
-  });
-  if (!gate.allowed) {
+  // The same checklist the screen shows (see lib/preflight.ts), decided in stages: first everything that needs no
+  // call to the study server, then which sites are connected.
+  const failing = (result: PreflightResult, test: (code: string) => boolean) => result.items.filter((item) => !item.ok && test(item.code));
+  const early = evaluatePreflight("run", runPreflightSnapshot(studyId, ctx, { connected: null }));
+  const gateItems = failing(early, (code) => code === "ethics" || code === "pipeline_published" || code === "sites" || code.startsWith(PREFLIGHT_SITE_PREFIXES.signedOff));
+  if (gateItems.length > 0) {
+    const missing: string[] = [];
+    for (const item of gateItems) {
+      if (item.code === "ethics") missing.push("ethicsApproval");
+      else if (item.code === "pipeline_published") {
+        if (!pipelineVersion || pipelineVersion.approvalStatus !== "APPROVED") missing.push("approvedPipelineVersion");
+        if (pipelineVersion?.validationStatus !== "PASSED") missing.push("passedPipelineValidation");
+      } else if (item.code === "sites") missing.push("readySites");
+      else if (!missing.includes("allSitesReady")) missing.push("allSitesReady");
+    }
     const unreadySites = describeUnreadySites(
       studySites.map((site) => ({ code: site.code, name: site.name, check: site.readinessChecks[0] ?? null }))
     );
@@ -137,27 +133,32 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       {
         error: {
           code: "execution_gate",
-          message: executionGateMessage(gate.missing, unreadySites),
-          missing: gate.missing,
-          unreadySites
+          message: executionGateMessage(missing, unreadySites),
+          missing,
+          unreadySites,
+          details: { items: early.items }
         }
       },
       { status: 409 }
     );
   }
 
-  const deployment = await prisma.nvflareDeployment.findFirst({ where: { studyId, active: true, status: "ACTIVE" } });
-  if (!deployment?.serverAddress) {
-    return problem(409, "Publish the pipeline so the study server is running before starting a run.", "deployment_required");
+  const busyItems = failing(early, (code) => code === "publish_idle" || code === "run_idle");
+  if (busyItems.length > 0) {
+    const publishing = busyItems.some((item) => item.code === "publish_idle");
+    return problemWithItems(
+      409,
+      publishing ? "A publish is in progress. Wait for it to finish before starting a run." : "A run is already in progress. Wait for it to finish, or stop it, before starting another.",
+      publishing ? "publish_in_progress" : "run_in_progress",
+      early.items
+    );
   }
 
-  const publishedRuntime = deployment.runtimeMode === "k8s";
-  if (publishedRuntime && deployment.pipelineVersionId !== pipelineVersion.id) {
-    return problem(
-      409,
-      "The study server is running a different pipeline version. Run that version, or publish this one first.",
-      "version_not_published"
-    );
+  if (!deployment?.serverAddress || failing(early, (code) => code === "study_server").length > 0) {
+    if (!deployment?.serverAddress) {
+      return problemWithItems(409, "Publish the pipeline so the study server is running before starting a run.", "deployment_required", early.items);
+    }
+    return problemWithItems(409, "The study server is running a different pipeline version. Run that version, or publish this one first.", "version_not_published", early.items);
   }
 
   const selectedSites = studySites.map((site) => ({
@@ -170,44 +171,47 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     return problem(409, "Select at least one ready site before starting a run.", "no_selected_sites");
   }
 
+  const publishedRuntime = deployment.runtimeMode === "k8s";
+  let full = early;
   if (publishedRuntime) {
-    // Connection state comes from the aggregator itself, not from site heartbeats.
+    // Connection state comes from the study server itself, not from site heartbeats.
     let connected: Set<string>;
     try {
-      connected = new Set((await adapterSystemInfo({ studyId, adapterUrl: deployment.adapterUrl })).clients.map((client) => client.name));
+      connected = await fetchConnectedClients(studyId, deployment);
     } catch (error) {
       if (error instanceof StudyRuntimeError) return problem(error.status, "The study server could not be reached. Try again in a minute.", "aggregator_unreachable");
       throw error;
     }
-    const offline = studySites
-      .filter((site) => !isSitePresent(connected.has(nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName })), site.site?.heartbeats[0]?.createdAt))
-      .map((site) => site.name || site.code);
-    if (offline.length > 0) {
-      return problem(409, `These sites are not connected to the study server yet: ${offline.join(", ")}.`, "sites_not_connected");
+    full = evaluatePreflight("run", runPreflightSnapshot(studyId, ctx, { connected, minClients: parsed.data.runtimeParameters?.minClients }));
+    const offlineItems = failing(full, (code) => code.startsWith(PREFLIGHT_SITE_PREFIXES.connected));
+    if (offlineItems.length > 0) {
+      const offline = studySites
+        .filter((site) => offlineItems.some((item) => item.code === `${PREFLIGHT_SITE_PREFIXES.connected}${site.id}`))
+        .map((site) => site.name || site.code);
+      return problemWithItems(409, `These sites are not connected to the study server yet: ${offline.join(", ")}.`, "sites_not_connected", full.items);
     }
-  }
 
-  if (publishedRuntime) {
-    // Every selected site must run the aggregator's image. The aggregator can move to a new digest (a publish) while a
-    // site still runs the old one; submitting then trains on mismatched code. Compared by sha256 only; missing counts as a mismatch.
-    const checks = checkSiteImages(
-      studySites.map((site) => ({
-        code: site.code,
-        clientName: nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }),
-        name: site.name,
-        heartbeatMetadata: site.site?.heartbeats[0]?.metadata ?? null
-      })),
-      deployment.imageDigest
-    );
-    const outdated = checks.filter((check) => isImageMismatch(check.state));
-    if (outdated.length > 0) {
+    // Every selected site must run the study server's code version. The server can move to a new digest (a publish)
+    // while a site still runs the old one; submitting then trains on mismatched code.
+    if (failing(full, (code) => code.startsWith(PREFLIGHT_SITE_PREFIXES.codeVersion)).length > 0) {
+      const checks = checkSiteImages(
+        studySites.map((site) => ({
+          code: site.code,
+          clientName: nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }),
+          name: site.name,
+          heartbeatMetadata: site.site?.heartbeats[0]?.metadata ?? null
+        })),
+        deployment.imageDigest
+      );
+      const outdated = checks.filter((check) => isImageMismatch(check.state));
       return json(
         {
           error: {
             code: "site_image_mismatch",
             message: describeImageMismatch(checks, deployment.imageDigest),
             sites: outdated.map((check) => ({ code: check.code, clientName: check.clientName, state: check.state, reportedDigest: check.reportedDigest, needsNewKit: check.needsNewKit, fix: siteImageFixSteps(check) })),
-            desiredImageDigest: deployment.imageDigest
+            desiredImageDigest: deployment.imageDigest,
+            details: { items: full.items }
           }
         },
         { status: 409 }
@@ -220,10 +224,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     minClients: parsed.data.runtimeParameters?.minClients,
     numRounds: parsed.data.runtimeParameters?.numRounds
   });
-  if ((parsed.data.runtimeParameters?.minClients ?? runtimeParameters.minClients) > selectedSites.length) {
+  const minSitesItem = failing(full, (code) => code === "min_sites")[0];
+  if ((parsed.data.runtimeParameters?.minClients ?? runtimeParameters.minClients) > selectedSites.length || minSitesItem) {
     return problem(
       400,
-      `The minimum number of sites cannot be higher than the number of selected sites. Selected ${selectedSites.length}, requested ${parsed.data.runtimeParameters?.minClients}.`,
+      minSitesItem
+        ? `${minSitesItem.text}. ${minSitesItem.detail ?? ""}`.trim()
+        : `The minimum number of sites cannot be higher than the number of selected sites. Selected ${selectedSites.length}, requested ${parsed.data.runtimeParameters?.minClients}.`,
       "invalid_runtime_parameters"
     );
   }

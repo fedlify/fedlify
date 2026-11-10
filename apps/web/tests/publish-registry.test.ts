@@ -19,7 +19,8 @@ vi.mock("@/lib/agent", () => ({ submitStudyPublishWorkflow: (...a: unknown[]) =>
 vi.mock("@/lib/api", () => ({ requireUser: async () => ({ userId: "u1" }) }));
 vi.mock("@/lib/audit", () => ({ audit: async () => undefined }));
 vi.mock("@/lib/rbac", () => ({ assertStudyAccess: async () => undefined, isForbiddenError: () => false }));
-vi.mock("@/lib/governance", () => ({
+vi.mock("@/lib/governance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/governance")>()),
   ethicsCleared: () => true,
   latestEthicsStatus: () => "APPROVED",
   requirementsGate: () => ({ allowed: true, missing: [] })
@@ -41,7 +42,7 @@ vi.mock("@/lib/study-runtime", () => ({
 vi.mock("@/lib/prisma", () => {
   const tx = {
     pipelineVersion: { create: async () => { txCreate(); return { id: "new-version", gitCommit: "abc123" }; }, update: async () => ({}) },
-    cIValidationRun: { create: async () => ({ id: "ci1" }), update: async () => ({}) },
+    cIValidationRun: { findFirst: async () => null, create: async () => ({ id: "ci1" }), update: async () => ({}) },
     nvflareDeployment: { update: (...a: unknown[]) => deploymentUpdate(...a) }
   };
   return {

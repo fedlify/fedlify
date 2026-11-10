@@ -65,17 +65,8 @@ import {
 } from "@/lib/study-workspace";
 import { siteSignedOff } from "@/lib/site-signoff";
 import { parseStudyDetailParam, serializeStudyDetailParam, type StudyDetailKind, type StudyDetailState } from "@/lib/study-detail";
-import {
-  activeDeployment,
-  approvedPipelineVersions,
-  connectedStudySites,
-  protocolReadinessDetail,
-  readyStudySites,
-  resolveStudyNextAction,
-  studyEthicsReady,
-  studyProtocolReady,
-  summaryReadinessItems
-} from "@/lib/study-summary";
+import { protocolReadinessDetail } from "@/lib/study-summary";
+import { SummarySection } from "./sections/SummarySection";
 import {
   resolveUnavailableStudyTarget,
   SELECTED_STUDY_EVENT,
@@ -559,16 +550,6 @@ function workflowReviewTone(state: WorkflowStep["state"]) {
   return "needs_attention";
 }
 
-function summaryStateStatus(state: "ready" | "needs_attention" | "done") {
-  if (state === "done") return "DONE";
-  if (state === "ready") return "READY";
-  return "NEEDS_ATTENTION";
-}
-
-function summaryStateTone(state: "ready" | "needs_attention" | "done") {
-  return state === "needs_attention" ? "needs_attention" : "ready";
-}
-
 export default function StudyDetailPage() {
   const params = useParams<{ studyId: string }>();
   const router = useRouter();
@@ -576,6 +557,7 @@ export default function StudyDetailPage() {
   const studyId = params.studyId;
   const activeSection = normalizeStudyWorkspaceSection(searchParams.get("section"));
   const activeSectionMeta = getStudyWorkspaceSection(activeSection);
+  const linkedTab = searchParams.get("tab");
   const activeDetail = useMemo(() => parseStudyDetailParam(searchParams.get("detail")), [searchParams]);
   const [study, setStudy] = useState<StudyDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -696,11 +678,12 @@ export default function StudyDetailPage() {
     setSelectedFile(null);
     setEthicsEditingRecord(null);
     setMemberRoleEditingId(null);
-    if (activeSection !== "protocol") setProtocolTab("review");
+    // A link can open a protocol tab directly (?section=protocol&tab=ethics or tab=requirements).
+        setProtocolTab(activeSection === "protocol" && (linkedTab === "ethics" || linkedTab === "requirements") ? linkedTab : "review");
     if (activeSection !== "team") setTeamTab("members");
     if (activeSection !== "run") setRunTab("readiness");
     if (activeSection !== "results") setResultsTab("models");
-  }, [activeSection]);
+  }, [activeSection, linkedTab]);
 
   async function post(path: string, values: unknown, success: string) {
     setFormSubmitting(true);
@@ -1388,7 +1371,7 @@ export default function StudyDetailPage() {
       ...missingProtocolFieldLabels,
       ethicsReady ? null : "Ethics decision",
       hasParticipantSite ? null : "Site",
-      requirementsReady ? null : `Requirements checklist (${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered)`
+      requirementsReady ? null : `Study questions (${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered)`
     ].filter(Boolean) as string[];
     return {
       missingProtocolFields,
@@ -1965,122 +1948,7 @@ export default function StudyDetailPage() {
     if (activeDetail) return renderEntityDetail(currentStudy, activeDetail);
 
     if (section === "overview") {
-      const approvedVersions = approvedPipelineVersions(currentStudy);
-      const activeRuntimeDeployment = activeDeployment(currentStudy);
-      const ready = readyStudySites(currentStudy);
-      const connected = connectedStudySites(currentStudy);
-      const nextAction = resolveStudyNextAction(currentStudy);
-      const readinessItems = summaryReadinessItems(currentStudy);
-      const totalSites = currentStudy.studySites?.length ?? currentStudy.sites.length;
-      const memberGroups = groupedStudyMembers(currentStudy.members);
-      const roleAssignmentCount = currentStudy.members.length;
-      const readinessByKey = new Map(readinessItems.map((item) => [item.key, item]));
-      const dashboardCards = [
-        {
-          key: "protocol",
-          label: "Study protocol",
-          description: readinessByKey.get("protocol")?.detail ?? protocolReadinessDetail(currentStudy),
-          state: readinessByKey.get("protocol")?.state ?? "needs_attention",
-          section: "protocol" as StudyWorkspaceSection,
-          icon: <SafetyCertificateOutlined />,
-          meta: [
-            `Governance: ${displayEnum(currentStudy.governanceStatus, "Incomplete")}`,
-            `Ethics: ${studyEthicsReady(currentStudy) ? displayEnum(latestEthicsStatus(currentStudy), "Ready") : "Needs review"}`
-          ]
-        },
-        {
-          key: "sites",
-          label: "Sites",
-          description: readinessByKey.get("sites")?.detail ?? `${ready.length}/${totalSites} ready, ${connected.length} connected`,
-          state: readinessByKey.get("sites")?.state ?? "needs_attention",
-          section: "sites" as StudyWorkspaceSection,
-          icon: <ClusterOutlined />,
-          meta: [`${totalSites} registered`, `${ready.length} ready`, `${connected.length} connected`, "Site-local data only"]
-        },
-        {
-          key: "team",
-          label: "Team & Access",
-          description:
-            memberGroups.length > 0
-              ? `${memberGroups.length} member${memberGroups.length === 1 ? "" : "s"} assigned to this study.`
-              : "Invite study members and assign workspace roles.",
-          state: memberGroups.length > 0 ? "ready" : "needs_attention",
-          section: "team" as StudyWorkspaceSection,
-          icon: <MailOutlined />,
-          meta: [`${roleAssignmentCount} role assignment${roleAssignmentCount === 1 ? "" : "s"}`, `${currentStudy.invitations.length} pending invitation${currentStudy.invitations.length === 1 ? "" : "s"}`]
-        },
-        {
-          key: "pipeline",
-          label: "Pipeline",
-          description: readinessByKey.get("pipeline")?.detail ?? `${approvedVersions.length} approved pipeline version(s)`,
-          state: readinessByKey.get("pipeline")?.state ?? "needs_attention",
-          section: "pipeline" as StudyWorkspaceSection,
-          icon: <CodeOutlined />,
-          meta: [`${currentStudy.pipelineProjects?.length ?? 0} source workspace(s)`, `${approvedVersions.length} approved version${approvedVersions.length === 1 ? "" : "s"}`]
-        },
-        {
-          key: "run",
-          label: "Run",
-          description: readinessByKey.get("run")?.detail ?? `${currentStudy.nvflareJobs?.length ?? 0} run(s)`,
-          state: readinessByKey.get("run")?.state ?? "needs_attention",
-          section: "run" as StudyWorkspaceSection,
-          icon: <MonitorOutlined />,
-          meta: [
-            activeRuntimeDeployment?.serverAddress ? `Aggregator: ${activeRuntimeDeployment.serverAddress}` : "Aggregator not started",
-            `${currentStudy.nvflareJobs?.length ?? 0} run${(currentStudy.nvflareJobs?.length ?? 0) === 1 ? "" : "s"}`
-          ]
-        },
-        {
-          key: "results",
-          label: "Results",
-          description: readinessByKey.get("results")?.detail ?? "Trained model plus code/kit releases.",
-          state: readinessByKey.get("results")?.state ?? "needs_attention",
-          section: "results" as StudyWorkspaceSection,
-          icon: <CloudDownloadOutlined />,
-          meta: [`${currentStudy.modelReleases?.length ?? 0} model release${(currentStudy.modelReleases?.length ?? 0) === 1 ? "" : "s"}`, `${currentStudy.releases.length} code/kit release${currentStudy.releases.length === 1 ? "" : "s"}`]
-        },
-        {
-          key: "audit",
-          label: "Audit",
-          description: "Governance, access, and runtime actions are recorded here.",
-          state: currentStudy.auditEvents.length > 0 ? "done" : "ready",
-          section: "audit" as StudyWorkspaceSection,
-          icon: <AuditOutlined />,
-          meta: [
-            `${currentStudy.auditEvents.length} event${currentStudy.auditEvents.length === 1 ? "" : "s"}`,
-            currentStudy.auditEvents[0]?.createdAt ? `Latest: ${formatDate(currentStudy.auditEvents[0].createdAt)}` : "No recent events"
-          ]
-        }
-      ];
-
-      return (
-        <div className="fedlify-section-stack">
-          <PendingInvitationsCard />
-          <WorkspaceCardGrid className="fedlify-summary-dashboard-grid">
-            {dashboardCards.map((card) => {
-              const isNext = nextAction.section === card.section;
-              return (
-                <WorkspaceRecordCard
-                  key={card.key}
-                  icon={card.icon}
-                  title={card.label}
-                  description={isNext ? nextAction.detail : card.description}
-                  status={
-                    <Space size={6} wrap>
-                      {isNext ? <StatusTag value="NEXT" /> : null}
-                      <StatusTag value={summaryStateStatus(card.state as "ready" | "needs_attention" | "done")} />
-                    </Space>
-                  }
-                  meta={isNext ? [`Next: ${nextAction.title}`, ...card.meta] : card.meta}
-                  tone={summaryStateTone(card.state as "ready" | "needs_attention" | "done") as "ready" | "needs_attention"}
-                  onClick={() => router.push(studyActionHref(studyId, card.section))}
-                  ariaLabel={`Open ${card.label}`}
-                />
-              );
-            })}
-          </WorkspaceCardGrid>
-        </div>
-      );
+      return <SummarySection studyId={studyId} />;
     }
 
     if (section === "protocol") {
@@ -2144,13 +2012,13 @@ export default function StudyDetailPage() {
         },
         {
           key: "requirements",
-          title: "Requirements checklist",
+          title: "Study questions",
           detail: requirementsReady
-            ? `All ${REQUIREMENTS_TOTAL} operational requirements answered.`
+            ? `All ${REQUIREMENTS_TOTAL} study questions answered.`
             : `${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered. All ${REQUIREMENTS_TOTAL} are needed before activation and code generation.`,
           status: requirementsReady ? "READY" : "NEEDS_ATTENTION",
           icon: <QuestionCircleOutlined />,
-          action: requirementsReady ? "Review requirements" : "Open requirements checklist",
+          action: requirementsReady ? "Review study questions" : "Answer the study questions",
           onClick: () => setProtocolTab("requirements")
         },
         {
@@ -2371,7 +2239,7 @@ export default function StudyDetailPage() {
               },
               {
                 key: "requirements",
-                label: `Requirements (${requirementsAnswered}/${REQUIREMENTS_TOTAL})`,
+                label: `Study questions (${requirementsAnswered}/${REQUIREMENTS_TOTAL})`,
                 children: (
                   <section className="fedlify-protocol-module is-wide">
                     <RequirementsChatWindow studyId={studyId} onChange={() => void load(activeSection)} />

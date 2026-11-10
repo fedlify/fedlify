@@ -1,11 +1,11 @@
 {
   "src/app/(app)/studies/[studyId]/page.tsx": {
-    "aggregator": 9,
+    "aggregator": 8,
     "compose project": 1,
     "gitea": 2,
     "nvflare": 5,
     "readiness check": 1,
-    "source workspace": 9
+    "source workspace": 8
   },
   "src/app/(app)/studies/[studyId]/projects/page.tsx": {
     "digest": 1

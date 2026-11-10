@@ -4,7 +4,9 @@ const h = vi.hoisted(() => ({
   caps: new Set<string>(),
   ownSites: [] as Array<{ code: string }>,
   jobs: [] as Array<Record<string, unknown>>,
-  sites: [] as Array<Record<string, unknown>>
+  sites: [] as Array<Record<string, unknown>>,
+  running: 0,
+  publishing: false
 }));
 
 vi.mock("@/lib/api", () => ({ requireUser: async () => ({ userId: "u1" }) }));
@@ -20,7 +22,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     study: { findUnique: async () => ({ id: "s1", orgId: "o1", ethics: [{ status: "APPROVED" }] }) },
     pipelineVersion: { findUnique: async () => ({ id: "pv1", approvalStatus: "APPROVED", validationStatus: "PASSED", project: { studyId: "s1" } }) },
-    nvflareJob: { findMany: async () => h.jobs },
+    nvflareJob: { findMany: async () => h.jobs, count: async () => h.running },
+    cIValidationRun: { findFirst: async () => (h.publishing ? { id: "ci1" } : null) },
     nvflareDeployment: { findFirst: async () => null },
     studySite: {
       findMany: async (args: { where: { participationStatus?: { not: string } } }) => {
@@ -57,6 +60,8 @@ beforeEach(() => {
   h.ownSites = [];
   h.jobs = [job("j1", ["A", "B"]), job("j2", ["B"]), job("j3", ["A"])];
   h.sites = [];
+  h.running = 0;
+  h.publishing = false;
 });
 
 describe("GET nvflare/jobs scoping", () => {
@@ -118,5 +123,21 @@ describe("POST nvflare/jobs run gate", () => {
     const error = await post();
     expect(error.code).toBe("execution_gate");
     expect(error.unreadySites.map((s: { code: string }) => s.code)).toEqual(["B"]);
+  });
+
+  it("refuses a second run while one is running, with the checklist", async () => {
+    h.caps.add("submitJob");
+    h.sites = [site("A", "ACTIVE", true)];
+    h.running = 1;
+    const error = await post();
+    expect(error.code).toBe("run_in_progress");
+    expect(error.details.items.find((i: { code: string }) => i.code === "run_idle")).toMatchObject({ ok: false });
+  });
+
+  it("refuses a run while a publish is going on", async () => {
+    h.caps.add("submitJob");
+    h.sites = [site("A", "ACTIVE", true)];
+    h.publishing = true;
+    expect((await post()).code).toBe("publish_in_progress");
   });
 });

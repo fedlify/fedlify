@@ -1,0 +1,186 @@
+/**
+ * Everything the study's Code & run view needs in one object: the published study server (hostname, version, publish
+ * status), which sites are actually connected to it, published versions, and recent runs. Served by
+ * GET /api/v1/studies/[studyId]/aggregator and reused by the next-step resolver.
+ */
+import { LATEST_HEARTBEAT_INCLUDE } from "@/lib/preflight-data";
+import { isSitePresent } from "@/lib/site-presence";
+import { checkSiteImages, isImageMismatch, siteImageFixSteps } from "@/lib/site-image";
+import { prisma } from "@/lib/prisma";
+import { checkPublishRun, type PublishLiveStatus } from "@/lib/workflow-watchdog";
+import { ADAPTER_STATUS_TIMEOUT_MS, adapterSystemInfo, nvflareClientName, StudyRuntimeError } from "@/lib/study-runtime";
+
+/**
+ * `watchdog: false` skips the lazy publish check (a Kubernetes call that can mark a publish FAILED). The Summary page
+ * only reads, so it passes false; the Code & run page keeps the default.
+ */
+export async function loadAggregatorOverview(studyId: string, options: { watchdog?: boolean } = {}) {
+  // Lazy watchdog: fail a publish whose pod cannot start. Runs before the reads below so the response reflects it.
+  const live = new Map<string, PublishLiveStatus>();
+  const inFlight = options.watchdog === false ? [] : await prisma.cIValidationRun.findMany({
+    where: { provider: "argo-study-publish", status: { in: ["QUEUED", "RUNNING"] }, workflowId: { not: null }, pipelineVersion: { project: { studyId } } },
+    select: { id: true, pipelineVersionId: true, workflowId: true }
+  });
+  if (inFlight.length > 0) {
+    const target = await prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" }, select: { id: true } });
+    if (target) {
+      // Parallel and bounded: a slow Kubernetes API must not hold up the status response.
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+      await Promise.all(
+        inFlight.map(async (run) => {
+          const status = await Promise.race([
+            checkPublishRun({ ciRunId: run.id, pipelineVersionId: run.pipelineVersionId!, deploymentId: target.id, workflowId: run.workflowId! }).catch(() => null),
+            timeout
+          ]);
+          if (status) live.set(run.id, status);
+        })
+      );
+    }
+  }
+
+  const [deployment, studySites, projects] = await Promise.all([
+    prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" } }),
+    prisma.studySite.findMany({
+      where: { studyId, participationStatus: { not: "DISABLED" } },
+      include: { site: { include: LATEST_HEARTBEAT_INCLUDE }, joinPackages: { where: { status: "ACTIVE" }, orderBy: { createdAt: "desc" }, take: 1 } },
+      orderBy: { code: "asc" }
+    }),
+    prisma.pipelineProject.findMany({
+      where: { studyId },
+      include: {
+        versions: {
+          where: { gitTag: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          include: { ciRuns: { where: { provider: "argo-study-publish" }, orderBy: { startedAt: "desc" }, take: 1 } }
+        }
+      },
+      orderBy: { updatedAt: "desc" }
+    })
+  ]);
+
+  // The version the study server is serving must always be listed, even when newer versions push it past the limit.
+  if (deployment?.pipelineVersionId && !projects.some((project) => project.versions.some((version) => version.id === deployment.pipelineVersionId))) {
+    const current = await prisma.pipelineVersion.findUnique({
+      where: { id: deployment.pipelineVersionId },
+      include: { ciRuns: { where: { provider: "argo-study-publish" }, orderBy: { startedAt: "desc" }, take: 1 } }
+    });
+    const owner = current ? projects.find((project) => project.id === current.projectId) : null;
+    if (current && owner) owner.versions.push(current);
+  }
+
+  // Versions published from a commit that a person accepted from an assistant proposal are tagged "agent".
+  const versionCommits = projects.flatMap((project) => project.versions.map((version) => version.gitCommit)).filter((commit): commit is string => Boolean(commit));
+  const agentProposals = versionCommits.length
+    ? await prisma.agentProposal.findMany({
+        where: { projectId: { in: projects.map((project) => project.id) }, acceptedCommit: { in: versionCommits } },
+        select: { id: true, projectId: true, title: true, acceptedCommit: true }
+      })
+    : [];
+
+  let connected: string[] | null = null;
+  let aggregatorError: string | null = null;
+  if (deployment?.status === "ACTIVE") {
+    try {
+      connected = (await adapterSystemInfo({ studyId, adapterUrl: deployment.adapterUrl }, { timeoutMs: ADAPTER_STATUS_TIMEOUT_MS })).clients.map((client) => client.name);
+    } catch (error) {
+      aggregatorError = error instanceof StudyRuntimeError ? error.message : "Aggregator status unavailable.";
+    }
+  }
+
+  const provisioned = new Set(
+    Array.isArray(deployment?.provisionedSites) ? (deployment.provisionedSites as Array<{ name?: string }>).map((site) => String(site.name)) : []
+  );
+  const imageChecks = new Map(
+    checkSiteImages(
+      studySites.map((studySite) => ({
+        code: studySite.code,
+        clientName: nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName }),
+        heartbeatMetadata: studySite.site?.heartbeats[0]?.metadata ?? null,
+        kitImageRef: studySite.joinPackages[0]?.imageDigest ?? null
+      })),
+      deployment?.status === "ACTIVE" ? deployment.imageDigest : null
+    ).map((check) => [check.code, check] as const)
+  );
+  const sites = studySites.map((studySite) => {
+    const name = nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName });
+    const kit = studySite.joinPackages[0];
+    const imageCheck = imageChecks.get(studySite.code);
+    return {
+      studySiteId: studySite.id,
+      code: studySite.code,
+      name: studySite.name,
+      institutionName: studySite.institutionName,
+      nvflareClientName: name,
+      provisioned: provisioned.has(name),
+      kitReleased: Boolean(kit),
+      kitImageDigest: kit?.imageDigest ?? null,
+      // What the site's runner last reported against the published image. Sites compare by sha256; the kit digest above is only what was released.
+      imageState: imageCheck?.state ?? "UNKNOWN",
+      needsNewKit: imageCheck?.needsNewKit ?? false,
+      imageFix: imageCheck && isImageMismatch(imageCheck.state) ? siteImageFixSteps(imageCheck) : [],
+      connected: connected ? isSitePresent(connected.includes(name), studySite.site?.heartbeats[0]?.createdAt) : null
+    };
+  });
+
+  const jobs = deployment
+    ? await prisma.nvflareJob.findMany({
+        where: { deploymentId: deployment.id },
+        include: { pipelineVersion: { select: { id: true, version: true, gitCommit: true } }, result: { select: { id: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 10
+      })
+    : [];
+
+  return {
+    aggregator: deployment
+      ? {
+          id: deployment.id,
+          hostname: deployment.hostname,
+          status: deployment.status,
+          active: deployment.active,
+          imageDigest: deployment.imageDigest,
+          pipelineVersionId: deployment.pipelineVersionId,
+          kitGeneration: deployment.kitGeneration,
+          lastError: deployment.lastError,
+          startedAt: deployment.startedAt,
+          reachable: deployment.status === "ACTIVE" ? aggregatorError === null : null,
+          error: aggregatorError
+        }
+      : null,
+    sites,
+    projects: projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      giteaRepoUrl: project.giteaRepoUrl,
+      defaultBranch: project.defaultBranch,
+      // Where the project came from. Null for projects created before lineage was recorded (shown as "Template").
+      sourceKind: project.sourceKind,
+      sourceRef: project.sourceRef,
+      parentProjectId: project.parentProjectId,
+      parentVersion: project.parentVersion,
+      versions: project.versions.map((version) => ({
+        id: version.id,
+        version: version.gitTag ?? version.version,
+        gitCommit: version.gitCommit,
+        agentProposal: agentProposals.find((item) => item.projectId === project.id && item.acceptedCommit === version.gitCommit) ?? null,
+        imageDigest: version.imageDigest,
+        validationStatus: version.validationStatus,
+        publishedAt: version.publishedAt,
+        publish: version.ciRuns[0]
+          ? {
+              status: version.ciRuns[0].status,
+              summary: version.ciRuns[0].summary,
+              workflowId: version.ciRuns[0].workflowId,
+              step: live.get(version.ciRuns[0].id)?.step ?? null,
+              stepState: live.get(version.ciRuns[0].id)?.stepState ?? null,
+              waiting: live.get(version.ciRuns[0].id)?.waiting ?? null
+            }
+          : null
+      }))
+    })),
+    jobs
+  };
+}
+
+export type AggregatorOverview = Awaited<ReturnType<typeof loadAggregatorOverview>>;

@@ -19,6 +19,7 @@ import { StartPipeline, type CreatedPipeline } from "@/components/StartPipeline"
 import { acceptProposal, appliedPaths, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
 import { withThreadParam } from "@/lib/agent-thread-client";
 import type { StartPath } from "@/lib/pipeline-start";
+import { PreflightChecklist, PreflightApiError, failingCount, postWithChecklist, thingsToFix, usePreflight } from "@/components/PreflightChecklist";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
 import { kitStateLabel, statusLabel, TERMS } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
@@ -79,7 +80,7 @@ type Job = {
   pipelineVersion: { id: string; version: string } | null;
   result: { id: string } | null;
 };
-type Overview = { aggregator: Aggregator | null; sites: Site[]; projects: Project[]; jobs: Job[] };
+type Overview = { aggregator: Aggregator | null; sites: Site[]; projects: Project[]; jobs: Job[]; can?: { approvePipeline: boolean; submitJob: boolean } };
 type RoundRow = { round: number; sites: Array<{ site: string; numSamples: number; metrics: Record<string, number> }>; weighted: Record<string, number> };
 
 const ASSISTANT_OPEN_KEY = "fedlify.workspace.assistantOpen";
@@ -226,6 +227,27 @@ export default function StudyProjectsPage() {
     aggregatorActive && connectedCount === 0 ? "No site is connected. A site connects when its runner is started." : null,
     activeJob ? "A run is already in progress." : null
   ].filter((item): item is string => Boolean(item));
+
+  // Checklists for Publish and Start run. They reload with the overview (after a save, a publish, a run, and on polling).
+  const publishCheck = usePreflight(studyId, "publish", { projectId: projectId ?? undefined, commit: sourceCommit ?? undefined }, Boolean(projectId), `${overview ? 1 : 0}:${overview?.jobs[0]?.status}:${sourceCommit}:${project?.versions[0]?.publish?.status}`);
+  const runCheck = usePreflight(
+    studyId,
+    "run",
+    {
+      pipelineVersionId: overview?.aggregator?.pipelineVersionId ?? undefined,
+      studySiteIds: connectedCount > 0 ? overview?.sites.filter((site) => site.connected).map((site) => site.studySiteId).join(",") : undefined,
+      minClients: String(minClients ?? connectedCount)
+    },
+    Boolean(overview),
+    `${overview?.jobs[0]?.status}:${overview?.aggregator?.status}:${connectedCount}`
+  );
+  const publishFailing = failingCount(publishCheck.result);
+  const runFailing = failingCount(runCheck.result);
+  // Until the overview says otherwise a person may act; the server still decides.
+  const mayPublish = overview?.can?.approvePipeline ?? true;
+  const mayRun = overview?.can?.submitJob ?? true;
+  const publishBlocked = publishCheck.result ? !publishCheck.result.ok : false;
+  const runBlocked = Boolean(activeJob) || (runCheck.result ? !runCheck.result.ok : runCheck.error ? runBlockers.length > 0 : true);
 
   // What the assistant panel turns into a failure notice and quick prompts. Keys change when a new attempt fails.
   const latestPublish = project?.versions[0];
@@ -412,16 +434,22 @@ export default function StudyProjectsPage() {
     if (!projectId) return;
     setPublishing(true);
     try {
-      const body = await apiCall<{ pipelineVersion: { version: string }; deployment: { hostname: string; provision: boolean } }>(
+      const body = await postWithChecklist<{ pipelineVersion: { version: string }; deployment: { hostname: string; provision: boolean } }>(
         `/api/v1/studies/${studyId}/pipeline-projects/${projectId}/publish`,
-        { method: "POST", body: JSON.stringify({ commit: sourceCommit ?? undefined }) }
+        { commit: sourceCommit ?? undefined }
       );
       message.success(
         `Publishing ${body.pipelineVersion.version} to the study server${body.deployment.provision ? " (issuing site certificates)" : ""}.`
       );
       await load();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Publish failed.");
+      if (error instanceof PreflightApiError && error.items.length) {
+        publishCheck.showItems(error.items);
+        message.warning("Not published yet. Fix the items in the checklist first.");
+      } else {
+        message.error(error instanceof Error ? error.message : "Publish failed.");
+        publishCheck.refresh();
+      }
     } finally {
       setPublishing(false);
     }
@@ -466,14 +494,11 @@ export default function StudyProjectsPage() {
     setStarting(true);
     setRunError(null);
     try {
-      const body = await apiCall<{ job: Job }>(`/api/v1/studies/${studyId}/nvflare/jobs`, {
-        method: "POST",
-        body: JSON.stringify({
-          pipelineVersionId: overview.aggregator.pipelineVersionId,
-          studySiteIds: overview.sites.filter((site) => site.connected).map((site) => site.studySiteId),
-          runtimeParameters: { numRounds: rounds, minClients: minClients ?? connectedCount },
-          commandSummary: `Started from the project workspace: ${rounds} rounds.`
-        })
+      const body = await postWithChecklist<{ job: Job }>(`/api/v1/studies/${studyId}/nvflare/jobs`, {
+        pipelineVersionId: overview.aggregator.pipelineVersionId,
+        studySiteIds: overview.sites.filter((site) => site.connected).map((site) => site.studySiteId),
+        runtimeParameters: { numRounds: rounds, minClients: minClients ?? connectedCount },
+        commandSummary: `Started from the project workspace: ${rounds} rounds.`
       });
       message.success("Run started.");
       setActiveStage("run");
@@ -481,7 +506,13 @@ export default function StudyProjectsPage() {
       followJob(body.job.id);
     } catch (error) {
       setActiveStage("run");
-      setRunError(error instanceof Error ? error.message : "Could not start the run.");
+      if (error instanceof PreflightApiError && error.items.length) {
+        runCheck.showItems(error.items);
+        message.warning("The run was not started. Fix the items in the checklist first.");
+      } else {
+        setRunError(error instanceof Error ? error.message : "Could not start the run.");
+        runCheck.refresh();
+      }
     } finally {
       setStarting(false);
     }
@@ -523,6 +554,16 @@ export default function StudyProjectsPage() {
         activeStage
       }),
     [project, dirtyPath, sourceCommit, sourceStatus, overview, saving, publishing, starting, activeStage]
+  );
+
+  // A stage whose checklist has failing items offers no action; it says how many things to fix instead.
+  const railStages = useMemo(
+    () =>
+      stages.map((stage) => {
+        const failing = stage.action?.key === "publish" ? publishFailing : stage.action?.key === "start_run" ? runFailing : 0;
+        return failing > 0 ? { ...stage, action: undefined, detail: thingsToFix(failing), tone: "warn" as const } : stage;
+      }),
+    [stages, publishFailing, runFailing]
   );
 
   /** Run `proceed` now, or after the user agrees to discard the unsaved edit. */
@@ -580,12 +621,38 @@ export default function StudyProjectsPage() {
   }
 
   function requestPublish() {
-    if (!dirtyPath) return void publish();
+    if (publishBlocked || !mayPublish) return;
     Modal.confirm({
-      title: "Publish without your unsaved edits?",
-      content: "Publishing uses the last saved code. Your unsaved edit is not included.",
-      okText: "Publish saved code",
+      title: dirtyPath ? "Publish without your unsaved edits?" : "Publish the latest saved code?",
+      content: (
+        <>
+          <p>This turns the latest saved code into a new pipeline version and starts, or restarts, the study server.</p>
+          <p>
+            Sites will need to update to the new code version before the next run.
+            {dirtyPath ? " Your unsaved edit is not included." : ""}
+          </p>
+        </>
+      ),
+      okText: "Publish",
       onOk: () => publish()
+    });
+  }
+
+  function requestRun() {
+    if (runBlocked || !mayRun) return;
+    const sitesNow = connectedCount === 1 ? "1 connected site" : `${connectedCount} connected sites`;
+    Modal.confirm({
+      title: "Start this run?",
+      content: (
+        <>
+          <p>
+            This starts a run of {rounds} {rounds === 1 ? "round" : "rounds"} on {sitesNow}, using the published pipeline version.
+          </p>
+          <p>Only model weights and summary results leave the sites.</p>
+        </>
+      ),
+      okText: "Start run",
+      onOk: () => startRun()
     });
   }
 
@@ -613,7 +680,7 @@ export default function StudyProjectsPage() {
       case "setup_run":
         return setActiveStage("run");
       case "start_run":
-        return void startRun();
+        return requestRun();
       case "save_model":
         if (lastJob) void syncResult(lastJob.id);
         return;
@@ -633,8 +700,8 @@ export default function StudyProjectsPage() {
               </Button>
             ) : null}
             {publishInFlight ? null : (
-              <Tooltip title={activeJob ? "A run is in progress; publishing restarts the study server." : sourceCommit ? `Commit ${short(sourceCommit, 8)}` : undefined}>
-                <Button type="primary" icon={<CloudUploadOutlined />} loading={publishing} disabled={Boolean(activeJob) || !sourceCommit} onClick={requestPublish}>
+              <Tooltip title={!mayPublish ? "Ask a study lead to publish the pipeline." : activeJob ? "A run is in progress; publishing restarts the study server." : sourceCommit ? `Commit ${short(sourceCommit, 8)}` : undefined}>
+                <Button type="primary" icon={<CloudUploadOutlined />} loading={publishing} disabled={!mayPublish || Boolean(activeJob) || !sourceCommit || publishBlocked} onClick={requestPublish}>
                   {sourceStatus === "loading" && !sourceCommit ? "Publish" : TERMS.publishLatest}
                 </Button>
               </Tooltip>
@@ -644,8 +711,9 @@ export default function StudyProjectsPage() {
       />
       {!sourceCommit && sourceStatus === "loading" ? <Typography.Paragraph type="secondary">Loading the saved code…</Typography.Paragraph> : null}
       {!sourceCommit && sourceStatus === "error" ? <Alert type="error" showIcon style={{ marginBottom: 12 }} message="Could not read the saved code" description="Publish is unavailable until the code loads. Reload the page to try again." /> : null}
-      {!sourceCommit && sourceStatus === "ready" ? <Typography.Paragraph type="secondary">Publish is unavailable: nothing has been saved yet.</Typography.Paragraph> : null}
-      {activeJob ? <Typography.Paragraph type="secondary">Publish is unavailable while a run is in progress; publishing restarts the study server.</Typography.Paragraph> : null}
+      {publishInFlight ? null : (
+        <PreflightChecklist title="Before you publish" result={publishCheck.result} loading={publishCheck.loading} error={publishCheck.error} onRetry={publishCheck.refresh} />
+      )}
       <Table<Version>
         size="small"
         rowKey="id"
@@ -790,25 +858,22 @@ export default function StudyProjectsPage() {
             <InputNumber min={1} max={1000} value={rounds} onChange={(value) => setRounds(Number(value) || 1)} />
             <span>Min sites</span>
             <InputNumber min={1} max={Math.max(1, connectedCount)} value={minClients ?? connectedCount} onChange={(value) => setMinClients(Number(value) || 1)} />
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              loading={starting}
-              disabled={runBlockers.length > 0}
-              onClick={() => void startRun()}
-            >
-              Start run
-            </Button>
+            <Tooltip title={mayRun ? undefined : "Ask a study lead to start the run."}>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                loading={starting}
+                disabled={runBlocked || !mayRun}
+                onClick={requestRun}
+              >
+                Start run
+              </Button>
+            </Tooltip>
           </Space>
         }
       />
-      {runBlockers.length > 0 ? (
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Start run is unavailable" description={runBlockers.map((item) => <div key={item}>{item}</div>)} />
-      ) : (
-        <Typography.Paragraph type="secondary">
-          Every site must also have its site sign-off recorded by site staff; if it is missing, starting the run will tell you.
-        </Typography.Paragraph>
-      )}
+      {activeJob ? <Alert type="info" showIcon style={{ marginBottom: 12 }} message="A run is already in progress." /> : null}
+      <PreflightChecklist title="Before you start" result={runCheck.result} loading={runCheck.loading} error={runCheck.error} onRetry={runCheck.refresh} />
       {runError ? <Alert type="error" showIcon closable onClose={() => setRunError(null)} message="The run was not started" description={runError} style={{ marginBottom: 12 }} /> : null}
       {progress ? (
         <>
@@ -1000,7 +1065,7 @@ export default function StudyProjectsPage() {
 
       {overview && project && view === "workspace" ? (
         <>
-          <PipelineRail stages={stages} activeStage={activeStage} currentStage={currentStage} onSelect={setActiveStage} onAction={handleStageAction} />
+          <PipelineRail stages={railStages} activeStage={activeStage} currentStage={currentStage} onSelect={setActiveStage} onAction={handleStageAction} />
 
           <div className={["fedlify-ws-grid", assistantOpen ? "has-assistant" : "assistant-collapsed", filesOpen ? "" : "files-collapsed", workspaceFullScreen ? "is-fullscreen" : ""].join(" ")}>
             {filesOpen ? (

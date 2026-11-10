@@ -14,23 +14,21 @@ import { audit } from "@/lib/audit";
 import { ensureGiteaTag, getGiteaBranch, GiteaApiError, isRuntimeConfigurationError } from "@/lib/gitea";
 import { HarborError } from "@/lib/harbor-registry";
 import { ensureStudyRegistryProject, registryMode } from "@/lib/registry-access";
-import { ethicsCleared, latestEthicsStatus, publishRequirementMessage, requirementsGate } from "@/lib/governance";
+import { evaluatePreflight, type PreflightItem, type PreflightSnapshot } from "@/lib/preflight";
+import { ethicsSnapshot, loadPublishBusyState, loadQuestionProgress, publishSnapshotSites, PUBLISH_PROVIDER } from "@/lib/preflight-data";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import {
-  clientKitPrefix,
-  nvflareClientName,
-  studyAdapterUrl,
-  studyHostname,
-  studyNamespace,
-  studyRuntimeSlug
-} from "@/lib/study-runtime";
+import { clientKitPrefix, nvflareClientName, studyAdapterUrl, studyHostname, studyNamespace, studyRuntimeSlug } from "@/lib/study-runtime";
 
-const PUBLISH_PROVIDER = "argo-study-publish";
+class PublishBusyError extends Error {}
 
 const publishSchema = z.object({
-  commit: z.string().trim().regex(/^[a-f0-9]{7,64}$/i).optional(),
+  commit: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{7,64}$/i)
+    .optional(),
   notes: z.string().trim().max(2000).optional()
 });
 
@@ -41,6 +39,11 @@ function sameSites(a: unknown, b: Array<{ name: string }>): boolean {
   const left = a.map((site) => String((site as { name?: string }).name)).sort();
   const right = b.map((site) => site.name).sort();
   return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+
+/** A plain 409 in the usual error shape, with the checklist added under details. */
+function problemWithItems(status: number, message: string, code: string, items: PreflightItem[]) {
+  return json({ error: { code, message, details: { items } } }, { status });
 }
 
 export async function POST(request: NextRequest, { params }: Params) {
@@ -63,68 +66,92 @@ export async function POST(request: NextRequest, { params }: Params) {
       where: { id: studyId },
       include: {
         ethics: { orderBy: { createdAt: "desc" }, take: 1 },
-        studySites: { where: { participationStatus: { not: "DISABLED" } }, include: { site: true }, orderBy: { code: "asc" } }
+        studySites: {
+          where: { participationStatus: { not: "DISABLED" } },
+          include: { site: true },
+          orderBy: { code: "asc" }
+        }
       }
     }),
-    prisma.pipelineProject.findUnique({ where: { id: projectId }, include: { versions: { select: { id: true } } } })
+    prisma.pipelineProject.findUnique({
+      where: { id: projectId },
+      include: { versions: { select: { id: true } } }
+    })
   ]);
   if (!study) return problem(404, "Study not found.", "not_found");
   if (!project || project.studyId !== studyId) return problem(404, "Pipeline not found for this study.", "not_found");
-  if (!project.giteaOwner || !project.giteaRepo) return problem(409, "Save the pipeline before publishing.", "gitea_repo_required");
 
-  // Governance gates: the same ones that guard code generation and job execution.
-  const missing: string[] = [];
-  const messages: string[] = [];
-  if (!ethicsCleared(latestEthicsStatus(study.ethics))) {
-    missing.push("ethicsApproval");
-    messages.push(publishRequirementMessage("ethicsApproval"));
+  // The same checklist the screen shows (see lib/preflight.ts), decided in stages because the later checks cost more.
+  const snapshot: PreflightSnapshot = {
+    studyId,
+    ethics: ethicsSnapshot(study.ethics),
+    questions: await loadQuestionProgress(studyId),
+    sites: publishSnapshotSites(study.studySites)
+  };
+  if (!project.giteaOwner || !project.giteaRepo) {
+    const unsaved = evaluatePreflight("publish", {
+      ...snapshot,
+      savedCode: false
+    });
+    return problemWithItems(409, "Save the pipeline before publishing.", "gitea_repo_required", unsaved.items);
   }
-  const requirements = requirementsGate(await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true } }));
-  if (!requirements.allowed) {
-    missing.push(`requirements (${requirements.missing.join(", ")})`);
-    messages.push(publishRequirementMessage("studyQuestions", { remaining: requirements.missing.length }));
-  }
-  if (study.studySites.length === 0) {
-    missing.push("studySites");
-    messages.push(publishRequirementMessage("studySites"));
-  }
-  if (missing.length > 0) {
+  const gate = evaluatePreflight("publish", snapshot);
+  if (!gate.ok) {
+    const failing = gate.items.filter((item) => !item.ok);
+    const messages = failing.map((item) => item.text);
+    const missing = failing.map((item) => (item.code === "ethics" ? "ethicsApproval" : item.code === "study_questions" ? "requirements" : "studySites"));
     return json(
       {
         error: {
           code: "publish_gate",
           message: `Publishing is not possible yet. ${messages.join(". ")}.`,
-          details: { missing, steps: messages }
+          details: { missing, steps: messages, items: gate.items }
         }
       },
       { status: 409 }
     );
   }
 
-  const inFlight = await prisma.cIValidationRun.findFirst({
-    where: { provider: PUBLISH_PROVIDER, status: { in: ["QUEUED", "RUNNING"] }, pipelineVersion: { projectId } }
+  const busy = await loadPublishBusyState(studyId, projectId);
+  const deployment = busy.deployment;
+  const refuse = (items: PreflightItem[], code: string, message: string) => problemWithItems(409, message, code, items);
+  const busyGate = evaluatePreflight("publish", {
+    ...snapshot,
+    publishInProgress: busy.publishInProgress,
+    runInProgress: busy.runInProgress
   });
-  if (inFlight) return problem(409, "A publish is already in progress for this pipeline.", "publish_in_progress");
-
-  const deployment = await prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" } });
-  if (deployment) {
-    const running = await prisma.nvflareJob.count({ where: { deploymentId: deployment.id, status: { in: ["SUBMITTED", "SCHEDULED", "RUNNING"] } } });
-    if (running > 0) return problem(409, "A run is in progress on the study server; wait for it to finish or stop it before publishing again.", "run_in_progress");
+  if (!busyGate.ok) {
+    const publishing = busyGate.items.some((item) => item.code === "publish_idle" && !item.ok);
+    return publishing
+      ? refuse(busyGate.items, "publish_in_progress", "A publish is already in progress for this pipeline.")
+      : refuse(busyGate.items, "run_in_progress", "A run is in progress on the study server; wait for it to finish or stop it before publishing again.");
   }
 
   // Resolve and freeze the commit.
   let commitSha: string;
   try {
-    const branch = await getGiteaBranch({ owner: project.giteaOwner, repo: project.giteaRepo, branchName: project.defaultBranch });
+    const branch = await getGiteaBranch({
+      owner: project.giteaOwner,
+      repo: project.giteaRepo,
+      branchName: project.defaultBranch
+    });
     commitSha = parsed.data.commit ?? branch.commit?.id ?? branch.commit?.sha ?? "";
-    if (!commitSha) return problem(409, "This pipeline has no saved code yet. Save it first.", "no_commits");
+    const saved = evaluatePreflight("publish", {
+      ...snapshot,
+      publishInProgress: false,
+      runInProgress: false,
+      savedCode: Boolean(commitSha)
+    });
+    if (!saved.ok) return refuse(saved.items, "no_commits", "This pipeline has no saved code yet. Save it first.");
   } catch (error) {
     if (isRuntimeConfigurationError(error)) return problem(503, error.message, "gitea_not_configured");
     if (error instanceof GiteaApiError) return problem(502, error.message, "gitea_api_error");
     throw error;
   }
 
-  const existingVersion = await prisma.pipelineVersion.findFirst({ where: { projectId, gitCommit: { startsWith: commitSha } } });
+  const existingVersion = await prisma.pipelineVersion.findFirst({
+    where: { projectId, gitCommit: { startsWith: commitSha } }
+  });
   const versionTag = existingVersion?.gitTag ?? `v${project.versions.length + 1}`;
   try {
     await ensureGiteaTag({
@@ -140,7 +167,12 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   // Stable runtime identity for the study: hostname, namespace, adapter.
-  const sites = study.studySites.map((studySite) => ({ name: nvflareClientName({ code: studySite.code, nvflareClientName: studySite.site?.nvflareClientName }) }));
+  const sites = study.studySites.map((studySite) => ({
+    name: nvflareClientName({
+      code: studySite.code,
+      nvflareClientName: studySite.site?.nvflareClientName
+    })
+  }));
   let target = deployment;
   if (!target) {
     // Hostname policy: <study-slug>-<study id suffix>. Study titles are not unique across accounts and every
@@ -168,7 +200,14 @@ export async function POST(request: NextRequest, { params }: Params) {
   let registryProject: string | null = null;
   if (registryMode() === "per-study") {
     try {
-      registryProject = (await ensureStudyRegistryProject({ studyId, runtimeSlug, actorUserId: authResult.userId, orgId: study.orgId })).name;
+      registryProject = (
+        await ensureStudyRegistryProject({
+          studyId,
+          runtimeSlug,
+          actorUserId: authResult.userId,
+          orgId: study.orgId
+        })
+      ).name;
     } catch (error) {
       if (error instanceof HarborError) {
         const status = error.code === "not_configured" ? 503 : error.code === "conflict" ? 409 : 502;
@@ -180,44 +219,81 @@ export async function POST(request: NextRequest, { params }: Params) {
   const provision = target.kitGeneration === 0 || !sameSites(target.provisionedSites, sites);
   const kitGeneration = provision ? target.kitGeneration + 1 : target.kitGeneration;
 
-  const { version, ciRun } = await prisma.$transaction(async (tx) => {
-    const version = existingVersion
-      ? await tx.pipelineVersion.update({
-          where: { id: existingVersion.id },
-          data: { validationStatus: "QUEUED", gitTag: versionTag }
-        })
-      : await tx.pipelineVersion.create({
-          data: {
-            projectId,
-            templateId: project.templateId,
-            templateVersionId: project.templateVersionId ?? undefined,
-            version: versionTag,
-            gitTag: versionTag,
-            gitCommit: commitSha,
-            gitBranch: project.defaultBranch,
-            validationStatus: "QUEUED",
-            approvalStatus: "APPROVED",
-            approvedById: authResult.userId,
-            approvedAt: new Date(),
-            immutable: true
-          }
-        });
-    const ciRun = await tx.cIValidationRun.create({
-      data: { pipelineVersionId: version.id, provider: PUBLISH_PROVIDER, status: "QUEUED", summary: `Publishing ${versionTag} to ${target!.hostname}.` }
+  let created: {
+    version: Awaited<ReturnType<typeof prisma.pipelineVersion.update>>;
+    ciRun: Awaited<ReturnType<typeof prisma.cIValidationRun.create>>;
+  };
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      // Check again inside the transaction: a second publish that started after the check above must not run beside this one.
+      const concurrent = await tx.cIValidationRun.findFirst({
+        where: {
+          provider: PUBLISH_PROVIDER,
+          status: { in: ["QUEUED", "RUNNING"] },
+          pipelineVersion: { projectId }
+        },
+        select: { id: true }
+      });
+      if (concurrent) throw new PublishBusyError();
+      const version = existingVersion
+        ? await tx.pipelineVersion.update({
+            where: { id: existingVersion.id },
+            data: { validationStatus: "QUEUED", gitTag: versionTag }
+          })
+        : await tx.pipelineVersion.create({
+            data: {
+              projectId,
+              templateId: project.templateId,
+              templateVersionId: project.templateVersionId ?? undefined,
+              version: versionTag,
+              gitTag: versionTag,
+              gitCommit: commitSha,
+              gitBranch: project.defaultBranch,
+              validationStatus: "QUEUED",
+              approvalStatus: "APPROVED",
+              approvedById: authResult.userId,
+              approvedAt: new Date(),
+              immutable: true
+            }
+          });
+      const ciRun = await tx.cIValidationRun.create({
+        data: {
+          pipelineVersionId: version.id,
+          provider: PUBLISH_PROVIDER,
+          status: "QUEUED",
+          summary: `Publishing ${versionTag} to ${target!.hostname}.`
+        }
+      });
+      await tx.nvflareDeployment.update({
+        where: { id: target!.id },
+        data: {
+          // pipelineVersionId is what the aggregator serves: only the success callback may move it.
+          kitGeneration,
+          ...(provision
+            ? {
+                provisionedSites: sites as Prisma.InputJsonArray,
+                clientKitPrefix: clientKitPrefix(studyId, target!.id),
+                status: "DRAFT"
+              }
+            : {}),
+          lastError: null
+        }
+      });
+      return { version, ciRun };
     });
-    await tx.nvflareDeployment.update({
-      where: { id: target!.id },
-      data: {
-        // pipelineVersionId is what the aggregator serves: only the success callback may move it.
-        kitGeneration,
-        ...(provision
-          ? { provisionedSites: sites as Prisma.InputJsonArray, clientKitPrefix: clientKitPrefix(studyId, target!.id), status: "DRAFT" }
-          : {}),
-        lastError: null
-      }
-    });
-    return { version, ciRun };
-  });
+  } catch (error) {
+    if (error instanceof PublishBusyError) {
+      const items = evaluatePreflight("publish", {
+        ...snapshot,
+        savedCode: true,
+        publishInProgress: true,
+        runInProgress: false
+      }).items;
+      return problemWithItems(409, "A publish is already in progress for this pipeline.", "publish_in_progress", items);
+    }
+    throw error;
+  }
+  const { version, ciRun } = created;
 
   try {
     const submitted = await submitStudyPublishWorkflow({
@@ -237,15 +313,33 @@ export async function POST(request: NextRequest, { params }: Params) {
       registryProject
     });
     await prisma.$transaction([
-      prisma.cIValidationRun.update({ where: { id: ciRun.id }, data: { workflowId: submitted.workflowId, status: "RUNNING" } }),
-      prisma.pipelineVersion.update({ where: { id: version.id }, data: { publishWorkflowId: submitted.workflowId, validationStatus: "RUNNING" } })
+      prisma.cIValidationRun.update({
+        where: { id: ciRun.id },
+        data: { workflowId: submitted.workflowId, status: "RUNNING" }
+      }),
+      prisma.pipelineVersion.update({
+        where: { id: version.id },
+        data: {
+          publishWorkflowId: submitted.workflowId,
+          validationStatus: "RUNNING"
+        }
+      })
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Publishing could not be started. Try again.";
     await prisma.$transaction([
-      prisma.cIValidationRun.update({ where: { id: ciRun.id }, data: { status: "FAILED", summary: message, completedAt: new Date() } }),
-      prisma.pipelineVersion.update({ where: { id: version.id }, data: { validationStatus: "FAILED" } }),
-      prisma.nvflareDeployment.update({ where: { id: target.id }, data: { lastError: message } })
+      prisma.cIValidationRun.update({
+        where: { id: ciRun.id },
+        data: { status: "FAILED", summary: message, completedAt: new Date() }
+      }),
+      prisma.pipelineVersion.update({
+        where: { id: version.id },
+        data: { validationStatus: "FAILED" }
+      }),
+      prisma.nvflareDeployment.update({
+        where: { id: target.id },
+        data: { lastError: message }
+      })
     ]);
     return problem(503, message, "publish_submit_failed");
   }
@@ -257,14 +351,31 @@ export async function POST(request: NextRequest, { params }: Params) {
     action: "pipeline_project.publish",
     targetType: "PipelineVersion",
     targetId: version.id,
-    metadata: { versionTag, gitCommit: version.gitCommit, hostname: target.hostname, registryProject, provision, kitGeneration, sites: sites.map((site) => site.name) },
+    metadata: {
+      versionTag,
+      gitCommit: version.gitCommit,
+      hostname: target.hostname,
+      registryProject,
+      provision,
+      kitGeneration,
+      sites: sites.map((site) => site.name)
+    },
     request
   });
 
   return json(
     {
-      pipelineVersion: { id: version.id, version: versionTag, gitCommit: version.gitCommit },
-      deployment: { id: target.id, hostname: target.hostname, kitGeneration, provision },
+      pipelineVersion: {
+        id: version.id,
+        version: versionTag,
+        gitCommit: version.gitCommit
+      },
+      deployment: {
+        id: target.id,
+        hostname: target.hostname,
+        kitGeneration,
+        provision
+      },
       ciRun: { id: ciRun.id }
     },
     { status: 202 }

@@ -27,6 +27,8 @@ type ProtocolMetadata = {
 
 type EthicsRecord = {
   status: EthicsStatus;
+  /** When the decision stops being valid (null/absent = no end date). */
+  validUntil?: Date | string | null;
 };
 
 /** The latest readiness check of a site (null = none recorded). Only the human sign-off fields count. */
@@ -42,6 +44,7 @@ type StudyActivationInput = ProtocolMetadata & {
 
 type PipelineExecutionInput = {
   ethicsStatus?: EthicsStatus | null;
+  ethicsValidUntil?: Date | string | null;
   pipelineApprovalStatus?: PipelineVersionStatus | null;
   pipelineValidationStatus?: string | null;
   readinessChecks: SiteReadiness[];
@@ -84,8 +87,31 @@ export function latestEthicsStatus(ethics?: EthicsRecord[]): EthicsStatus | null
   return ethics?.[0]?.status ?? null;
 }
 
-export function ethicsCleared(status?: EthicsStatus | null): boolean {
-  return status === "APPROVED" || status === "NOT_REQUIRED";
+/** The end date of the latest ethics decision, or null when there is none. */
+export function latestEthicsValidUntil(ethics?: EthicsRecord[]): Date | string | null {
+  return ethics?.[0]?.validUntil ?? null;
+}
+
+/** True when the decision has an end date that is already in the past. */
+export function ethicsExpired(validUntil?: Date | string | null, now: Date = new Date()): boolean {
+  if (!validUntil) return false;
+  const end = new Date(validUntil).getTime();
+  return Number.isFinite(end) && end < now.getTime();
+}
+
+function formatEthicsDate(value: Date | string): string {
+  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+/** Plain sentence for an expired ethics decision. */
+export function ethicsExpiredMessage(validUntil: Date | string): string {
+  return `The ethics decision expired on ${formatEthicsDate(validUntil)}. Record the renewed decision.`;
+}
+
+/** An approval whose end date has passed is not cleared, whatever its status says. */
+export function ethicsCleared(status?: EthicsStatus | null, validUntil?: Date | string | null, now: Date = new Date()): boolean {
+  if (status !== "APPROVED" && status !== "NOT_REQUIRED") return false;
+  return !ethicsExpired(validUntil, now);
 }
 
 export function activationGate(study: StudyActivationInput): { allowed: boolean; missing: string[]; status: GovernanceStatus } {
@@ -93,7 +119,7 @@ export function activationGate(study: StudyActivationInput): { allowed: boolean;
   if (!study.studySites?.length) missing.push("studySites");
 
   const ethicsStatus = latestEthicsStatus(study.ethics);
-  if (!ethicsCleared(ethicsStatus)) missing.push("ethicsApproval");
+  if (!ethicsCleared(ethicsStatus, latestEthicsValidUntil(study.ethics))) missing.push("ethicsApproval");
 
   if (study.requirementResponses) {
     const requirements = requirementsGate(study.requirementResponses);
@@ -123,7 +149,7 @@ export function requirementsGate(responses: Array<{ requirementId: string }>): {
 export function pipelineExecutionGate(input: PipelineExecutionInput): { allowed: boolean; missing: string[] } {
   const missing: string[] = [];
 
-  if (!ethicsCleared(input.ethicsStatus)) missing.push("ethicsApproval");
+  if (!ethicsCleared(input.ethicsStatus, input.ethicsValidUntil)) missing.push("ethicsApproval");
   if (input.pipelineApprovalStatus !== "APPROVED") missing.push("approvedPipelineVersion");
   if (input.pipelineValidationStatus !== "PASSED") missing.push("passedPipelineValidation");
   if (input.readinessChecks.length === 0) missing.push("readySites");
@@ -162,7 +188,7 @@ export function describeUnreadySites(sites: SiteReadinessSnapshot[]): UnreadySit
 }
 
 const GATE_EXPLANATIONS: Record<string, string> = {
-  ethicsApproval: "the ethics decision is not recorded as approved (add or update it under the study's Governance)",
+  ethicsApproval: "the ethics decision is not recorded as approved, or has expired (record it under the study's Protocol)",
   approvedPipelineVersion: "the pipeline version is not approved (an authorised reviewer must approve it)",
   passedPipelineValidation: "the pipeline version has not passed its checks (publish it and wait for the checks to finish)",
   readySites: "no sites are selected (add at least one site and record its site sign-off)"

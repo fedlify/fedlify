@@ -27,10 +27,10 @@ export type LostSiteEntry = { code: string; clientName: string; state: SiteLostS
 export function classifySite(signal: SiteSignal, now: number): { state: SiteLostState; reason: string } | null {
   const reportedOffline = signal.lastHeartbeatStatus === "OFFLINE";
   const silent = !signal.lastHeartbeatAt || isHeartbeatStale(signal.lastHeartbeatAt, now);
-  if (reportedOffline) return { state: "down", reason: "its runner reported OFFLINE (the client container is not running)" };
-  if (silent && !signal.listedByAggregator) return { state: "down", reason: "it stopped sending heartbeats and is no longer connected to the aggregator" };
-  if (silent) return { state: "silent", reason: "it stopped sending heartbeats, but the aggregator still lists it" };
-  if (!signal.listedByAggregator) return { state: "not_connected", reason: "the aggregator does not list it as connected" };
+  if (reportedOffline) return { state: "down", reason: "the runner reported that the study software is not running" };
+  if (silent && !signal.listedByAggregator) return { state: "down", reason: "its runner stopped reporting and it is no longer connected to the study server" };
+  if (silent) return { state: "silent", reason: "its runner stopped reporting, but the study server still lists it" };
+  if (!signal.listedByAggregator) return { state: "not_connected", reason: "the study server does not list it as connected" };
   return null;
 }
 

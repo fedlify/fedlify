@@ -34,5 +34,7 @@ describe("POST publish gate", () => {
     expect(error.message).not.toMatch(/ethicsApproval|studySites|requirements \(|R\d\d/);
     expect(error.details.missing).toContain("ethicsApproval");
     expect(error.details.steps).toHaveLength(3);
+    const failing = error.details.items.filter((item: { ok: boolean }) => !item.ok).map((item: { code: string }) => item.code);
+    expect(failing).toEqual(["ethics", "study_questions", "sites"]);
   });
 });

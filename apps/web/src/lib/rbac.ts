@@ -148,14 +148,25 @@ export function platformCan(platformRole: PlatformRole, action: StudyAction): bo
   return false;
 }
 
-export async function canAccessStudy(userId: string, studyId: string, action: StudyAction): Promise<boolean> {
+const ORG_ADMIN_NEEDS_STUDY_ROLE: StudyAction[] = ["approveRelease", "approvePipeline", "submitJob", "abortJob"];
+
+/** Several study permissions for one person with a single lookup of the user and the study. */
+export async function canAccessStudyActions<T extends StudyAction>(userId: string, studyId: string, actions: readonly T[]): Promise<Record<T, boolean>> {
+  const result = Object.fromEntries(actions.map((action) => [action, false])) as Record<T, boolean>;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { platformRole: true }
   });
 
-  if (!user) return false;
-  if (platformCan(user.platformRole, action)) return true;
+  if (!user) return result;
+  const remaining = actions.filter((action) => {
+    if (platformCan(user.platformRole, action)) {
+      result[action] = true;
+      return false;
+    }
+    return true;
+  });
+  if (remaining.length === 0) return result;
 
   const study = await prisma.study.findUnique({
     where: { id: studyId },
@@ -176,15 +187,17 @@ export async function canAccessStudy(userId: string, studyId: string, action: St
     }
   });
 
-  if (!study) return false;
-
-  if (study.organization.memberships.some((membership) => membership.role === "ORG_ADMIN")) {
-    return ["approveRelease", "approvePipeline", "submitJob", "abortJob"].includes(action)
-      ? study.members.some((member) => roleCan(member.role, action))
-      : true;
+  if (!study) return result;
+  const orgAdmin = study.organization.memberships.some((membership) => membership.role === "ORG_ADMIN");
+  for (const action of remaining) {
+    const byRole = study.members.some((member) => roleCan(member.role, action));
+    result[action] = orgAdmin && !ORG_ADMIN_NEEDS_STUDY_ROLE.includes(action) ? true : byRole;
   }
+  return result;
+}
 
-  return study.members.some((member) => roleCan(member.role, action));
+export async function canAccessStudy(userId: string, studyId: string, action: StudyAction): Promise<boolean> {
+  return (await canAccessStudyActions(userId, studyId, [action]))[action];
 }
 
 export type RoleGrantActor = {

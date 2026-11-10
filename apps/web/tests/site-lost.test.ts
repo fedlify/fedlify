@@ -24,6 +24,17 @@ describe("classifySite", () => {
   it("only warns when the heartbeat agent is silent but the aggregator lists the client (a dead agent is not a dead site)", () => {
     expect(classifySite(sig({ lastHeartbeatAt: old }), NOW)?.state).toBe("silent");
   });
+  it("words the stored reason in plain terms for new records", () => {
+    const reasons = [
+      classifySite(sig({ lastHeartbeatStatus: "OFFLINE" }), NOW)?.reason,
+      classifySite(sig({ lastHeartbeatAt: old, listedByAggregator: false }), NOW)?.reason,
+      classifySite(sig({ lastHeartbeatAt: old }), NOW)?.reason,
+      classifySite(sig({ listedByAggregator: false }), NOW)?.reason
+    ].join(" | ");
+    expect(reasons).toContain("the runner reported that the study software is not running");
+    expect(reasons).toContain("its runner stopped reporting");
+    expect(reasons).not.toMatch(/OFFLINE|container|heartbeat|aggregator/i);
+  });
   it("only warns when heartbeats are fine but the aggregator does not list it", () => {
     expect(classifySite(sig({ listedByAggregator: false }), NOW)?.state).toBe("not_connected");
   });

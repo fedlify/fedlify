@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { resolveStudyNextAction, summaryReadinessItems } from "@/lib/study-summary";
 import { parseStudyDetailParam, serializeStudyDetailParam } from "@/lib/study-detail";
 import { getStudyWorkspaceSection, normalizeStudyWorkspaceSection, studyActionHref, studyNavHref, activeStudyNavKey, STUDY_NAV_ITEMS } from "@/lib/study-workspace";
 
@@ -38,74 +37,11 @@ describe("study workspace navigation", () => {
     expect(serializeStudyDetailParam({ kind: "experimentRun", id: "job-1" })).toBe("experimentRun:job-1");
   });
 
-  it("resolves the summary next action from the first blocking runtime gate", () => {
-    expect(resolveStudyNextAction({ status: "DRAFT", governanceStatus: "INCOMPLETE", ethics: [] })).toMatchObject({
-      title: "Record ethics decision",
-      section: "protocol"
-    });
-
-    expect(
-      resolveStudyNextAction({
-        status: "ACTIVE",
-        ethics: [{ status: "APPROVED" }],
-        pipelineProjects: [{ versions: [{ validationStatus: "PASSED", approvalStatus: "PENDING" }] }]
-      })
-    ).toMatchObject({ title: "Publish the pipeline", section: "pipeline" });
-
-    expect(
-      resolveStudyNextAction({
-        status: "ACTIVE",
-        ethics: [{ status: "APPROVED" }],
-        pipelineProjects: [{ versions: [{ validationStatus: "PASSED", approvalStatus: "APPROVED" }] }],
-        studySites: [{ readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }], nvflareStatuses: [{ status: "CONNECTED" }] }]
-      })
-    ).toMatchObject({ title: "Publish the pipeline", section: "run" });
-
-    expect(
-      resolveStudyNextAction({
-        status: "ACTIVE",
-        ethics: [{ status: "APPROVED" }],
-        pipelineProjects: [{ versions: [{ approvalStatus: "APPROVED" }] }],
-        studySites: [{ readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }], nvflareStatuses: [{ status: "CONNECTED" }] }],
-        nvflareDeployments: [{ active: true, status: "ACTIVE", serverAddress: "localhost:18010" }]
-      })
-    ).toMatchObject({ title: "Start run", section: "run" });
-  });
-
-  it("maps summary readiness items to explicit user actions", () => {
-    const items = summaryReadinessItems({
-      status: "ACTIVE",
-      ethics: [{ status: "APPROVED" }],
-      pipelineProjects: [{ versions: [{ approvalStatus: "APPROVED" }] }],
-      studySites: [{ readinessChecks: [{ dependenciesVerified: false, policyAccepted: false }], nvflareStatuses: [{ status: "OFFLINE" }] }],
-      nvflareDeployments: [{ active: true, status: "ACTIVE", serverAddress: "localhost:18010" }]
-    });
-
-    expect(items.map((item) => item.label)).toEqual([
-      "Study protocol",
-      "Sites",
-      "Pipeline",
-      "Run",
-      "Results"
-    ]);
-    expect(items.find((item) => item.key === "sites")).toMatchObject({
-      state: "needs_attention",
-      buttonLabel: "Open sites",
-      section: "sites"
-    });
-  });
-
   it("sends pipeline and run actions to the Code & run workspace, never a legacy section", () => {
     expect(studyActionHref("s1", "pipeline")).toBe("/studies/s1/projects");
     expect(studyActionHref("s1", "run")).toBe("/studies/s1/projects");
     expect(studyActionHref("s1", "sites")).toBe("/studies/s1?section=sites");
     expect(studyActionHref("s1")).toBe("/studies/s1");
-    for (const item of [
-      resolveStudyNextAction({ status: "ACTIVE", ethics: [{ status: "APPROVED" }] }),
-      ...summaryReadinessItems({ status: "ACTIVE" })
-    ]) {
-      expect(studyActionHref("s1", item.section)).not.toMatch(/section=(pipeline|run)/);
-    }
   });
 });
 

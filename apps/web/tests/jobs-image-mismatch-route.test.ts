@@ -11,7 +11,8 @@ const systemInfo = vi.fn();
 vi.mock("@/lib/api", () => ({ requireUser: async () => ({ userId: "u1" }) }));
 vi.mock("@/lib/audit", () => ({ audit: async () => undefined }));
 vi.mock("@/lib/rbac", () => ({ assertStudyAccess: async () => undefined, isForbiddenError: () => false }));
-vi.mock("@/lib/governance", () => ({
+vi.mock("@/lib/governance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/governance")>()),
   describeUnreadySites: () => [],
   executionGateMessage: () => "gate",
   latestEthicsStatus: () => "APPROVED",
@@ -29,7 +30,8 @@ vi.mock("@/lib/prisma", () => ({
     pipelineVersion: { findUnique: async () => ({ id: "pv1", version: "v2", gitCommit: "abc", imageDigest: null, approvalStatus: "APPROVED", validationStatus: "PASSED", project: { studyId: "s1" } }) },
     studySite: { findMany: (...a: unknown[]) => studySiteFind(...a) },
     nvflareDeployment: { findFirst: (...a: unknown[]) => deploymentFind(...a) },
-    nvflareJob: { create: (...a: unknown[]) => jobCreate(...a), update: async () => ({}) },
+    nvflareJob: { create: (...a: unknown[]) => jobCreate(...a), update: async () => ({}), count: async () => 0 },
+    cIValidationRun: { findFirst: async () => null },
     nvflareJobEvent: { create: async () => ({}) },
     $transaction: async (fn: (tx: unknown) => unknown) =>
       typeof fn === "function" ? fn({ nvflareJob: { update: async () => ({ id: "j1", nvflareJobId: "n1" }) }, nvflareJobEvent: { create: async () => ({}) } }) : fn
@@ -67,6 +69,7 @@ describe("POST nvflare/jobs image currency", () => {
     const { error } = await response.json();
     expect(error.code).toBe("site_image_mismatch");
     expect(error.sites.map((s: { clientName: string }) => s.clientName)).toEqual(["site-B"]);
+    expect(error.details.items.filter((i: { ok: boolean }) => !i.ok).map((i: { code: string }) => i.code)).toEqual(["site_code_version:ss-B"]);
     expect(error.sites[0].fix.join(" ")).toContain("fedlify-runner.sh update");
     expect(error.message).toContain("Hospital B");
     expect(error.message).not.toContain("Hospital A");

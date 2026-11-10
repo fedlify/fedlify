@@ -3,7 +3,7 @@ export const STUDY_WORKSPACE_SECTIONS = [
     key: "overview",
     label: "Summary",
     title: "Study summary",
-    subtitle: "Review lifecycle status, participant sites, pipeline versions, runs, and model releases."
+    subtitle: "Where this study stands and what to do next."
   },
   {
     key: "protocol",

@@ -542,3 +542,13 @@ Shared code: `apps/web/src/lib/terms.ts` (`TERMS`, `statusLabel`, `roleLabel`, `
 Enforcement tests:
 - `tests/terms.test.ts`: every status enum value, role and audit action key has a label; no label contains a banned word.
 - `tests/terms-lint.test.ts`: scans user-visible strings in the covered files and fails if a banned term is used more often than `tests/terms-allowlist.json` allows. The list can only shrink; after removing terms run `npm run terms:allowlist` in `apps/web`.
+
+## Pre-flight checks and the next step (2026-11-10)
+
+Two shared computations keep the Summary page and the Code & run page saying the same thing.
+
+**Pre-flight** (`src/lib/preflight.ts`, `evaluatePreflight(kind, snapshot)`): for `publish` or `run` it returns a list of plain-language items, each ticked or not, with a detail sentence, an owner (study team, the site, automatic) and a "Fix" link. Publish checks the ethics decision (including its expiry date), study questions, sites, saved code and that no publish or run is in progress. Run checks ethics, sites, the published pipeline, the study server, and for each site its sign-off, connection and code version. `src/lib/preflight-data.ts` loads the data; `GET /api/v1/studies/{id}/preflight?kind=publish|run` serves it. The Publish and Start run routes use the same function and return the items in `error.details.items` on a 409, so a late failure shows the same checklist.
+
+**Next step** (`src/lib/next-step.ts`, `resolveStudySteps`): maps the study onto the six phases (Authorize, Prepare, Approve, Deploy, Execute, Validate), gives each a status phrase and tone, picks the current one, and attaches the failing pre-flight items as blockers and one permission-aware action. `GET /api/v1/studies/{id}/next-step` serves it.
+
+**Where shown:** the Summary page ("Next step" card and six-step list) and the Publish and Start run panels of Code & run ("Before you publish", "Before you start", and the "N things to fix" rail text). Both render items with `components/PreflightChecklist.tsx`.

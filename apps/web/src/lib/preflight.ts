@@ -1,0 +1,284 @@
+/**
+ * Preflight: the checklist of what must be true before Publish or Start run, shown as ticks and crosses.
+ *
+ * `evaluatePreflight` is pure. The publish route and the run-start route decide with it too, so the checklist a
+ * person sees and the server's refusal can never disagree. Client-safe: no prisma or other server-only imports
+ * (the loader that fills the snapshot lives in preflight-data.ts).
+ */
+import { ethicsCleared, ethicsExpired, ethicsExpiredMessage, publishRequirementMessage } from "@/lib/governance";
+import type { SiteImageState } from "@/lib/site-image";
+
+export type PreflightKind = "publish" | "run";
+export type PreflightOwner = "study" | "site" | "system";
+
+export type PreflightItem = {
+  /** Stable machine key, e.g. "ethics", "study_questions", "site_signed_off:<studySiteId>". Never shown to people. */
+  code: string;
+  ok: boolean;
+  /** One plain sentence: "The ethics decision is recorded" when ok, "Record the ethics decision" when not. */
+  text: string;
+  /** Extra plain sentence, e.g. "3 study questions are not answered yet". */
+  detail?: string;
+  /** Who can fix it: the study team, a site's staff, or the system (wait or ask for help). */
+  owner: PreflightOwner;
+  /** In-app link to the place where it is fixed. */
+  fixHref?: string;
+};
+
+export type PreflightResult = { ok: boolean; items: PreflightItem[] };
+
+export type PreflightSite = {
+  studySiteId: string;
+  /** Id used in /sites/{id}. */
+  siteId: string;
+  code: string;
+  name: string;
+  /** The human sign-off (siteSignedOff). */
+  signedOff: boolean;
+  /** Runner connected (isSitePresent). null = not checked, so the item is left out. */
+  connected: boolean | null;
+  /** Code version state from site-image. null = not checked, so the item is left out. */
+  imageState: SiteImageState | null;
+};
+
+export type PreflightSnapshot = {
+  studyId: string;
+  now?: Date;
+  /** Latest ethics decision, or null when none is recorded. */
+  ethics: { status: string; validUntil?: Date | string | null } | null;
+  questions: { answered: number; total: number };
+  /** Active (non-disabled) sites that take part. */
+  sites: PreflightSite[];
+
+  // Publish. null/undefined = not checked yet, so the item is left out.
+  savedCode?: boolean | null;
+  /** The code host could not be asked whether code is saved. Shown as "Check the saved code", not as "no saved code". */
+  savedCodeUnchecked?: boolean;
+  publishInProgress?: boolean | null;
+  runInProgress?: boolean | null;
+
+  // Run
+  pipeline?: { exists: boolean; approved: boolean; checksPassed: boolean };
+  studyServer?: { running: boolean; /** Serving the pipeline version being run. */ servesPipeline: boolean };
+  /** The study server could not be asked which sites are connected. */
+  serverUnreachable?: boolean;
+  /** Smallest number of connected sites a run may start with. Defaults to all active sites. */
+  minSites?: number | null;
+};
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+export const PREFLIGHT_SITE_PREFIXES = {
+  signedOff: "site_signed_off:",
+  connected: "site_connected:",
+  codeVersion: "site_code_version:"
+} as const;
+
+export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapshot): PreflightResult {
+  const { studyId } = snapshot;
+  const now = snapshot.now ?? new Date();
+  const items: PreflightItem[] = [];
+  const ethicsHref = `/studies/${studyId}?section=protocol&tab=ethics`;
+  const questionsHref = `/studies/${studyId}?section=protocol&tab=requirements`;
+  const codeHref = `/studies/${studyId}/projects`;
+  const sitesHref = `/studies/${studyId}?section=sites`;
+
+  // Ethics
+  const decision = snapshot.ethics;
+  const ethicsOk = ethicsCleared(decision?.status as never, decision?.validUntil, now);
+  const expired = Boolean(decision) && ethicsExpired(decision?.validUntil, now);
+  items.push({
+    code: "ethics",
+    ok: ethicsOk,
+    text: ethicsOk ? "The ethics decision is recorded" : publishRequirementMessage("ethicsApproval"),
+    ...(ethicsOk ? {} : { detail: expired && decision?.validUntil ? ethicsExpiredMessage(decision.validUntil) : decision ? "The latest ethics decision is not an approval." : "No ethics decision has been recorded yet." }),
+    owner: "study",
+    fixHref: ethicsHref
+  });
+
+  if (kind === "publish") {
+    const left = Math.max(0, snapshot.questions.total - snapshot.questions.answered);
+    items.push({
+      code: "study_questions",
+      ok: left === 0,
+      text: left === 0 ? "All study questions are answered" : publishRequirementMessage("studyQuestions", { remaining: left }),
+      ...(left === 0 ? {} : { detail: `${plural(left, "study question is", "study questions are")} not answered yet` }),
+      owner: "study",
+      fixHref: questionsHref
+    });
+  }
+
+  // Sites (both kinds)
+  const hasSites = snapshot.sites.length > 0;
+  items.push({
+    code: "sites",
+    ok: hasSites,
+    text: hasSites ? `${plural(snapshot.sites.length, "site takes", "sites take")} part` : publishRequirementMessage("studySites"),
+    ...(hasSites ? {} : { detail: "A study needs at least one site that takes part." }),
+    owner: "study",
+    fixHref: sitesHref
+  });
+
+  if (kind === "publish") {
+    if (snapshot.savedCodeUnchecked) {
+      items.push({
+        code: "saved_code_check",
+        ok: false,
+        text: "Check the saved code",
+        detail: "The code could not be looked up just now. Try again in a minute.",
+        owner: "system",
+        fixHref: codeHref
+      });
+    } else if (snapshot.savedCode != null) {
+      items.push({
+        code: "saved_code",
+        ok: snapshot.savedCode,
+        text: snapshot.savedCode ? "The pipeline code is saved" : "Save the pipeline code",
+        ...(snapshot.savedCode ? {} : { detail: "There is no saved code to publish yet." }),
+        owner: "study",
+        fixHref: codeHref
+      });
+    }
+    if (snapshot.publishInProgress != null) {
+      items.push({
+        code: "publish_idle",
+        ok: !snapshot.publishInProgress,
+        text: snapshot.publishInProgress ? "Wait for the current publish to finish" : "No other publish is in progress",
+        ...(snapshot.publishInProgress ? { detail: "A publish is already in progress for this pipeline." } : {}),
+        owner: "system",
+        fixHref: codeHref
+      });
+    }
+    if (snapshot.runInProgress != null) {
+      items.push({
+        code: "run_idle",
+        ok: !snapshot.runInProgress,
+        text: snapshot.runInProgress ? "Wait for the current run to finish, or stop it" : "No run is in progress",
+        ...(snapshot.runInProgress ? { detail: "Publishing restarts the study server, so it cannot happen during a run." } : {}),
+        owner: "study",
+        fixHref: codeHref
+      });
+    }
+    return { ok: items.every((item) => item.ok), items };
+  }
+
+  // Run: pipeline version and study server
+  const pipeline = snapshot.pipeline ?? { exists: false, approved: false, checksPassed: false };
+  const pipelineOk = pipeline.exists && pipeline.approved && pipeline.checksPassed;
+  items.push({
+    code: "pipeline_published",
+    ok: pipelineOk,
+    text: pipelineOk ? "A pipeline version is published" : "Publish the pipeline",
+    ...(pipelineOk
+      ? {}
+      : {
+          detail: !pipeline.exists
+            ? "No pipeline version has been published yet."
+            : !pipeline.approved
+              ? "The pipeline version has not been approved yet."
+              : "The pipeline version has not passed its checks yet."
+        }),
+    owner: "study",
+    fixHref: codeHref
+  });
+
+  const server = snapshot.studyServer ?? { running: false, servesPipeline: false };
+  const serverOk = server.running && server.servesPipeline;
+  items.push({
+    code: "study_server",
+    ok: serverOk,
+    text: serverOk ? "The study server is running" : "Start the study server",
+    ...(serverOk
+      ? {}
+      : { detail: server.running ? "The study server is running a different pipeline version. Publish this one first." : "The study server is not running. Publishing the pipeline starts it." }),
+    owner: server.running ? "study" : "system",
+    fixHref: codeHref
+  });
+
+  if (snapshot.publishInProgress != null) {
+    items.push({
+      code: "publish_idle",
+      ok: !snapshot.publishInProgress,
+      text: snapshot.publishInProgress ? "Wait for the current publish to finish" : "No publish is in progress",
+      ...(snapshot.publishInProgress ? { detail: "Publishing restarts the study server, so a run cannot start until it finishes." } : {}),
+      owner: "system",
+      fixHref: codeHref
+    });
+  }
+  if (snapshot.runInProgress != null) {
+    items.push({
+      code: "run_idle",
+      ok: !snapshot.runInProgress,
+      text: snapshot.runInProgress ? "Wait for the current run to finish, or stop it" : "No run is in progress",
+      ...(snapshot.runInProgress ? { detail: "A run is already in progress on the study server." } : {}),
+      owner: "study",
+      fixHref: codeHref
+    });
+  }
+
+  // Run: each active site
+  for (const site of snapshot.sites) {
+    const label = site.name || site.code;
+    const siteHref = `/sites/${site.siteId}`;
+    items.push({
+      code: `${PREFLIGHT_SITE_PREFIXES.signedOff}${site.studySiteId}`,
+      ok: site.signedOff,
+      text: site.signedOff ? `${label} has signed off` : `${label} needs to sign off`,
+      ...(site.signedOff ? {} : { detail: `${label} has not finished its site sign-off.` }),
+      owner: "site",
+      fixHref: siteHref
+    });
+    if (site.connected != null) {
+      items.push({
+        code: `${PREFLIGHT_SITE_PREFIXES.connected}${site.studySiteId}`,
+        ok: site.connected,
+        text: site.connected ? `${label} runner is connected` : `Connect the runner at ${label}`,
+        ...(site.connected ? {} : { detail: `${label} is not connected to the study server.` }),
+        owner: "site",
+        fixHref: siteHref
+      });
+    }
+    if (site.imageState != null && site.imageState !== "UNKNOWN") {
+      const current = site.imageState === "CURRENT";
+      items.push({
+        code: `${PREFLIGHT_SITE_PREFIXES.codeVersion}${site.studySiteId}`,
+        ok: current,
+        text: current ? `${label} code version is up to date` : `Update the code version at ${label}`,
+        ...(current ? {} : { detail: site.imageState === "NOT_REPORTED" ? `${label} has not reported a code version yet.` : `${label} runs an older code version than the study server.` }),
+        owner: "site",
+        fixHref: siteHref
+      });
+    }
+  }
+
+  if (snapshot.serverUnreachable) {
+    items.push({
+      code: "site_connection_check",
+      ok: false,
+      text: "Check which sites are connected",
+      detail: "The study server could not be reached just now. Try again in a minute.",
+      owner: "system",
+      fixHref: codeHref
+    });
+  } else if (snapshot.sites.length > 0 && snapshot.sites.every((site) => site.connected != null)) {
+    const connected = snapshot.sites.filter((site) => site.connected).length;
+    const needed = Math.max(1, snapshot.minSites ?? snapshot.sites.length);
+    const enough = connected >= needed;
+    items.push({
+      code: "min_sites",
+      ok: enough,
+      text: enough ? "Enough sites are connected" : "Connect more sites",
+      detail: `${connected} of ${snapshot.sites.length} ${snapshot.sites.length === 1 ? "site" : "sites"} ${connected === 1 ? "is" : "are"} connected${enough ? "" : `; at least ${needed} ${needed === 1 ? "is" : "are"} needed`}.`,
+      owner: "site",
+      fixHref: codeHref
+    });
+  }
+
+  return { ok: items.every((item) => item.ok), items };
+}
+
+/** One sentence listing what is still missing, built from the failing items. */
+export function preflightSummary(items: PreflightItem[]): string {
+  const failing = items.filter((item) => !item.ok);
+  return failing.map((item) => item.text).join(". ");
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activationGate, missingProtocolFields, pipelineExecutionGate } from "@/lib/governance";
+import { activationGate, ethicsCleared, ethicsExpiredMessage, missingProtocolFields, pipelineExecutionGate } from "@/lib/governance";
 
 const completeProtocol = {
   title: "Cross-site sepsis model",
@@ -147,5 +147,36 @@ describe("publish requirement messages", () => {
     expect(publishRequirementMessage("ethicsApproval")).toBe("Record the ethics decision");
     expect(publishRequirementMessage("studySites")).toBe("Add at least one site");
     expect(publishRequirementMessage("studyQuestions", { remaining: 3 })).toBe("Answer the remaining study questions (3 left)");
+  });
+});
+
+describe("ethics decision expiry", () => {
+  const now = new Date("2026-11-10T12:00:00Z");
+  it("clears an approval with no end date or an end date in the future", () => {
+    expect(ethicsCleared("APPROVED", null, now)).toBe(true);
+    expect(ethicsCleared("NOT_REQUIRED", "2027-01-01T00:00:00Z", now)).toBe(true);
+  });
+  it("does not clear an approval whose end date is in the past", () => {
+    expect(ethicsCleared("APPROVED", "2026-03-05T00:00:00Z", now)).toBe(false);
+    expect(ethicsCleared("NOT_REQUIRED", new Date("2026-11-09T00:00:00Z"), now)).toBe(false);
+  });
+  it("never clears a status that is not an approval, whatever the date", () => {
+    expect(ethicsCleared("PENDING", "2030-01-01T00:00:00Z", now)).toBe(false);
+    expect(ethicsCleared(null, null, now)).toBe(false);
+  });
+  it("words the expiry in plain terms", () => {
+    expect(ethicsExpiredMessage("2026-03-05T00:00:00Z")).toBe("The ethics decision expired on 5 March 2026. Record the renewed decision.");
+  });
+  it("blocks activation and execution with an expired approval", () => {
+    const expired = [{ status: "APPROVED" as const, validUntil: new Date(Date.now() - 86_400_000) }];
+    expect(activationGate({ ...completeProtocol, ethics: expired, studySites: [{}] }).missing).toContain("ethicsApproval");
+    const gate = pipelineExecutionGate({
+      ethicsStatus: "APPROVED",
+      ethicsValidUntil: new Date(Date.now() - 86_400_000),
+      pipelineApprovalStatus: "APPROVED",
+      pipelineValidationStatus: "PASSED",
+      readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }]
+    });
+    expect(gate.missing).toEqual(["ethicsApproval"]);
   });
 });
