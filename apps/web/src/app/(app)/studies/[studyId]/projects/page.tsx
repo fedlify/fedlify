@@ -14,7 +14,7 @@ import { FileTree } from "@/components/FileTree";
 import { PipelineRail } from "@/components/PipelineRail";
 import { PipelinesList } from "@/components/PipelinesList";
 import { StartPipeline, type CreatedPipeline } from "@/components/StartPipeline";
-import { acceptProposal, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
+import { acceptProposal, appliedPaths, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
 import { withThreadParam } from "@/lib/agent-thread-client";
 import type { StartPath } from "@/lib/pipeline-start";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
@@ -330,14 +330,17 @@ export default function StudyProjectsPage() {
       return;
     }
     const { proposal } = result;
+    const applied = appliedPaths(proposal);
     setReview({
       id: proposal.id,
       title: proposal.title,
       status: proposal.status,
       baseCommit: proposal.baseCommit,
       files: proposal.files,
-      // Every file starts selected; the person can reject any of them before committing.
-      accepted: Object.fromEntries(proposal.files.map((file) => [file.path, true])),
+      acceptedCommit: proposal.acceptedCommit,
+      baseUnavailable: proposal.baseUnavailable,
+      // Every file starts selected; the person can reject any of them before committing. A decided proposal shows what was applied.
+      accepted: Object.fromEntries(proposal.files.map((file) => [file.path, proposal.status === "ACCEPTED" ? applied.has(file.path) : true])),
       busy: false
     });
     setActiveStage("code");

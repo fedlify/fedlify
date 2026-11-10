@@ -3,9 +3,10 @@
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
 import { branchHead, markStale, proposalDto, isProposalStale } from "@/lib/agent-proposal-store";
-import { GiteaApiError, isRuntimeConfigurationError } from "@/lib/gitea";
+import { GiteaApiError, isRuntimeConfigurationError, readGiteaFileAtRef } from "@/lib/gitea";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
+import { attachBaseContent } from "@/lib/proposal-base";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 
 type Params = { params: Promise<{ studyId: string; projectId: string; id: string }> };
@@ -35,5 +36,13 @@ export async function GET(_request: NextRequest, { params }: Params) {
       if (!(error instanceof GiteaApiError) && !isRuntimeConfigurationError(error)) throw error;
     }
   }
-  return json({ proposal: proposalDto(row, { withContent: true }) });
+  const proposal = proposalDto(row, { withContent: true });
+  // Once decided or stale, the saved code no longer matches the base, so the diff needs the content at the base commit.
+  const baseCommit = row.baseCommit;
+  if (row.status !== "PROPOSED" && baseCommit && project.giteaOwner && project.giteaRepo) {
+    const { giteaOwner: owner, giteaRepo: repo } = project;
+    const withBase = await attachBaseContent(proposal.files, (path) => readGiteaFileAtRef({ owner, repo, ref: baseCommit, path }));
+    return json({ proposal: { ...proposal, files: withBase.files, baseUnavailable: withBase.baseUnavailable } });
+  }
+  return json({ proposal });
 }

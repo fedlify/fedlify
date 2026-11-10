@@ -103,6 +103,8 @@ export type ProposalReviewState = {
   title: string;
   status: ProposalStatus;
   baseCommit: string | null;
+  acceptedCommit?: string | null;
+  baseUnavailable?: boolean;
   files: ProposalFileSummary[];
   accepted: Record<string, boolean>;
   busy: boolean;
@@ -1149,7 +1151,7 @@ export function CodeReviewPanel({
                   beforeMount={configureMonaco}
                   height="100%"
                   language={monacoLanguage(files.find((candidate) => candidate.path === file.path)?.language ?? file.path.split(".").pop() ?? "text")}
-                  original={files.find((candidate) => candidate.path === file.path)?.content ?? ""}
+                  original={file.originalContent ?? files.find((candidate) => candidate.path === file.path)?.content ?? ""}
                   modified={file.content ?? ""}
                   theme={FEDLIFY_EDITOR_THEME}
                   options={{

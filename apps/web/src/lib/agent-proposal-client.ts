@@ -12,6 +12,8 @@ export type ProposalFileSummary = {
   removed: number;
   /** Present on detail responses: the complete proposed content, null for a delete. */
   content?: string | null;
+  /** Present on decided or stale proposals: the file at the proposal's base commit. */
+  originalContent?: string;
 };
 
 export type ProposalSummary = {
@@ -22,6 +24,8 @@ export type ProposalSummary = {
   status: ProposalStatus;
   baseCommit: string | null;
   acceptedCommit: string | null;
+  /** The base commit could not be read, so the diff cannot show the original code. */
+  baseUnavailable?: boolean;
   /** Files that were actually committed. Null means all of them (or not accepted yet). */
   acceptedPaths?: string[] | null;
   createdAt: string;

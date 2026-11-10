@@ -7,7 +7,7 @@ import { SCAN_NOTICE, type ProposalFileSummary, type ProposalStatus } from "@/li
 
 export type DiffViewOptions = { sideBySide: boolean; changesOnly: boolean };
 
-type ReviewProposal = { title: string; status: ProposalStatus; files: ProposalFileSummary[]; accepted: Record<string, boolean>; busy: boolean };
+type ReviewProposal = { title: string; status: ProposalStatus; acceptedCommit?: string | null; baseUnavailable?: boolean; files: ProposalFileSummary[]; accepted: Record<string, boolean>; busy: boolean };
 
 type Props = {
   proposal: ReviewProposal;
@@ -60,14 +60,21 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
   const current = files[index];
   const selectedCount = files.filter((file) => accepted[file.path]).length;
   const totals = files.reduce((sum, file) => ({ added: sum.added + file.added, removed: sum.removed + file.removed }), { added: 0, removed: 0 });
-  const tag = stale ? (proposal.status === "PROPOSED" ? (filesUnknown ? "Loading" : "Stale") : proposal.status.toLowerCase()) : "Proposed by assistant";
+  // Accepted and rejected proposals are a record: the diff stays visible but nothing can be decided again.
+  const decided = !["PROPOSED", "STALE"].includes(proposal.status);
+  const isAccepted = proposal.status === "ACCEPTED";
+  const tag = isAccepted
+    ? `Accepted${proposal.acceptedCommit ? ` · ${proposal.acceptedCommit.slice(0, 8)}` : ""}`
+    : stale
+      ? proposal.status === "PROPOSED" ? (filesUnknown ? "Loading" : "Stale") : proposal.status.charAt(0) + proposal.status.slice(1).toLowerCase()
+      : "Proposed by assistant";
 
   return (
     <div className={["fedlify-proposal-review", expanded ? "is-expanded" : ""].join(" ")} role="group" aria-label="Review assistant proposal" data-testid="proposal-review">
       <header className="fedlify-proposal-review-head">
         <div className="fedlify-proposal-review-title">
           <Typography.Text strong ellipsis={{ tooltip: proposal.title }}>{proposal.title}</Typography.Text>
-          <Tag color={stale ? "orange" : "purple"}>{tag}</Tag>
+          <Tag color={isAccepted ? "green" : decided ? "default" : stale ? "orange" : "purple"}>{tag}</Tag>
           <span className="fedlify-proposal-counts"><span className="is-add">+{totals.added}</span> <span className="is-del">-{totals.removed}</span></span>
         </div>
         <div className="fedlify-proposal-review-tools">
@@ -82,18 +89,19 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
         </div>
       </header>
 
+      {proposal.baseUnavailable ? <Alert banner type="warning" message="The original code could not be loaded, so this diff may not show what the proposal changed." /> : null}
       {filesUnknown ? <Alert banner type="info" message={filesLoading ? "Loading current files…" : "The current files could not be loaded, so this change cannot be reviewed yet."} /> : null}
       {stale && proposal.status === "PROPOSED" && !filesUnknown ? <Alert banner type="warning" message="The saved code changed after this proposal was written. Close this review and ask the assistant again so the change applies to the latest commit." /> : null}
 
       <div className="fedlify-proposal-review-body">
         <nav className="fedlify-proposal-review-files" aria-label="Files in this proposal">
-          <div className="fedlify-proposal-review-files-head">{`${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} selected`}</div>
+          <div className="fedlify-proposal-review-files-head">{decided ? (isAccepted ? `${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} committed` : "Nothing was committed") : `${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} selected`}</div>
           <ul>
             {files.map((file) => {
-              const isAccepted = Boolean(accepted[file.path]);
+              const fileAccepted = Boolean(accepted[file.path]);
               return (
-                <li key={file.path} className={[file.path === current?.path ? "is-selected" : "", isAccepted ? "" : "is-skipped"].join(" ")}>
-                  <Checkbox checked={isAccepted} disabled={stale || busy} onChange={(event) => onToggle?.(file.path, event.target.checked)} aria-label={`Include ${file.path} in the commit`} />
+                <li key={file.path} className={[file.path === current?.path ? "is-selected" : "", fileAccepted || !isAccepted && decided ? "" : "is-skipped"].join(" ")}>
+                  {decided ? null : <Checkbox checked={fileAccepted} disabled={stale || busy} onChange={(event) => onToggle?.(file.path, event.target.checked)} aria-label={`Include ${file.path} in the commit`} />}
                   <button type="button" onClick={() => onSelect(file.path)} title={file.path} aria-current={file.path === current?.path ? "true" : undefined}>
                     <span className="fedlify-proposal-path">{file.path}</span>
                     <span className="fedlify-proposal-counts">
@@ -115,7 +123,7 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
                 <span className="fedlify-muted">{`File ${index + 1} of ${files.length}`}</span>
                 <Button size="small" icon={<LeftOutlined />} disabled={index === 0} onClick={() => onSelect(files[index - 1].path)} aria-label="Previous file" />
                 <Button size="small" icon={<RightOutlined />} disabled={index === files.length - 1} onClick={() => onSelect(files[index + 1].path)} aria-label="Next file" />
-                <Segmented size="small" value={accepted[current.path] ? "accept" : "reject"} disabled={stale || busy} aria-label={`Decision for ${current.path}`} options={[{ label: "Accept", value: "accept" }, { label: "Reject", value: "reject" }]} onChange={(value) => onToggle?.(current.path, value === "accept")} />
+                {decided ? null : <Segmented size="small" value={accepted[current.path] ? "accept" : "reject"} disabled={stale || busy} aria-label={`Decision for ${current.path}`} options={[{ label: "Accept", value: "accept" }, { label: "Reject", value: "reject" }]} onChange={(value) => onToggle?.(current.path, value === "accept")} />}
               </div>
               <div className="fedlify-proposal-review-editor">{renderDiff(current, { sideBySide: prefs.sideBySide, changesOnly: prefs.changesOnly })}</div>
             </>
@@ -124,13 +132,17 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
       </div>
 
       <footer className="fedlify-proposal-review-foot">
-        <Typography.Text className="fedlify-muted">{SCAN_NOTICE}</Typography.Text>
+        <Typography.Text className="fedlify-muted">{decided ? "This change has been decided. The diff shows what it changed from the commit it was written against." : SCAN_NOTICE}</Typography.Text>
+        {decided ? (
+          <div className="fedlify-proposal-review-actions"><Button onClick={() => onClose?.()}>Close</Button></div>
+        ) : (
         <div className="fedlify-proposal-review-actions">
           <Button danger disabled={busy || !["PROPOSED", "STALE"].includes(proposal.status)} onClick={() => onReject?.()}>Reject proposal</Button>
           <Button type="primary" icon={<CheckCircleOutlined />} loading={busy} disabled={stale || selectedCount === 0} onClick={() => onAccept?.()}>
             {`Commit ${selectedCount} selected file${selectedCount === 1 ? "" : "s"}`}
           </Button>
         </div>
+        )}
       </footer>
     </div>
   );
