@@ -1,7 +1,7 @@
 "use client";
 
 import type { Key } from "react";
-import { CloudUploadOutlined, LinkOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined, UnorderedListOutlined } from "@ant-design/icons";
+import { CloudUploadOutlined, FolderOutlined, LinkOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Popover, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -80,6 +80,7 @@ type Overview = { aggregator: Aggregator | null; sites: Site[]; projects: Projec
 type RoundRow = { round: number; sites: Array<{ site: string; numSamples: number; metrics: Record<string, number> }>; weighted: Record<string, number> };
 
 const ASSISTANT_OPEN_KEY = "fedlify.workspace.assistantOpen";
+const FILES_OPEN_KEY = "fedlify.workspace.filesOpen";
 const ACTIVE_JOB = new Set(["SUBMITTED", "SCHEDULED", "RUNNING"]);
 const statusColor: Record<string, string> = {
   PASSED: "green",
@@ -135,6 +136,7 @@ export default function StudyProjectsPage() {
   const [dirtyPath, setDirtyPath] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [assistantExpanded, setAssistantExpanded] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(true);
   const [askRequest, setAskRequest] = useState<AskRequest | null>(null);
   const [conflict, setConflict] = useState<{ file: SourceFile; content: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -160,6 +162,25 @@ export default function StudyProjectsPage() {
       // Storage is optional.
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(FILES_OPEN_KEY) === "false") setFilesOpen(false);
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }, []);
+
+  function toggleFiles() {
+    setFilesOpen((current) => {
+      try {
+        window.localStorage.setItem(FILES_OPEN_KEY, String(!current));
+      } catch {
+        // Ignore unavailable storage.
+      }
+      return !current;
+    });
+  }
 
   function toggleAssistant() {
     setAssistantOpen((current) => {
@@ -861,7 +882,7 @@ export default function StudyProjectsPage() {
     <AppPage className="fedlify-ws-page">
       <AppPageHeader
         title="Code & run"
-        subtitle="Edit the study code, publish it to the study aggregator, connect the sites, and run the federated study."
+        subtitle={view === "workspace" ? undefined : "Edit the study code, publish it to the study aggregator, connect the sites, and run the federated study."}
         onBack={() => leaveTo(`/studies/${studyId}`)}
         backLabel="Study"
         actions={
@@ -960,22 +981,35 @@ export default function StudyProjectsPage() {
         <>
           <PipelineRail stages={stages} activeStage={activeStage} currentStage={currentStage} onSelect={setActiveStage} onAction={handleStageAction} />
 
-          <div className={["fedlify-ws-grid", assistantOpen ? "has-assistant" : "assistant-collapsed"].join(" ")}>
-            <aside className="fedlify-ws-side" aria-label="Files and checks">
-              <div className="fedlify-ws-section-title">
-                <strong>Files</strong>
-                <span className="fedlify-muted">{filesStatus === "ready" ? repoPaths.length : filesStatus === "error" ? "error" : "…"}</span>
-              </div>
-              <FileTree paths={repoPaths} selectedPath={selectedPath} modifiedPaths={dirtyPath ? [dirtyPath] : []} onSelect={selectFile} />
-              <ChecksPanel key={project.id} studyId={studyId} projectId={project.id} commit={sourceCommit} />
-            </aside>
+          <div className={["fedlify-ws-grid", assistantOpen ? "has-assistant" : "assistant-collapsed", filesOpen ? "" : "files-collapsed"].join(" ")}>
+            {filesOpen ? (
+              <aside className="fedlify-ws-side" aria-label="Files and checks">
+                <div className="fedlify-ws-section-title">
+                  <strong>Files</strong>
+                  <span className="fedlify-ws-section-tools">
+                    <span className="fedlify-muted">{filesStatus === "ready" ? repoPaths.length : filesStatus === "error" ? "error" : "…"}</span>
+                    <Tooltip title="Collapse files">
+                      <Button size="small" type="text" icon={<MenuFoldOutlined />} onClick={toggleFiles} aria-label="Collapse files" />
+                    </Tooltip>
+                  </span>
+                </div>
+                <FileTree paths={repoPaths} selectedPath={selectedPath} modifiedPaths={dirtyPath ? [dirtyPath] : []} onSelect={selectFile} />
+                <ChecksPanel key={project.id} studyId={studyId} projectId={project.id} commit={sourceCommit} />
+              </aside>
+            ) : (
+              <aside className="fedlify-ws-side is-collapsed" aria-label="Files (collapsed)">
+                <Tooltip title="Open files" placement="right">
+                  <Button type="text" icon={<MenuUnfoldOutlined />} onClick={toggleFiles} aria-label="Open files" />
+                </Tooltip>
+                <FolderOutlined className="fedlify-ws-assistant-glyph" />
+                <span className="fedlify-ws-assistant-vertical">Files</span>
+              </aside>
+            )}
 
             <main className="fedlify-ws-centre">
               <div hidden={activeStage !== "code"} className="fedlify-ws-code">
-                <div className="fedlify-ws-code-note fedlify-muted">
-                  Every save is a commit to <code>{project.defaultBranch}</code> in Gitea (base <code>{short(sourceCommit, 8)}</code>). Publishing builds exactly the saved commit.
-                </div>
                 <CodeReviewPanel
+                  contextNote={`Every save is a commit to ${project.defaultBranch}. Publishing builds exactly the saved commit.`}
                   hideHeader
                   hideExplorer
                   sourceUrl={`/api/v1/studies/${studyId}/pipeline-projects/${project.id}/source`}

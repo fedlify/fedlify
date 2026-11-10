@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BranchesOutlined,
   CheckCircleOutlined,
   CodeOutlined,
   DiffOutlined,
@@ -20,7 +21,7 @@ import {
   RobotOutlined
 } from "@ant-design/icons";
 import { Bubble, Prompts, Sender, ThoughtChain } from "@ant-design/x";
-import { Alert, Button, Segmented, Select, Space, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Modal, Segmented, Select, Space, Tag, Tooltip, Typography, message } from "antd";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { Monaco } from "@monaco-editor/react";
@@ -109,6 +110,8 @@ export type ProposalReviewState = {
 
 type CodeReviewPanelProps = {
   proposalReview?: ProposalReviewState | null;
+  /** Short explanation shown at the end of the compact branch and commit row. */
+  contextNote?: string;
   proposalForceFullWidth?: boolean;
   onProposalExitFullWidth?: () => void;
   onProposalToggle?: (path: string, accepted: boolean) => void;
@@ -406,6 +409,7 @@ export function CodeReviewPanel({
   saveLabel = "Preview change",
   controlRef,
   proposalReview,
+  contextNote,
   proposalForceFullWidth,
   onProposalExitFullWidth,
   onProposalToggle,
@@ -578,10 +582,13 @@ export function CodeReviewPanel({
 
   const editorRef = useRef<{ getSelectedText: () => string } | null>(null);
   const askRef = useRef<() => void>(() => undefined);
+  const [editorFullScreen, setEditorFullScreen] = useState(false);
   const saveRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     askRef.current = () => {
       if (!selectedFile || !onAskAssistant) return;
+      // The assistant is on the page behind a full-screen editor.
+      setEditorFullScreen(false);
       const selection = editorRef.current?.getSelectedText().trim();
       onAskAssistant({ path: selectedFile.path, selection: selection ? selection.slice(0, 20000) : undefined });
     };
@@ -897,6 +904,51 @@ export function CodeReviewPanel({
     );
   }
 
+  // In the workspace the branch and commit sit in a status bar under the editor, as in VS Code.
+  const statusBar = Boolean(hideHeader && contextNote);
+  const compactRef = (
+    <div className={["fedlify-code-compact-ref", statusBar ? "is-statusbar" : ""].join(" ")}>
+      {payload?.branchName ? (
+        <Typography.Text type="secondary" title={payload.branchName}>
+          {statusBar ? <BranchesOutlined /> : "Branch:"} <code>{payload.branchName.length > 50 ? `…${payload.branchName.slice(-44)}` : payload.branchName}</code>
+        </Typography.Text>
+      ) : null}
+      {reviewCommit ? (
+        <Typography.Text type="secondary" title={reviewCommit}>
+          {statusBar ? null : "Commit: "}<code>{shortCommit(reviewCommit)}</code>
+        </Typography.Text>
+      ) : null}
+      {validation?.status ? <StatusTag value={validation.status} /> : null}
+      <Button size="small" type="text" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
+        {contextOpen && !statusBar ? "Hide context" : "Review context"}
+      </Button>
+      {contextNote ? <Typography.Text type="secondary" className="fedlify-code-compact-note" ellipsis={{ tooltip: contextNote }}>{contextNote}</Typography.Text> : null}
+    </div>
+  );
+  const contextPanel = contextOpen ? (
+        <div className="fedlify-code-context-panel">
+          <FieldGrid>
+            <FieldRow label="Review ref" value={reviewRef} />
+            <FieldRow label="Commit" value={shortCommit(reviewCommit)} />
+            <FieldRow label="Branch" value={payload?.branchName ?? "Not set"} />
+            <FieldRow
+              label="Repository"
+              value={
+                payload?.repoUrl ? (
+                  <a href={payload.repoUrl} target="_blank" rel="noreferrer">
+                    {payload.repoUrl}
+                  </a>
+                ) : (
+                  payload?.source ?? "Not set"
+                )
+              }
+            />
+            {manifest ? <FieldRow label="Package type" value={manifest.packageType ?? "Not set"} /> : null}
+            {manifest?.workflow || manifest?.template?.name ? <FieldRow label="Workflow/template" value={manifest.workflow ?? manifest.template?.name} /> : null}
+          </FieldGrid>
+        </div>
+  ) : null;
+
   return (
     <div className="fedlify-code-review">
       {!hideHeader ? (
@@ -948,47 +1000,10 @@ export function CodeReviewPanel({
             </Button>
           </div>
         </>
-      ) : (
-        <div className="fedlify-code-compact-ref">
-          {payload?.branchName ? (
-            <Typography.Text type="secondary">
-              Branch: <code>{payload.branchName.length > 50 ? `…${payload.branchName.slice(-44)}` : payload.branchName}</code>
-            </Typography.Text>
-          ) : null}
-          {reviewCommit ? (
-            <Typography.Text type="secondary">
-              Commit: <code>{shortCommit(reviewCommit)}</code>
-            </Typography.Text>
-          ) : null}
-          {validation?.status ? <StatusTag value={validation.status} /> : null}
-          <Button size="small" type="text" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
-            {contextOpen ? "Hide context" : "Review context"}
-          </Button>
-        </div>
+      ) : statusBar ? null : (
+        compactRef
       )}
-      {contextOpen ? (
-        <div className="fedlify-code-context-panel">
-          <FieldGrid>
-            <FieldRow label="Review ref" value={reviewRef} />
-            <FieldRow label="Commit" value={shortCommit(reviewCommit)} />
-            <FieldRow label="Branch" value={payload?.branchName ?? "Not set"} />
-            <FieldRow
-              label="Repository"
-              value={
-                payload?.repoUrl ? (
-                  <a href={payload.repoUrl} target="_blank" rel="noreferrer">
-                    {payload.repoUrl}
-                  </a>
-                ) : (
-                  payload?.source ?? "Not set"
-                )
-              }
-            />
-            {manifest ? <FieldRow label="Package type" value={manifest.packageType ?? "Not set"} /> : null}
-            {manifest?.workflow || manifest?.template?.name ? <FieldRow label="Workflow/template" value={manifest.workflow ?? manifest.template?.name} /> : null}
-          </FieldGrid>
-        </div>
-      ) : null}
+      {statusBar ? null : contextPanel}
 
       <div className={shellClassName}>
         {explorerOpen && !expandedEditor && !hideExplorer ? (
@@ -1013,7 +1028,7 @@ export function CodeReviewPanel({
             {explorerView === "changes" ? <>{renderChangeList()}</> : <div className="fedlify-code-tree">{renderSourceTree(sourceTree)}</div>}
           </aside>
         ) : null}
-        <section className="fedlify-code-file-preview">
+        <section className={["fedlify-code-file-preview", editorFullScreen && statusBar ? "is-fullscreen" : ""].join(" ")}>
           <div className="fedlify-code-file-title">
             <div className="fedlify-code-file-title-main">
               <strong>{proposalFile ? proposalFile.path : (displayedPath ?? "No file selected")}</strong>
@@ -1033,6 +1048,11 @@ export function CodeReviewPanel({
               ) : null}
             </div>
             <Space className="fedlify-code-editor-actions" wrap>
+              {statusBar ? (
+                <Tooltip title={editorFullScreen ? "Exit full screen" : "Full screen"}>
+                  <Button size="small" type="text" icon={editorFullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />} onClick={() => setEditorFullScreen((current) => !current)} aria-label={editorFullScreen ? "Exit full screen" : "Full screen"} aria-pressed={editorFullScreen} data-testid="editor-fullscreen" />
+                </Tooltip>
+              ) : null}
               {hideExplorer ? null : (
               <Space.Compact className="fedlify-code-layout-actions">
                 <Tooltip title={explorerOpen && !expandedEditor ? "Hide explorer" : "Show explorer"}>
@@ -1337,6 +1357,12 @@ export function CodeReviewPanel({
           </aside>
         ) : null}
       </div>
+      {statusBar ? (
+        <Modal open={contextOpen} title="Review context" footer={null} width={560} onCancel={() => setContextOpen(false)}>
+          {contextPanel}
+        </Modal>
+      ) : null}
+      {statusBar ? compactRef : null}
     </div>
   );
 }

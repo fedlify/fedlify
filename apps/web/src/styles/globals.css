@@ -3,12 +3,12 @@
   --fedlify-panel: #ffffff;
   --fedlify-ink: #2f3040;
   --fedlify-text: #394150;
-  --fedlify-muted: #687086;
+  --fedlify-muted: #616880;
   --fedlify-line: #e4e0ee;
   --fedlify-soft: #f2eff9;
-  --fedlify-primary: #8576b5;
-  --fedlify-primary-hover: #7160a8;
-  --fedlify-primary-pressed: #5f5090;
+  --fedlify-primary: #7363A6;
+  --fedlify-primary-hover: #655596;
+  --fedlify-primary-pressed: #574A85;
   --fedlify-secondary: #5f8792;
   --fedlify-secondary-soft: #edf6f7;
   --fedlify-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
@@ -804,7 +804,7 @@ h4.ant-typography {
   flex-wrap: wrap;
   gap: 6px 12px;
   margin-top: 14px;
-  color: #7b8491;
+  color: #5E6B78;
   font-size: var(--fedlify-text-xs);
   line-height: 1.4;
 }
@@ -1335,7 +1335,7 @@ h4.ant-typography {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 12px;
-  color: #7b8491;
+  color: #5E6B78;
   font-size: var(--fedlify-text-xs);
   line-height: 1.4;
 }
@@ -1410,7 +1410,7 @@ h4.ant-typography {
 }
 
 .fedlify-member-role-label {
-  color: #7b8491;
+  color: #5E6B78;
   font-size: var(--fedlify-text-xs);
   font-weight: 700;
   text-transform: uppercase;
@@ -2956,7 +2956,7 @@ h4.ant-typography {
 
 .fedlify-rich-text-surface:empty::before {
   content: attr(data-placeholder);
-  color: #a3a0ad;
+  color: #6B6880;
   pointer-events: none;
 }
 
@@ -5096,7 +5096,7 @@ h4.ant-typography {
 }
 
 .fedlify-ws-stage.is-warn .fedlify-ws-stage-icon {
-  color: #c78a1a;
+  color: #8A5A00;
 }
 
 .fedlify-ws-stage.is-error .fedlify-ws-stage-icon {
@@ -5223,7 +5223,7 @@ h4.ant-typography {
 .fedlify-ws-modified {
   margin-left: auto;
   padding-right: 6px;
-  color: #c78a1a;
+  color: #8A5A00;
   font-weight: 700;
   font-size: var(--fedlify-text-xs);
 }
@@ -6373,3 +6373,154 @@ h4.ant-typography {
 }
 
 .fedlify-code-file-preview:has(.fedlify-proposal-review) > .fedlify-code-file-title { display: none; }
+
+/* Workspace layout: files collapse on the left, assistant is a full-height sidebar on the right. */
+.fedlify-ws-section-tools { display: inline-flex; align-items: center; gap: 4px; }
+.fedlify-code-compact-note { flex: 1 1 200px; min-width: 0; text-align: right; font-size: inherit; }
+
+.fedlify-ws-side.is-collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  overflow: hidden;
+}
+
+.fedlify-ws-grid.files-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
+
+@media (max-width: 1280px) {
+  .fedlify-ws-side.is-collapsed { min-height: 160px; }
+}
+
+@media (max-width: 800px) {
+  .fedlify-ws-grid.files-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .fedlify-ws-side.is-collapsed { flex-direction: row; min-height: 0; padding: 4px 8px; }
+  .fedlify-ws-side.is-collapsed .fedlify-ws-assistant-vertical { writing-mode: horizontal-tb; }
+}
+
+@media (min-width: 1281px) {
+  :root {
+    --fedlify-ws-assistant-width: clamp(340px, 26vw, 440px);
+    --fedlify-ws-header-height: 66px;
+  }
+
+  .fedlify-ws-page:has(.fedlify-ws-grid.has-assistant) { margin-right: var(--fedlify-ws-assistant-width); }
+  .fedlify-ws-page:has(.fedlify-ws-grid.assistant-collapsed) { margin-right: 44px; }
+
+  .fedlify-ws-grid,
+  .fedlify-ws-grid.assistant-collapsed { grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); }
+  .fedlify-ws-grid.files-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
+
+  .fedlify-ws-assistant {
+    position: fixed;
+    top: var(--fedlify-ws-header-height);
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    width: var(--fedlify-ws-assistant-width);
+    height: auto;
+    border-width: 0 0 0 1px;
+    border-radius: 0;
+  }
+
+  .fedlify-ws-assistant.is-collapsed { width: 44px; min-height: 0; }
+
+  .fedlify-ws-rail { gap: 8px; margin-bottom: 10px; }
+  .fedlify-ws-stage { padding: 6px 10px; }
+
+  .fedlify-ws-side,
+  .fedlify-ws-code { height: max(480px, calc(100vh - 270px)); }
+  .fedlify-ws-code { grid-template-rows: minmax(0, 1fr); }
+  .fedlify-ws-code .fedlify-code-compact-ref { flex-wrap: nowrap; padding: 4px 10px; }
+  .fedlify-ws-code .fedlify-code-compact-ref > * { flex-shrink: 0; }
+  .fedlify-ws-code .fedlify-code-compact-ref > .fedlify-code-compact-note { flex: 1 1 0; }
+}
+
+/* Branch, commit and notes live in a VS Code style status bar under the editor. */
+.fedlify-code-compact-ref.is-statusbar {
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-top: 1px solid var(--fedlify-line);
+  border-radius: 0 0 10px 10px;
+  white-space: nowrap;
+}
+.fedlify-code-compact-ref.is-statusbar .ant-typography { font-size: 12px; }
+.fedlify-code-compact-ref.is-statusbar code { padding: 0; background: none; border: 0; }
+.fedlify-code-compact-ref.is-statusbar .ant-btn { height: 22px; font-size: 12px; }
+.fedlify-code-compact-ref.is-statusbar > * { flex-shrink: 0; }
+.fedlify-code-compact-ref.is-statusbar > .fedlify-code-compact-note { flex: 1 1 0; min-width: 0; }
+
+@media (min-width: 1281px) {
+  .fedlify-ws-page.fedlify-card-page { gap: 10px; padding: 14px 18px; }
+  .fedlify-ws-page .fedlify-card-page-header { margin-bottom: 0; }
+  .fedlify-ws-page .fedlify-page-title-block { flex: 0 1 auto; }
+  .fedlify-ws-page .fedlify-card-page-header { flex-wrap: nowrap; }
+  .fedlify-ws-rail { margin-bottom: 0; }
+  .fedlify-ws-stage { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .fedlify-ws-stage-main { flex: 1 1 110px; align-items: center; }
+  .fedlify-ws-stage-action { padding-left: 0; }
+  .fedlify-ws-stage-copy span.fedlify-ws-stage-detail { display: none; }
+
+  .fedlify-ws-side,
+  .fedlify-ws-code { height: max(420px, calc(100vh - 270px)); }
+}
+
+/* One readable disabled look for filled buttons; the custom action style would otherwise keep its purple fill. */
+.ant-btn-primary:disabled,
+.ant-btn-primary.ant-btn-disabled,
+.fedlify-dark-action.ant-btn-primary:disabled,
+.fedlify-dark-action.ant-btn-primary:disabled:hover {
+  background: #ece9f3 !important;
+  border-color: #d9d4e4 !important;
+  color: #67637a !important;
+  cursor: not-allowed;
+}
+
+/* Full-screen code editor. */
+.fedlify-code-file-preview.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  height: auto !important;
+  border: 0;
+  border-radius: 0;
+}
+
+/* Review context in its modal. */
+.ant-modal .fedlify-code-context-panel { padding: 0; border: 0; background: none; }
+
+/* Failure notice: same card language as the rest of the assistant; the raw log opens in a modal. */
+.fedlify-ws-msg.is-system,
+.fedlify-ws-msg.is-system.is-stale {
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 12px;
+  background: var(--fedlify-panel);
+}
+.fedlify-ws-failure-head { display: flex; align-items: center; gap: 8px; }
+.fedlify-ws-failure-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fedlify-ws-failure-icon { color: #b3372f; }
+.fedlify-ws-msg.is-system.is-stale .fedlify-ws-failure-icon { color: var(--fedlify-muted); }
+.fedlify-ws-failure-summary.ant-typography { margin: 0; color: var(--fedlify-muted); font-size: 13px; }
+.fedlify-ws-failure-details.ant-btn { padding-inline: 0; margin-right: auto; }
+.fedlify-ws-failure-log {
+  margin: 0;
+  max-height: 55vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--fedlify-line);
+  border-radius: 10px;
+  background: var(--fedlify-soft);
+  color: var(--fedlify-ink);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.fedlify-ws-failure-head,
+.fedlify-ws-msg.is-system .fedlify-ws-proposal-actions { align-self: stretch; }

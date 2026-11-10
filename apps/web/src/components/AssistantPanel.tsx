@@ -1,7 +1,7 @@
 "use client";
 
-import { ClearOutlined, FullscreenExitOutlined, FullscreenOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
-import { Alert, Button, Input, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
+import { ClearOutlined, CloseCircleFilled, CloseOutlined, FullscreenExitOutlined, FullscreenOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
+import { Alert, Button, Input, Modal, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
 import { AgentHistoryPopover } from "@/components/AgentHistoryPopover";
 import { ChangesTimeline } from "@/components/ChangesTimeline";
 import { PlanQuestionsCard } from "@/components/PlanQuestionsCard";
@@ -19,6 +19,7 @@ import {
   type ProposalSummary
 } from "@/lib/agent-proposal-client";
 import type { FailureSummary } from "@/lib/diagnostics";
+import { failureNoticeText } from "@/lib/failure-notice";
 import { failureIsStale } from "@/lib/pipeline-start";
 import {
   RETENTION_NOTICE,
@@ -332,6 +333,7 @@ export function AssistantPanel({
   const logRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<{ focus: () => void } | null>(null);
   const [notices, setNotices] = useState<FailureSummary[]>([]);
+  const [noticeDetail, setNoticeDetail] = useState<FailureSummary | null>(null);
   const dismissedRef = useRef<Set<string>>(new Set(typeof window === "undefined" ? [] : (() => { try { return JSON.parse(window.sessionStorage.getItem(`fedlify-dismissed-notices:${projectId}`) ?? "[]") as string[]; } catch { return []; } })()));
   const streaming = messages.some((message) => message.status === "streaming");
   const hydratedStreaming = Boolean(view?.turns.some((turn) => turn.status === "streaming"));
@@ -1121,6 +1123,9 @@ export function AssistantPanel({
         </div>
       ) : (
       <>
+      <Modal open={noticeDetail !== null} title={noticeDetail?.title} width={680} onCancel={() => setNoticeDetail(null)} footer={<Button onClick={() => setNoticeDetail(null)}>Close</Button>}>
+        <pre className="fedlify-ws-failure-log" data-testid="failure-notice-log">{noticeDetail ? failureNoticeText(noticeDetail.lines).details.join("\n\n") : ""}</pre>
+      </Modal>
       <div className="fedlify-ws-log" ref={logRef} role="log" aria-live="polite" aria-label="Conversation">
         {notices.map((notice) => {
           // Only a publish failure belongs to a commit; the saved head moving past it makes the notice out of date.
@@ -1129,22 +1134,27 @@ export function AssistantPanel({
           const headNow = notice.headCommit ?? commit;
           return (
           <div key={notice.key} className={["fedlify-ws-msg is-system", stale ? "is-stale" : ""].join(" ")} role="alert" data-testid={`failure-notice-${notice.kind}`}>
-            <span className="fedlify-ws-msg-role">System</span>
-            <strong>{notice.title}</strong>
+            <div className="fedlify-ws-failure-head">
+              <CloseCircleFilled className="fedlify-ws-failure-icon" aria-hidden />
+              <strong>{notice.title}</strong>
+              <Tooltip title="Dismiss">
+                <Button size="small" type="text" icon={<CloseOutlined />} onClick={() => dismissNotice(notice.key)} aria-label={`Dismiss ${notice.title}`} />
+              </Tooltip>
+            </div>
             {stale ? (
               <Typography.Text className="fedlify-ws-stale-note" data-testid="failure-notice-stale">
                 This failure was for commit <code>{failedCommit?.slice(0, 8)}</code>; you have saved newer commits since (head is <code>{headNow?.slice(0, 8)}</code>).
               </Typography.Text>
             ) : null}
-            {notice.lines.length > 0 ? <pre className="fedlify-ws-msg-code"><code>{notice.lines.join("\n")}</code></pre> : <Typography.Text className="fedlify-muted">No error text was recorded.</Typography.Text>}
+            <Typography.Paragraph className="fedlify-ws-failure-summary" ellipsis={{ rows: 2 }}>{failureNoticeText(notice.lines).headline ?? "No error text was recorded."}</Typography.Paragraph>
             <div className="fedlify-ws-proposal-actions">
+              {notice.lines.length > 0 ? <Button size="small" type="link" className="fedlify-ws-failure-details" onClick={() => setNoticeDetail(notice)}>View details</Button> : null}
               <Button size="small" disabled={streaming} onClick={() => explainFailure(notice.kind)}>Explain</Button>
               {stale && onOpenPublish ? (
                 <Button size="small" type="primary" onClick={openPublish}>Publish latest</Button>
               ) : (
                 <Button size="small" type="primary" disabled={streaming} onClick={() => proposeFix(notice.kind)}>Propose fix</Button>
               )}
-              <Button size="small" type="text" onClick={() => dismissNotice(notice.key)}>Dismiss</Button>
             </div>
           </div>
           );

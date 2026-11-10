@@ -14,12 +14,14 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
         theme={{
           algorithm: theme.defaultAlgorithm,
           token: {
-            colorPrimary: "#8576B5",
-            colorPrimaryHover: "#7160A8",
-            colorPrimaryActive: "#5F5090",
+            colorPrimary: "#7363A6",
+            colorPrimaryHover: "#655596",
+            colorPrimaryActive: "#574A85",
             colorText: "#2F3040",
-            colorTextSecondary: "#687086",
+            colorTextSecondary: "#616880",
             colorBgLayout: "#F7F5FB",
+            colorTextDisabled: "#67637A",
+            colorBgContainerDisabled: "#ECE9F3",
             borderRadius: 14,
             fontSize: 14,
             fontSizeHeading1: 28,
@@ -39,7 +41,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
               itemHeight: 38,
               itemMarginInline: 6,
               itemSelectedBg: "#ECE7F6",
-              itemSelectedColor: "#7160A8"
+              itemSelectedColor: "#655596"
             },
             Segmented: {
               itemSelectedBg: "#ffffff"
