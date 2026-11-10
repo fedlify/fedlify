@@ -329,7 +329,7 @@ export default function ManageStudiesPage() {
                 </div>
                 <Typography.Paragraph className="fedlify-muted">
                   Fedlify coordinates the study control plane. Participant-level clinical data must remain at
-                  participating sites; releases are gated by ethics status, site onboarding, and human approval.
+                  sites; a model release needs an ethics decision, sites set up, and a person&apos;s approval.
                 </Typography.Paragraph>
 
                 <Space style={{ justifyContent: "flex-end", width: "100%" }}>

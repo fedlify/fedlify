@@ -2,6 +2,7 @@
 
 import { Tag } from "antd";
 import type { ReactNode } from "react";
+import { statusLabel } from "@/lib/terms";
 
 type StatusTone = "success" | "warning" | "danger" | "info" | "neutral" | "muted";
 
@@ -57,13 +58,6 @@ const tones: Record<string, StatusTone> = {
   PENDING_CHANGES: "neutral"
 };
 
-function formatStatus(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
 function normalizeStatus(value?: string | null) {
   return String(value ?? "UNKNOWN").trim().toUpperCase().replace(/\s+/g, "_");
 }
@@ -72,7 +66,7 @@ export function StatusTag({ value, label }: { value?: string | null; label?: Rea
   const normalized = normalizeStatus(value);
   return (
     <Tag className="fedlify-status-tag" data-status={normalized} data-tone={tones[normalized] ?? "neutral"}>
-      {label ?? formatStatus(normalized)}
+      {label ?? statusLabel(value)}
     </Tag>
   );
 }

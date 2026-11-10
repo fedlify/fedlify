@@ -149,12 +149,12 @@ export function describeUnreadySites(sites: SiteReadinessSnapshot[]): UnreadySit
   const unready: UnreadySite[] = [];
   for (const site of sites) {
     if (!site.check) {
-      unready.push({ code: site.code, name: site.name, problems: ["no sign-off has been recorded"] });
+      unready.push({ code: site.code, name: site.name, problems: ["no site sign-off has been recorded"] });
       continue;
     }
     if (siteSignedOff(site.check)) continue;
     const problems: string[] = [];
-    if (!site.check.dependenciesVerified) problems.push("dependencies not verified");
+    if (!site.check.dependenciesVerified) problems.push("software checks not confirmed");
     if (!site.check.policyAccepted) problems.push("data-use policy not accepted");
     unready.push({ code: site.code, name: site.name, problems });
   }
@@ -162,10 +162,10 @@ export function describeUnreadySites(sites: SiteReadinessSnapshot[]): UnreadySit
 }
 
 const GATE_EXPLANATIONS: Record<string, string> = {
-  ethicsApproval: "ethics approval is not recorded as approved (add or update it under the study's Governance)",
+  ethicsApproval: "the ethics decision is not recorded as approved (add or update it under the study's Governance)",
   approvedPipelineVersion: "the pipeline version is not approved (an authorised reviewer must approve it)",
-  passedPipelineValidation: "pipeline validation has not passed (publish the version and wait for its checks)",
-  readySites: "no participating sites are selected (add at least one site and record its sign-off)"
+  passedPipelineValidation: "the pipeline version has not passed its checks (publish it and wait for the checks to finish)",
+  readySites: "no sites are selected (add at least one site and record its site sign-off)"
 };
 
 /** One human-readable sentence per unmet execution requirement; names unready sites and the fix. */
@@ -174,16 +174,24 @@ export function executionGateMessage(missing: string[], unreadySites: UnreadySit
   for (const key of missing) {
     if (key === "allSitesReady") {
       if (unreadySites.length === 0) {
-        parts.push("some sites have not been signed off (open Sites and record the site sign-off for each)");
+        parts.push("some sites have not signed off (open Sites and record the site sign-off for each)");
       } else {
-        const detail = unreadySites.map((site) => `${site.name} (${site.code}): ${site.problems.join(", ")}`).join("; ");
+        const detail = unreadySites.map((site) => `${site.name || site.code}: ${site.problems.join(", ")}`).join("; ");
         parts.push(
-          `${unreadySites.length} site(s) are not ready: ${detail}. Ask each site operator to confirm the open items in the site attestation under Sites`
+          `${unreadySites.length} ${unreadySites.length === 1 ? "site is" : "sites are"} not ready (${detail}). Ask each site operator to finish the open items in the site sign-off under Sites`
         );
       }
     } else {
-      parts.push(GATE_EXPLANATIONS[key] ?? key);
+      parts.push(GATE_EXPLANATIONS[key] ?? "a requirement is still open");
     }
   }
   return `Cannot start the run yet: ${parts.join("; ")}.`;
+}
+
+/** Plain sentence for one publish requirement; `detail` carries counts such as how many study questions are left. */
+export function publishRequirementMessage(key: "ethicsApproval" | "studyQuestions" | "studySites", detail?: { remaining?: number }): string {
+  if (key === "ethicsApproval") return "Record the ethics decision";
+  if (key === "studySites") return "Add at least one site";
+  const left = detail?.remaining;
+  return typeof left === "number" ? `Answer the remaining study questions (${left} left)` : "Answer the remaining study questions";
 }

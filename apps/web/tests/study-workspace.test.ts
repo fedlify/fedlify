@@ -50,7 +50,7 @@ describe("study workspace navigation", () => {
         ethics: [{ status: "APPROVED" }],
         pipelineProjects: [{ versions: [{ validationStatus: "PASSED", approvalStatus: "PENDING" }] }]
       })
-    ).toMatchObject({ title: "Approve a pipeline version", section: "pipeline" });
+    ).toMatchObject({ title: "Publish the pipeline", section: "pipeline" });
 
     expect(
       resolveStudyNextAction({
@@ -59,7 +59,7 @@ describe("study workspace navigation", () => {
         pipelineProjects: [{ versions: [{ validationStatus: "PASSED", approvalStatus: "APPROVED" }] }],
         studySites: [{ readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }], nvflareStatuses: [{ status: "CONNECTED" }] }]
       })
-    ).toMatchObject({ title: "Provision aggregator", section: "run" });
+    ).toMatchObject({ title: "Publish the pipeline", section: "run" });
 
     expect(
       resolveStudyNextAction({

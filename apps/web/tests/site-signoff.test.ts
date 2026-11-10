@@ -66,7 +66,7 @@ describe("site sign-off", () => {
     expect(gateFor([check]).missing).toContain("allSitesReady");
     const unready = describeUnreadySites([{ code: "A", name: "Site A", check }, { code: "B", name: "Site B", check: null }]);
     expect(unready[0].problems).toEqual(["data-use policy not accepted"]);
-    expect(unready[1].problems).toEqual(["no sign-off has been recorded"]);
+    expect(unready[1].problems).toEqual(["no site sign-off has been recorded"]);
     expect(executionGateMessage(["allSitesReady"], unready)).not.toMatch(/connectivity|kit/i);
   });
 });

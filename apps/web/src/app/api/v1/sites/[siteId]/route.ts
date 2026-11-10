@@ -60,7 +60,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
     }
   });
 
-  if (!studySite) return problem(404, "Participant site not found.", "not_found");
+  if (!studySite) return problem(404, "Site not found.", "not_found");
 
   const auditFilters = [
     { targetId: siteId },

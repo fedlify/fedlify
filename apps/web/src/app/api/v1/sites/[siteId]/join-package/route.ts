@@ -36,8 +36,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     where: { id: siteId },
     include: { study: true, site: true }
   });
-  if (!studySite) return problem(404, "Participant site not found.", "not_found");
-  if (!studySite.site) return problem(409, "This participant site does not have a runtime site record.", "site_not_ready");
+  if (!studySite) return problem(404, "Site not found.", "not_found");
+  if (!studySite.site) return problem(409, "This site is not set up to connect yet. Ask the study team to finish adding this site.", "site_not_ready");
 
   // Step-up before anything is built or rotated: creating a kit rotates the site token and mints a client key bundle.
   const body = (await request.json().catch(() => null)) as { password?: unknown } | null;
@@ -73,17 +73,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       ? (activeDeployment.provisionedSites as Array<{ name?: string }>).some((site) => site.name === clientName)
       : false;
     if (activeDeployment.status !== "ACTIVE" || !activeDeployment.imageDigest || !activeDeployment.clientKitPrefix) {
-      return problem(409, "The study aggregator is not published yet. Publish the study before releasing site kits.", "aggregator_not_published");
+      return problem(409, "The study server is not published yet. Publish the study before releasing site kits.", "aggregator_not_published");
     }
     if (!provisioned) {
-      return problem(409, "This site joined after the last publish. Republish the study to issue its certificate.", "site_not_provisioned");
+      return problem(409, "This site was added after the last publish. Publish the study again to prepare its site kit.", "site_not_provisioned");
     }
     if (studyProject) {
       if (!harborConfig()) {
-        return problem(503, "The registry provisioner credentials (FEDLIFY_HARBOR_PROVISIONER_USERNAME/PASSWORD) are not configured.", "registry_not_configured");
+        return problem(503, "Site kit storage access is not set up on this server. Contact the platform administrator.", "registry_not_configured");
       }
     } else if (!process.env.FEDLIFY_STUDY_PULL_USERNAME || !process.env.FEDLIFY_STUDY_PULL_PASSWORD) {
-      return problem(503, "Study image pull credentials (FEDLIFY_STUDY_PULL_USERNAME/PASSWORD) are not configured.", "registry_not_configured");
+      return problem(503, "Code version access is not set up on this server. Contact the platform administrator.", "registry_not_configured");
     }
   }
   const baseManifest = buildStartupPackageManifest({
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
   // registry robot exists, so a "busy" answer never leaves a credential behind.
   const releaseSlot = passphrase ? acquireSlot("kit-encrypt", MAX_CONCURRENT_ENCRYPTIONS) : null;
   if (passphrase && !releaseSlot) {
-    return problem(503, "Other startup kits are being encrypted right now. Wait a few seconds and try again; nothing was changed.", "kit_encryption_busy");
+    return problem(503, "Other site kits are being prepared right now. Wait a few seconds and try again; nothing was changed.", "kit_encryption_busy");
   }
   let minted: MintedSiteRobot | null = null;
   let registryRevoked: "revoked" | "pending" | "not_applicable" = "not_applicable";
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       } catch (error) {
         return problem(
           503,
-          `The client startup kit for ${clientName} could not be read from storage: ${error instanceof Error ? error.message : "unknown error"}`,
+          `The site kit for ${studySite.name || clientName} could not be read from storage. Try again, and contact support if it keeps failing. (Details: ${error instanceof Error ? error.message : "unknown error"})`,
           "client_kit_unavailable"
         );
       }
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
           });
           return problem(
             502,
-            "The registry could not issue this site's image credential. Nothing was changed: the previous kit, credential and site token remain valid. Try again.",
+            "The site kit could not be prepared because access to the code version could not be issued. Nothing was changed: the previous site kit and access remain valid. Try again.",
             "registry_unavailable"
           );
         }
@@ -211,7 +211,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       });
       return problem(
         502,
-        "The startup kit could not be saved to object storage. Nothing was changed: the previous kit and site token remain valid. Try again.",
+        "The site kit could not be saved. Nothing was changed: the previous site kit and access remain valid. Try again.",
         "storage_unavailable"
       );
     }
@@ -326,12 +326,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
         uploaded: storageUploaded
       },
       message: storageUploaded
-        ? `Startup package created. Copy the enrollment token and the passphrase now; they will not be shown again.${
+        ? `Site kit created. Copy the site access code and the passphrase now; they will not be shown again.${
             publishedRuntime
               ? ""
-              : " This is a local-runtime kit: it is encrypted like any other, but its older runner still writes the site token to .env when started. Publish the study to get the token-free runner."
+              : " Publish the study to get the newer runner."
           }`
-        : "Startup package metadata created locally. Configure object storage to enable package downloads."
+        : "The site kit was created but cannot be downloaded yet because file storage is not set up. Contact the platform administrator."
     },
     { status: 201 }
   );

@@ -6540,3 +6540,76 @@ h4.ant-typography {
 .fedlify-site-panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .fedlify-site-note.ant-typography { font-size: 12px; }
 .fedlify-site-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+
+/* Details disclosure for technical values */
+.fedlify-details {
+  margin-top: 8px;
+  font-size: var(--fedlify-text-sm);
+}
+
+.fedlify-details-toggle {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: var(--fedlify-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.fedlify-details-toggle::before {
+  content: "\25B8";
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.fedlify-details-toggle[aria-expanded="true"]::before {
+  content: "\25BE";
+}
+
+.fedlify-details-toggle:hover {
+  color: var(--fedlify-primary-hover);
+}
+
+.fedlify-details-list {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  background: var(--fedlify-soft);
+  border: 1px solid var(--fedlify-line);
+  border-radius: 8px;
+}
+
+.fedlify-details-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 160px) 1fr;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.fedlify-details-row dt {
+  color: var(--fedlify-muted);
+}
+
+.fedlify-details-row dd {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--fedlify-text);
+  overflow-wrap: anywhere;
+}
+
+.fedlify-details-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fedlify-text-xs);
+}
+
+.fedlify-details-copy {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--fedlify-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fedlify-text-xs);
+}

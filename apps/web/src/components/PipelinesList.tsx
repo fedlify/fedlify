@@ -3,6 +3,7 @@
 import { CopyOutlined, FolderOpenOutlined } from "@ant-design/icons";
 import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ListJob, ListProject } from "@/lib/pipeline-start";
+import { statusLabel } from "@/lib/terms";
 import { pipelineRows, type PipelineRow } from "@/lib/pipeline-start";
 
 type Props = {
@@ -43,7 +44,7 @@ export function PipelinesList({ projects, liveVersionId, jobs, openId, statusCol
           render: (_, row) => (
             <Space size={6} wrap>
               <span>{row.latestVersion ?? "none"}</span>
-              <Tag color={statusColor[row.state] ?? "default"}>{row.state}</Tag>
+              <Tag color={statusColor[row.state] ?? "default"}>{statusLabel(row.state)}</Tag>
             </Space>
           )
         },
@@ -56,7 +57,7 @@ export function PipelinesList({ projects, liveVersionId, jobs, openId, statusCol
           render: (_, row) =>
             row.lastRun ? (
               <Space size={6} wrap>
-                <Tag color={statusColor[row.lastRun.status] ?? "default"}>{row.lastRun.status}</Tag>
+                <Tag color={statusColor[row.lastRun.status] ?? "default"}>{statusLabel(row.lastRun.status)}</Tag>
                 <span className="fedlify-muted">
                   {row.lastRun.version ?? ""} {new Date(row.lastRun.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 </span>

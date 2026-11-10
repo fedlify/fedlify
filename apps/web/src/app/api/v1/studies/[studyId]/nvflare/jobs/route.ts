@@ -95,7 +95,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   }
 
   const parsed = submitJobSchema.safeParse(await request.json());
-  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid NVFLARE job submission.");
+  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "The run request is not valid.");
 
   const [study, pipelineVersion] = await Promise.all([
     prisma.study.findUnique({
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
 
   if (!study) return problem(404, "Study not found.", "not_found");
   if (!pipelineVersion || pipelineVersion.project.studyId !== studyId) {
-    return problem(404, "Approved pipeline version not found for this study.", "pipeline_not_found");
+    return problem(404, "Pipeline version not found for this study.", "pipeline_not_found");
   }
 
   const studySites = await prisma.studySite.findMany({
@@ -148,14 +148,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
 
   const deployment = await prisma.nvflareDeployment.findFirst({ where: { studyId, active: true, status: "ACTIVE" } });
   if (!deployment?.serverAddress) {
-    return problem(409, "Start an active NVFLARE deployment before submitting jobs.", "deployment_required");
+    return problem(409, "Publish the pipeline so the study server is running before starting a run.", "deployment_required");
   }
 
   const publishedRuntime = deployment.runtimeMode === "k8s";
   if (publishedRuntime && deployment.pipelineVersionId !== pipelineVersion.id) {
     return problem(
       409,
-      "The aggregator serves a different published version. Run the published version, or publish this one first.",
+      "The study server is running a different pipeline version. Run that version, or publish this one first.",
       "version_not_published"
     );
   }
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     nvflareClientName: site.site?.nvflareClientName ?? `site-${site.code}`
   }));
   if (selectedSites.length === 0) {
-    return problem(409, "Select at least one ready participant site before submitting a job.", "no_selected_sites");
+    return problem(409, "Select at least one ready site before starting a run.", "no_selected_sites");
   }
 
   if (publishedRuntime) {
@@ -176,14 +176,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     try {
       connected = new Set((await adapterSystemInfo({ studyId, adapterUrl: deployment.adapterUrl })).clients.map((client) => client.name));
     } catch (error) {
-      if (error instanceof StudyRuntimeError) return problem(error.status, error.message, "aggregator_unreachable");
+      if (error instanceof StudyRuntimeError) return problem(error.status, "The study server could not be reached. Try again in a minute.", "aggregator_unreachable");
       throw error;
     }
     const offline = studySites
       .filter((site) => !isSitePresent(connected.has(nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName })), site.site?.heartbeats[0]?.createdAt))
-      .map((site) => nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }));
+      .map((site) => site.name || site.code);
     if (offline.length > 0) {
-      return problem(409, `These sites are not connected to the aggregator yet: ${offline.join(", ")}.`, "sites_not_connected");
+      return problem(409, `These sites are not connected to the study server yet: ${offline.join(", ")}.`, "sites_not_connected");
     }
   }
 
@@ -194,6 +194,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       studySites.map((site) => ({
         code: site.code,
         clientName: nvflareClientName({ code: site.code, nvflareClientName: site.site?.nvflareClientName }),
+        name: site.name,
         heartbeatMetadata: site.site?.heartbeats[0]?.metadata ?? null
       })),
       deployment.imageDigest
@@ -222,7 +223,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   if ((parsed.data.runtimeParameters?.minClients ?? runtimeParameters.minClients) > selectedSites.length) {
     return problem(
       400,
-      `Minimum participating sites cannot exceed selected sites. Selected ${selectedSites.length}, requested ${parsed.data.runtimeParameters?.minClients}.`,
+      `The minimum number of sites cannot be higher than the number of selected sites. Selected ${selectedSites.length}, requested ${parsed.data.runtimeParameters?.minClients}.`,
       "invalid_runtime_parameters"
     );
   }
@@ -267,7 +268,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       };
     } else {
       if (!pipelineVersion.jobWorkspacePath) {
-        throw new Error("The approved pipeline version does not have a local NVFLARE job workspace path.");
+        throw new Error("This pipeline version has no run files prepared.");
       }
       const runWorkspacePath = pipelineRunWorkspacePath({ studyId, jobId: created.id });
       await prepareNvflareJobWorkspaceForRun({
@@ -286,7 +287,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "FLARE API submit_job failed.";
+    const message = error instanceof Error ? error.message : "The run could not be started. Try again.";
     await prisma.$transaction([
       prisma.nvflareJob.update({
         where: { id: created.id },
@@ -302,7 +303,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
         }
       })
     ]);
-    return problem(503, message, "flare_api_submit_failed");
+    return problem(503, `The run could not be started. Try again, and contact support if it keeps failing. (Details: ${message})`, "flare_api_submit_failed");
   }
 
   const job = await prisma.$transaction(async (tx) => {

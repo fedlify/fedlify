@@ -514,3 +514,31 @@ Decision: the provisioner is a plain non-admin Harbor user, `fedlify-provisioner
 **Known gaps.** Manual commits have no read-only compare view in the UI yet; "Save to study requirements" is not wired; selections sent from the editor use placeholder line numbers; nothing was run against a live Gitea, database or browser, so the Gitea `stats`/`files` fields are assumed.
 
 **Tests.** `agent-plan`, `agent-threads-route`, `agent-thread-turns-route`, `agent-plan-routes`, `agent-timeline`, `agent-backfill`, `gitea-commits`, `agent-thread-client`.
+
+## Plain-language vocabulary and enforcement
+
+Readers are clinical PIs and hospital staff. One plain term per concept, sentence case. Technical values (commit hash, image digest, NVFLARE names, ids, storage keys, raw action keys) appear only inside a Details disclosure or a tooltip/title, never as the main label.
+
+| Concept | Use | Never show as primary text |
+|---|---|---|
+| NVFLARE aggregator / deployment | Study server | aggregator, NVFLARE deployment, Compose project |
+| SiteJoinPackage | Site kit | startup kit, join package, kit release |
+| PipelineProject | Pipeline ("New pipeline") | project, source workspace |
+| PipelineVersion | Pipeline version (v3) | commit hash in a button or headline |
+| Save to the repo | Save | Save to main, commit to main |
+| Site software | Runner: Connected / Not connected / Not reporting | agent, heartbeat, NVFLARE client |
+| StudySite | Site | participant site, participating site, client |
+| NVFLARE client name | Site ID (inside Details only) | NVFLARE client |
+| Automatic facts from the runner | Site checks | readiness check, machine evidence |
+| Human confirmation by the site | Site sign-off | attestation, activation |
+| The 29 requirements | Study questions | requirements chat |
+| Image the sites run | Code version (Up to date / Needs update) | study image, digest, sha256 |
+| NvflareJob | Run | job, federated run |
+| ModelRelease | Model release | release for anything else |
+| Gitea | repository ("Open repository") | Gitea |
+
+Shared code: `apps/web/src/lib/terms.ts` (`TERMS`, `statusLabel`, `roleLabel`, `auditActionLabel`) and `apps/web/src/components/Details.tsx`. Status enums, roles and audit keys are never shown raw.
+
+Enforcement tests:
+- `tests/terms.test.ts`: every status enum value, role and audit action key has a label; no label contains a banned word.
+- `tests/terms-lint.test.ts`: scans user-visible strings in the covered files and fails if a banned term is used more often than `tests/terms-allowlist.json` allows. The list can only shrink; after removing terms run `npm run terms:allowlist` in `apps/web`.

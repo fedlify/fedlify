@@ -7,9 +7,11 @@ import { useCallback, useEffect, useState } from "react";
 import { RecordTable } from "@/components/RecordTable";
 import { StatusTag } from "@/components/StatusTag";
 import { formatHeartbeat, type SiteOverviewRow } from "@/lib/site-overview";
+import { kitStateLabel } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
 
-/** The study's Sites page: one table (site, institution, readiness, kit state, last heartbeat) and a row action to the site page. */
+/** The study's Sites page: one table (site, institution, sign-off, site kit, code version, connection, last report) and a row action to the site page. */
+
 export function StudySitesTable({ studyId, onRegister, canRegister = true }: { studyId: string; onRegister?: () => void; canRegister?: boolean }) {
   const router = useRouter();
   const [rows, setRows] = useState<SiteOverviewRow[] | null>(null);
@@ -35,7 +37,7 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
       {onRegister && canRegister ? (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <Button icon={<PlusOutlined />} onClick={onRegister}>
-            Register site
+            Add site
           </Button>
         </div>
       ) : null}
@@ -43,7 +45,7 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
         rowKey="studySiteId"
         loading={rows === null && !error}
         dataSource={rows ?? []}
-        emptyText="No participant sites yet. Register at least one institution before releasing site kits."
+        emptyText="No sites yet. Add at least one site before creating site kits."
         columns={[
           {
             title: "Site",
@@ -55,10 +57,10 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
             )
           },
           { title: "Institution", dataIndex: "institutionName" },
-          { title: "Readiness", dataIndex: "readiness", render: (value: string) => <StatusTag value={value} /> },
-          { title: "Kit state", dataIndex: "kitState", render: (value: string) => <StatusTag value={value} /> },
+          { title: "Site sign-off", dataIndex: "readiness", render: (value: string) => <StatusTag value={value} /> },
+          { title: "Site kit", dataIndex: "kitState", render: (value: string) => <StatusTag value={value} label={kitStateLabel(value)} /> },
           {
-            title: "Study image",
+            title: "Code version",
             dataIndex: "imageState",
             render: (value: string, row) => {
               if (value === "OUTDATED" || value === "NOT_REPORTED") {
@@ -67,16 +69,16 @@ export function StudySitesTable({ studyId, onRegister, canRegister = true }: { s
                     title="How to bring this site up to date"
                     content={<ol style={{ margin: 0, paddingLeft: 18, maxWidth: 360 }}>{row.imageFix.map((step) => <li key={step}>{step}</li>)}</ol>}
                   >
-                    <Tag color="orange" style={{ cursor: "help" }}>{value === "OUTDATED" ? "Outdated: update needed" : "Image not reported"}</Tag>
+                    <Tag color="orange" style={{ cursor: "help" }}>{value === "OUTDATED" ? "Needs update" : "Not reported"}</Tag>
                   </Popover>
                 );
               }
-              return value === "CURRENT" ? <Tag color="green">Current</Tag> : <span className="fedlify-muted">-</span>;
+              return value === "CURRENT" ? <Tag color="green">Up to date</Tag> : <span className="fedlify-muted">-</span>;
             }
           },
           { title: "Connection", dataIndex: "connection", render: (value: string) => <StatusTag value={value} /> },
           {
-            title: "Last heartbeat",
+            title: "Runner last reported",
             dataIndex: "lastHeartbeatAt",
             render: (value: string | null) => <span title={value ?? undefined}>{formatHeartbeat(value)}</span>
           },

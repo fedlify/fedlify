@@ -28,10 +28,10 @@ async function loadPackage(userId: string, siteId: string, packageId: string) {
     where: { id: packageId, studySiteId: siteId },
     include: { studySite: { include: { study: true, site: true } } }
   });
-  if (!siteJoinPackage) return { response: problem(404, "Startup package not found.", "not_found") as Response };
-  if (siteJoinPackage.status !== "ACTIVE") return { response: problem(409, "This startup package is no longer active.", "package_inactive") as Response };
-  if (siteJoinPackage.expiresAt < new Date()) return { response: problem(410, "This startup package has expired.", "package_expired") as Response };
-  if (!siteJoinPackage.studySite.site) return { response: problem(409, "This participant site does not have a runtime site record.", "site_not_ready") as Response };
+  if (!siteJoinPackage) return { response: problem(404, "Site kit not found.", "not_found") as Response };
+  if (siteJoinPackage.status !== "ACTIVE") return { response: problem(409, "This site kit is no longer active.", "package_inactive") as Response };
+  if (siteJoinPackage.expiresAt < new Date()) return { response: problem(410, "This site kit has expired.", "package_expired") as Response };
+  if (!siteJoinPackage.studySite.site) return { response: problem(409, "This site is not set up to connect yet. Ask the study team to finish adding this site.", "site_not_ready") as Response };
   return { siteJoinPackage };
 }
 
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       downloadUrl: null,
       grant: null,
       manifest,
-      message: "Object storage is not available for this local environment, so the startup package manifest is shown inline."
+      message: "File storage is not set up, so the site kit contents are shown on screen instead. Contact the platform administrator."
     });
   }
 
@@ -124,7 +124,7 @@ async function redeem(
   }
   if (typeof grant !== "string" || !grant || !(await redeemDownloadGrant(siteJoinPackage.id, userId, grant))) {
     await audit({ ...base, action: "site.join_package.download_failed", metadata: { studySiteId: siteId, reason: grant ? "grant_invalid_or_used" : "grant_missing" } });
-    return problem(403, "Confirm your password to download this kit. Each confirmation allows one download.", "step_up_required");
+    return problem(403, "Confirm your password to download this site kit. Each confirmation allows one download.", "step_up_required");
   }
   await audit({ ...base, action: "site.join_package.download", metadata: { studySiteId: siteId, checksum: siteJoinPackage.checksum } });
   const response = json({ package: publicPackage(siteJoinPackage), downloadUrl, expiresInSeconds: PRESIGNED_URL_SECONDS });

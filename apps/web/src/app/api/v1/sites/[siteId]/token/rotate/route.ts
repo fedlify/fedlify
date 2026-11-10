@@ -22,8 +22,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
     where: { id: siteId },
     include: { site: true }
   });
-  if (!studySite) return problem(404, "Participant site not found.", "not_found");
-  if (!studySite.site) return problem(409, "This participant site does not have a runtime site record.", "site_not_ready");
+  if (!studySite) return problem(404, "Site not found.", "not_found");
+  if (!studySite.site) return problem(409, "This site is not set up to connect yet. Ask the study team to finish adding this site.", "site_not_ready");
 
   const enrollmentToken = randomToken();
   await prisma.site.update({
@@ -44,6 +44,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
 
   return json({
     enrollmentToken,
-    message: "Site token rotated. Copy this token now; it will not be shown again."
+    message: "Site access code reset. Copy it now; it will not be shown again."
   });
 }

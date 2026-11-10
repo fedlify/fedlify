@@ -462,7 +462,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
           json = null;
         }
       }
-      note = json ? `Prefilled from ${card?.name}.` : `${card?.name ?? "The template"} keeps its own contract unless you change it here.`;
+      note = json ? `Prefilled from ${card?.name}.` : `${card?.name ?? "The template"} keeps the original pipeline's settings unless you change it here.`;
     } else if (path === "import") {
       json = importFiles?.find((file) => file.path === "fedlify-pipeline.json")?.content ?? null;
       note = json ? "Prefilled from the fedlify-pipeline.json in the import." : "The import has no readable data contract yet; fill it in to write one.";
@@ -474,7 +474,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
         } catch {
           json = null;
         }
-        note = json ? `Prefilled from ${copyProject.name} at its saved head.` : null;
+        note = json ? `Prefilled from the latest saved code of ${copyProject.name}.` : null;
       } else {
         note = "Copying a published version keeps that version's contract unless you change it here.";
       }
@@ -963,7 +963,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
                   value={copyVersionId}
                   onChange={setCopyVersionId}
                   options={[
-                    { value: "head", label: "Saved head (latest commit)" },
+                    { value: "head", label: "Latest saved code" },
                     ...(copyProject?.versions.filter((version) => version.gitCommit).map((version) => ({ value: version.id, label: `${version.version}${version.id === liveVersionId ? " (live)" : ""}` })) ?? [])
                   ]}
                 />
@@ -979,7 +979,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
         <div className="fedlify-start-panel" data-testid="wizard-step-contract">
           <h3>Data contract and run defaults</h3>
           <Typography.Paragraph type="secondary">
-            {prefillNote ?? "Optional."} Leave everything as it is to keep the source&apos;s own contract. Changing anything writes <code>fedlify-pipeline.json</code> as the first commit after the copy.
+            {prefillNote ?? "Optional."} Leave everything as it is to keep the original pipeline&apos;s settings. Changing anything writes <code>fedlify-pipeline.json</code> as the first save after the copy.
           </Typography.Paragraph>
           <div className="fedlify-start-fields">
             <label>
@@ -1066,10 +1066,10 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
             <dt>Source</dt>
             <dd>{sourceSummary}</dd>
             <dt>Contract</dt>
-            <dd>{touched ? `${contract.label} + ${contract.features.length} features, ${contract.numRounds} rounds, min ${contract.minClients} sites (written as the first commit)` : "kept from the source"}</dd>
+            <dd>{touched ? `${contract.label} + ${contract.features.length} features, ${contract.numRounds} rounds, min ${contract.minClients} sites (saved as the first save)` : "kept from the source"}</dd>
           </dl>
           <Typography.Paragraph type="secondary">
-            This creates a repository in this study&apos;s Gitea organization and opens the workspace. It does not publish, run, or release anything.
+            This creates a repository for this pipeline in this study and opens the workspace. It does not publish, run, or release anything.
           </Typography.Paragraph>
           {createError ? <Alert type="error" showIcon message={createError} style={{ marginBottom: 12 }} /> : null}
           <footer className="fedlify-start-foot">

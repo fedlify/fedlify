@@ -31,9 +31,9 @@ describe("site image comparison", () => {
   });
   it("checks every site, names it, and gives different fix steps for update and new kit", () => {
     const sites = [
-      { code: "A", clientName: "site-A", heartbeatMetadata: { imageDigest: ref("p/study", B) } },
-      { code: "B", clientName: "site-B", heartbeatMetadata: { imageDigest: ref("p/study", A) } },
-      { code: "C", clientName: "site-C", heartbeatMetadata: {} },
+      { code: "A", clientName: "site-A", name: "Hospital A", heartbeatMetadata: { imageDigest: ref("p/study", B) } },
+      { code: "B", clientName: "site-B", name: "Hospital B", heartbeatMetadata: { imageDigest: ref("p/study", A) } },
+      { code: "C", clientName: "site-C", name: "Hospital C", heartbeatMetadata: {} },
       { code: "D", clientName: "site-D", heartbeatMetadata: { imageDigest: ref("legacy/study", A) } }
     ];
     const checks = checkSiteImages(sites, ref("p/study", B));
@@ -41,11 +41,14 @@ describe("site image comparison", () => {
     expect(checks[1].needsNewKit).toBe(false);
     expect(checks[3].needsNewKit).toBe(true);
     const message = describeImageMismatch(checks, ref("p/study", B));
-    expect(message).toContain("site-B");
-    expect(message).toContain("site-C");
-    expect(message).not.toContain("site-A");
+    expect(message).toContain("Hospital B");
+    expect(message).toContain("Hospital C");
+    expect(message).not.toContain("Hospital A");
+    expect(message).toContain("code version");
+    expect(message).not.toMatch(/aggregator|image|digest|client/i);
+    expect(message.trim().endsWith("sha256:" + "b".repeat(12) + ".)")).toBe(true);
     expect(siteImageFixSteps(checks[1]).join(" ")).toMatch(/fedlify-runner.sh update/);
-    expect(siteImageFixSteps(checks[1]).join(" ")).toMatch(/No new kit is needed/);
+    expect(siteImageFixSteps(checks[1]).join(" ")).toMatch(/No new site kit is needed/);
     expect(siteImageFixSteps(checks[3]).join(" ")).toMatch(/new site kit/);
   });
   it("keeps a full-length image reference in heartbeat metadata, so its digest is never cut", () => {

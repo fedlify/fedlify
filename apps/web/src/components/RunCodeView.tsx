@@ -2,6 +2,7 @@
 
 import { Alert, Button, Space, Typography } from "antd";
 import { useState } from "react";
+import { Details } from "@/components/Details";
 import { FileTree } from "@/components/FileTree";
 
 export type CodeView = {
@@ -29,19 +30,25 @@ export function RunCodeView({ view, onSelect }: { view: CodeView; onSelect: (pat
   return (
     <div>
       <Space wrap style={{ marginBottom: 8 }}>
-        <span>Commit <code>{view.commit}</code></span>
-        {!view.commitRecordedOnRun ? <Typography.Text type="warning">Not recorded on this run: this is the commit of pipeline version {view.pipelineVersion}, which may differ from what ran.</Typography.Text> : null}
-        {view.commitUrl ? <a href={view.commitUrl} target="_blank" rel="noreferrer">Open in Gitea</a> : null}
-        <span>{view.parent ? `Compared with ${view.parent.version} (${view.parent.commit.slice(0, 10)})` : "No earlier version to compare with"}</span>
+        <span>Code for pipeline version {view.pipelineVersion}</span>
+        {!view.commitRecordedOnRun ? <Typography.Text type="warning">Not recorded on this run: this is the code of pipeline version {view.pipelineVersion}, which may differ from what ran.</Typography.Text> : null}
+        {view.commitUrl ? <a href={view.commitUrl} target="_blank" rel="noreferrer">Open repository</a> : null}
+        <span>{view.parent ? `Compared with pipeline version ${view.parent.version}` : "No earlier version to compare with"}</span>
       </Space>
-      <Typography.Paragraph style={{ marginBottom: 8 }}>
-        Image digest: {view.imageDigest ? <code style={mono}>{view.imageDigest}</code> : notRecorded}
-        {view.siteDigests?.map((sd) => (
-          <div key={sd.site}>Site {sd.site} reported: {sd.imageDigest ? <code style={mono}>{sd.imageDigest}</code> : <Typography.Text type="secondary">not reported</Typography.Text>}</div>
-        ))}
-      </Typography.Paragraph>
+      <Details
+        defaultOpen
+        items={[
+          { label: "Commit", value: <code style={mono}>{view.commit}</code>, copyText: view.commit },
+          ...(view.parent ? [{ label: "Compared with commit", value: <code style={mono}>{view.parent.commit}</code> }] : []),
+          { label: "Code version (image digest)", value: view.imageDigest ? <code style={mono}>{view.imageDigest}</code> : notRecorded },
+          ...(view.siteDigests ?? []).map((sd) => ({
+            label: `Site ${sd.site} reported`,
+            value: sd.imageDigest ? <code style={mono}>{sd.imageDigest}</code> : <Typography.Text type="secondary">Not reported</Typography.Text>
+          }))
+        ]}
+      />
       {view.treeTruncated ? (
-        <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="The file list is incomplete" description="The repository has more files than the code host returned in one listing. Files marked added, modified or removed may be wrong for files that are not listed. Open the commit in Gitea for the full tree." />
+        <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="The file list is incomplete" description="The repository has more files than could be listed at once. Files marked added, modified or removed may be wrong for files that are not listed. Open the repository for the full list." />
       ) : null}
       {view.deletedPaths.length ? <Typography.Paragraph type="secondary">Removed since the previous version: {view.deletedPaths.join(", ")}</Typography.Paragraph> : null}
       <div data-testid="code-layout" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
@@ -57,7 +64,7 @@ export function RunCodeView({ view, onSelect }: { view: CodeView; onSelect: (pat
               </Space>
               {view.file.parentContentMissing ? <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="No diff: the previous version of this file could not be read" description="The file is shown as it was at this run's commit." /> : null}
               {showDiff && view.file.diff ? (
-                view.file.diff.tooLarge ? <Alert type="info" message="File too large to diff here. Open it in Gitea." /> : view.file.diff.lines.length === 0 ? <Typography.Text type="secondary">No changes against the previous version.</Typography.Text> : (
+                view.file.diff.tooLarge ? <Alert type="info" message="File too large to compare here. Open it in the repository." /> : view.file.diff.lines.length === 0 ? <Typography.Text type="secondary">No changes against the previous version.</Typography.Text> : (
                   <pre style={{ overflow: "auto", maxHeight: 520 }}>
                     {view.file.diff.lines.map((l) => `${l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "} ${l.text}`).join("\n")}
                   </pre>

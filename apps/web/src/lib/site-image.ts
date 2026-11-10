@@ -1,5 +1,5 @@
 /**
- * Site image currency. A published study runs one image on the aggregator; every site must run the same one, or the run
+ * Site image currency (shown to people as "Code version"). A published study runs one image on the study server; every site must run the same one, or the run
  * trains on mismatched code. Each runner heartbeat reports the digest of the image its client container actually runs.
  *
  * Comparison is by the sha256 digest ONLY. The repository path can legitimately differ (a study moved to its own
@@ -54,13 +54,15 @@ export function reportedImageDigest(heartbeatMetadata: unknown): string | null {
 export type SiteImageCheck = {
   code: string;
   clientName: string;
+  /** Display name of the site, when the caller has it; messages fall back to the code. */
+  name?: string;
   state: SiteImageState;
   reportedDigest: string | null;
   needsNewKit: boolean;
 };
 
 export function checkSiteImages(
-  sites: Array<{ code: string; clientName: string; heartbeatMetadata: unknown; kitImageRef?: string | null }>,
+  sites: Array<{ code: string; clientName: string; name?: string; heartbeatMetadata: unknown; kitImageRef?: string | null }>,
   desiredRef: string | null | undefined
 ): SiteImageCheck[] {
   return sites.map((site) => {
@@ -69,6 +71,7 @@ export function checkSiteImages(
     return {
       code: site.code,
       clientName: site.clientName,
+      name: site.name,
       state,
       reportedDigest: reported,
       needsNewKit: state !== "CURRENT" && state !== "UNKNOWN" && updateNeedsNewKit(reported ?? site.kitImageRef, desiredRef)
@@ -89,24 +92,26 @@ const short = (ref: string | null) => {
 export function siteImageFixSteps(check: Pick<SiteImageCheck, "state" | "needsNewKit">): string[] {
   if (check.needsNewKit) {
     return [
-      "The study image moved to a different registry location, and this site's pull credential only covers the old one.",
+      "The code version is now kept somewhere new, and this site's current kit cannot reach it. A new site kit is needed.",
       "Release a new site kit in Fedlify, unlock it, and run ./fedlify-runner.sh start (fedlify-runner.ps1 start on Windows) from the new kit folder."
     ];
   }
   return [
     "In the site's kit folder run ./fedlify-runner.sh update (fedlify-runner.ps1 update on Windows).",
-    "Confirm the pipeline version and the first 12 characters of the new digest when asked. No new kit is needed.",
-    "The runner logs in to the registry again with the kit's own credential file; if it was removed with logout or has expired, unlock a fresh kit instead.",
-    check.state === "NOT_REPORTED" ? "This site has not reported an image digest: start the runner so its heartbeat reports one." : "Wait about 30 seconds for the next heartbeat, then start the run again."
+    "Confirm the pipeline version and the first 12 characters of the new code version ID when asked. No new site kit is needed.",
+    "The runner signs in again with the site kit's own access file; if that was removed or has expired, unlock a fresh site kit instead.",
+    check.state === "NOT_REPORTED" ? "This site has not reported a code version: start the runner so it can report one." : "Wait about 30 seconds for the next runner report, then start the run again."
   ];
 }
 
 export function describeImageMismatch(checks: SiteImageCheck[], desiredRef: string | null | undefined): string {
   const bad = checks.filter((check) => isImageMismatch(check.state));
-  const list = bad.map((check) => `${check.clientName} (${check.state === "NOT_REPORTED" ? "no image reported" : `runs ${short(check.reportedDigest)}`})`).join(", ");
+  const list = bad
+    .map((check) => `${check.name || check.code || check.clientName} (${check.state === "NOT_REPORTED" ? "has not reported a code version" : "needs update"})`)
+    .join(", ");
   const anyKit = bad.some((check) => check.needsNewKit);
   const fix = anyKit
-    ? "At least one site needs a new kit (the study image moved registry location); the others run ./fedlify-runner.sh update."
-    : "On each of these sites run ./fedlify-runner.sh update (fedlify-runner.ps1 update on Windows) and confirm the version and digest; no new kit is needed.";
-  return `These sites are not running the published image ${short(desiredRef ?? null)}: ${list}. ${fix}`;
+    ? "At least one site needs a new site kit (the code version is now kept somewhere new); the others run ./fedlify-runner.sh update."
+    : "On each of these sites run ./fedlify-runner.sh update (fedlify-runner.ps1 update on Windows) and confirm the version; no new site kit is needed.";
+  return `These sites are not running the latest code version: ${list}. ${fix} (Latest code version ID: ${short(desiredRef ?? null)}.)`;
 }

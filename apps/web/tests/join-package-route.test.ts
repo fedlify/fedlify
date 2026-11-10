@@ -161,7 +161,7 @@ describe("join-package route", () => {
     );
     const body = await (await call())!.json();
     expect(body.kitKind).toBe("local");
-    expect(body.message).toContain(".env");
+    expect(body.message).toContain("Publish the study to get the newer runner");
     expect(body.downloadUrl).toBe("https://s3.test/kit.zip");
     expect(created[0]!.data.downloadCount).toBe(1);
   });

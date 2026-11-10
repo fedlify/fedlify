@@ -44,7 +44,7 @@ export function PipelineRail({ stages, activeStage, currentStage, onSelect, onAc
             key={stage.key}
             className={["fedlify-ws-stage", `is-${stage.tone}`, stage.key === activeStage ? "is-open" : "", stage.key === currentStage ? "is-current" : ""].filter(Boolean).join(" ")}
           >
-            <button type="button" className="fedlify-ws-stage-main" onClick={() => onSelect(stage.key)} title={action?.disabledReason ?? stage.detail ?? undefined} aria-current={stage.key === activeStage ? "step" : undefined}>
+            <button type="button" className="fedlify-ws-stage-main" onClick={() => onSelect(stage.key)} title={[action?.disabledReason ?? stage.detail, stage.technical].filter(Boolean).join(" - ") || undefined} aria-current={stage.key === activeStage ? "step" : undefined}>
               <span className="fedlify-ws-stage-icon" aria-hidden>{toneIcon[stage.tone]}</span>
               <span className="fedlify-ws-stage-copy">
                 <strong>{index + 1}. {stage.title}</strong>

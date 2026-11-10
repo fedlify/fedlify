@@ -93,9 +93,9 @@ export function submittedExperimentRuns(study: StudySummaryInput) {
 }
 
 export function protocolReadinessDetail(study: StudySummaryInput) {
-  if (studyProtocolReady(study)) return "Study design and ethics decision are ready for runtime.";
-  if (!studyEthicsReady(study)) return "Ethics approval or exemption is required before runtime.";
-  return `Study protocol is ${displayEnum(study.governanceStatus, "Incomplete")}; activate the study when the design is complete.`;
+  if (studyProtocolReady(study)) return "The study design and ethics decision are complete.";
+  if (!studyEthicsReady(study)) return "Record the ethics decision (approved or not required) first.";
+  return `Study protocol status: ${displayEnum(study.governanceStatus, "Incomplete")}. Finish the study design, then activate the study.`;
 }
 
 function allSubmitGatesReady(study: StudySummaryInput) {
@@ -130,11 +130,11 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if (approvedVersions.length === 0) {
     return {
-      title: validatedVersions.length > 0 ? "Approve a pipeline version" : "Create a pipeline version",
+      title: validatedVersions.length > 0 ? "Publish the pipeline" : "Write the pipeline",
       detail:
         validatedVersions.length > 0
-          ? "A validated immutable commit is waiting for human approval."
-          : "Choose an approved template source and create a validated study pipeline version.",
+          ? "A pipeline version has passed its checks and is waiting to be published."
+          : "Write the pipeline in Code & run, save it, and publish it so the study server can use it.",
       buttonLabel: "Open Code & run",
       section: "pipeline",
       state: "needs_attention"
@@ -143,8 +143,8 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if (totalSites === 0) {
     return {
-      title: "Register participant sites",
-      detail: "Add the institutions that will host site-local data and NVFLARE clients.",
+      title: "Add sites",
+      detail: "Add the hospitals or institutions that will take part and keep their data on site.",
       buttonLabel: "Open sites",
       section: "sites",
       state: "needs_attention"
@@ -153,8 +153,8 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if (normalizedStatus(deployment?.status) !== "ACTIVE") {
     return {
-      title: deployment ? "Start aggregator" : "Provision aggregator",
-      detail: "Start the local Docker aggregator before sites can join and receive jobs.",
+      title: deployment ? "Start the study server" : "Publish the pipeline",
+      detail: "Publish the pipeline so the study server is running before sites can connect and take part in runs.",
       buttonLabel: "Open Code & run",
       section: "run",
       state: "needs_attention"
@@ -163,8 +163,8 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if (readySites.length === 0 || connectedSites.length === 0) {
     return {
-      title: "Bring sites online",
-      detail: `${readySites.length}/${totalSites} sites ready and ${connectedSites.length} connected.`,
+      title: "Get sites connected",
+      detail: `${readySites.length} of ${totalSites} sites have signed off and ${connectedSites.length} are connected. Each site installs the runner from its site kit and signs off.`,
       buttonLabel: "Open sites",
       section: "sites",
       state: "needs_attention"
@@ -174,7 +174,7 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
   if (submittedRuns.length === 0) {
     return {
       title: "Start run",
-      detail: "All runtime gates are ready for an approved pipeline run.",
+      detail: "Everything is in place. Start a run of the published pipeline.",
       buttonLabel: "Open Code & run",
       section: "run",
       state: "ready"
@@ -183,8 +183,8 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
 
   if ((study.modelReleases ?? []).length === 0) {
     return {
-      title: "Review training output",
-      detail: "A federated run exists. Save the model and release it when the run completes.",
+      title: "Review run results",
+      detail: "A run has started. When it finishes, review the results and create a model release.",
       buttonLabel: "Open results",
       section: "results",
       state: "ready"
@@ -192,8 +192,8 @@ export function resolveStudyNextAction(study: StudySummaryInput): StudySummaryNe
   }
 
   return {
-    title: "Review trained model release",
-    detail: "At least one governed model release is available for review or download.",
+    title: "Review the model release",
+    detail: "At least one model release is available to review or download.",
     buttonLabel: "Open results",
     section: "results",
     state: "done"
@@ -222,7 +222,7 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
     {
       key: "sites",
       label: "Sites",
-      detail: `${readySites.length}/${totalSites} ready, ${connectedSites.length} connected`,
+      detail: `${readySites.length} of ${totalSites} signed off, ${connectedSites.length} connected`,
       buttonLabel: sitesReady ? "Review sites" : "Open sites",
       section: "sites",
       state: sitesReady ? "ready" : "needs_attention"
@@ -230,8 +230,8 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
     {
       key: "pipeline",
       label: "Pipeline",
-      detail: approvedVersions.length > 0 ? `${approvedVersions.length} approved pipeline version(s)` : "No approved pipeline version.",
-      buttonLabel: approvedVersions.length > 0 ? "Review pipeline" : "Create pipeline version",
+      detail: approvedVersions.length > 0 ? `${approvedVersions.length} pipeline version(s) published` : "No pipeline version published yet.",
+      buttonLabel: approvedVersions.length > 0 ? "Review pipeline" : "Write pipeline",
       section: "pipeline",
       state: approvedVersions.length > 0 ? "ready" : "needs_attention"
     },
@@ -242,10 +242,10 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
         submittedRuns.length > 0
           ? `${submittedRuns.length} run(s) started`
           : allSubmitGatesReady(study)
-            ? "Ready to start a run of the approved pipeline version."
+            ? "Ready to start a run of the published pipeline."
             : deploymentReady
-              ? "Start a run after the protocol, pipeline version and sites are ready."
-              : "Start the aggregator before starting a run.",
+              ? "Start a run after the study design, pipeline and sites are ready."
+              : "Publish the pipeline so the study server is running before starting a run.",
       buttonLabel: "Open Code & run",
       section: "run",
       state: submittedRuns.length > 0 ? "done" : allSubmitGatesReady(study) ? "ready" : "needs_attention"
@@ -255,9 +255,9 @@ export function summaryReadinessItems(study: StudySummaryInput): StudySummaryRea
       label: "Results",
       detail:
         (study.modelReleases ?? []).length > 0
-          ? `${study.modelReleases?.length ?? 0} trained model release(s)`
+          ? `${study.modelReleases?.length ?? 0} model release(s)`
           : submittedRuns.length > 0
-            ? "Save the model from the completed run, then release it."
+            ? "When the run finishes, review the results and create a model release."
             : "Results appear after a run completes.",
       buttonLabel: (study.modelReleases ?? []).length > 0 ? "View releases" : "Open results",
       section: "results",

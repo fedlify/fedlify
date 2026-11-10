@@ -10,6 +10,7 @@
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "test": "vitest run",
+    "terms:allowlist": "UPDATE_TERMS_ALLOWLIST=1 vitest run tests/terms-lint.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"

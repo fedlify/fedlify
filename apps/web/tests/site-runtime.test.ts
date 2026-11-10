@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
-import { summarizeSiteRuntime } from "@/lib/site-runtime";
+import { studySoftwareLabel, summarizeSiteRuntime } from "@/lib/site-runtime";
 
 const now = Date.parse("2026-11-10T12:00:00Z");
 const sha = (c: string) => `harbor.example/x/y@sha256:${c.repeat(64)}`;
@@ -24,7 +24,7 @@ describe("summarizeSiteRuntime", () => {
     expect(r.nextStep).toBeNull();
     expect(r.stages.every((s) => s.tone === "ok")).toBe(true);
   });
-  it("names a silent runner as the cause even though the aggregator still lists the client", () => {
+  it("names a silent runner as the cause even though the study server still lists the site", () => {
     const r = summarizeSiteRuntime({ ...base, heartbeat: { ...base.heartbeat, createdAt: "2026-11-10T05:00:00Z" } });
     expect(r.connected).toBe(false);
     expect(status(r, "runner")).toMatchObject({ tone: "error" });
@@ -42,10 +42,20 @@ describe("summarizeSiteRuntime", () => {
     expect(r.imageFix.length).toBeGreaterThan(0);
   });
   it("asks for a kit first, and stays neutral when nothing is published", () => {
-    expect(summarizeSiteRuntime({ ...base, activeKit: null, heartbeat: null }).nextStep).toContain("startup kit");
+    expect(summarizeSiteRuntime({ ...base, activeKit: null, heartbeat: null }).nextStep).toContain("site kit");
     const r = summarizeSiteRuntime({ ...base, deployment: null, liveVersion: null, listedByAggregator: null, heartbeat: null, activeKit: null });
     expect(r.connected).toBeNull();
     expect(r.nextStep).toBeNull();
     expect(status(r, "connection").status).toBe("Nothing published");
+  });
+});
+
+describe("studySoftwareLabel", () => {
+  it("maps raw runner values to plain words", () => {
+    expect(studySoftwareLabel("running", "healthy")).toBe("Running");
+    expect(studySoftwareLabel("running", null)).toBe("Running");
+    expect(studySoftwareLabel("running", "unhealthy")).toBe("Running, with a problem");
+    expect(studySoftwareLabel("exited", null)).toBe("Stopped");
+    expect(studySoftwareLabel(null, null)).toBe("Not reported");
   });
 });

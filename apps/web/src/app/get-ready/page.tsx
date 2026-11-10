@@ -3,7 +3,7 @@ import { ARCHITECTURE_STATEMENT, DOCKER_LINKS, GPU_STATEMENT, HEADLESS_UNIT, OS_
 import { PREFLIGHT_PS1_SHA256, PREFLIGHT_SH_SHA256 } from "@/lib/site-preflight-script";
 
 // Public page (no sign-in): a hospital IT person reads this before any kit exists. Plain server component, no client code.
-export const metadata = { title: "Get ready for a Fedlify site", description: "Docker setup and a no-Docker readiness check for hospital sites." };
+export const metadata = { title: "Get ready for a Fedlify site", description: "Docker setup and a computer check (no Docker needed) for hospital sites." };
 
 const wrap = { maxWidth: 820, margin: "0 auto", padding: "32px 20px", lineHeight: 1.55, color: "#2F3040" } as const;
 const pre = { background: "#F1EEF9", padding: 12, borderRadius: 8, overflowX: "auto", fontSize: 13 } as const;
@@ -14,8 +14,8 @@ export default function GetReadyPage() {
     <main style={wrap}>
       <h1>Get ready for a Fedlify site</h1>
       <p>
-        Before you receive a kit, check that this machine can run it. The check below needs no Docker, no account and no kit. It reads local facts,
-        probes DNS and port 443 to the hosts you give it, and sends and saves nothing. Patient data is never read by it.
+        Before you receive a site kit, check that this computer can run it. The check below needs no Docker, no account and no site kit. It reads facts about this computer,
+        tests that it can reach the hosts you give it, and sends and saves nothing. Patient data is never read by it.
       </p>
 
       <h2 id="check">1. Run the check</h2>
@@ -25,7 +25,7 @@ export default function GetReadyPage() {
       </p>
       <pre style={pre}>{`preflight.sh   ${PREFLIGHT_SH_SHA256}\npreflight.ps1  ${PREFLIGHT_PS1_SHA256}`}</pre>
       <p>
-        Pass <code>--aggregator</code> with the study server host from your site page in Fedlify, and <code>--registry</code> with the registry host from your kit. The kit&apos;s own
+        Pass <code>--aggregator</code> with the study server host from your site page in Fedlify, and <code>--registry</code> with the registry host from your site kit. The site kit&apos;s own
         <code> ./fedlify-runner.sh preflight</code> repeats the checks with those values filled in.
       </p>
 
@@ -44,7 +44,7 @@ export default function GetReadyPage() {
       ))}
       <p>Fedlify cannot install Docker for you, and a web page inside Docker cannot either, so this page only guides and checks.</p>
 
-      <h2 id="architecture">Machine type</h2>
+      <h2 id="architecture">Computer type</h2>
       <p>{ARCHITECTURE_STATEMENT}</p>
 
       <h2 id="gpu">GPU</h2>
@@ -53,15 +53,15 @@ export default function GetReadyPage() {
 
       <h2 id="helper">3. Terminal or browser helper</h2>
       <p>
-        You can run everything from a terminal. If you prefer a browser, the kit download can include an optional helper that runs only on this computer
-        (address 127.0.0.1), holds no secret in the browser, never sends patient data anywhere and offers five screens: Unlock, Checks, Your data, Run status, Help bundle.
+        You can run everything from a terminal. If you prefer a browser, the site kit download can include an optional helper that runs only on this computer
+        (address 127.0.0.1), holds no secret in the browser, never sends patient data anywhere and offers five screens: Unlock, Checks, Your data, Run status and Help bundle.
         On Windows it also runs inside WSL 2. The helper is available only when your Fedlify administrator has published its image.
       </p>
 
       <h2 id="headless">Servers without a screen</h2>
       <p>
         Every action is a command: <code>preflight</code>, <code>status --json</code>, <code>start</code>, <code>stop</code>, <code>update</code>, <code>logs</code>, <code>logout</code>, <code>support-bundle</code>.
-        To keep the heartbeat running across reboots, install a systemd unit (the runner prints one for your folder). Keep the site token in a file readable only by the service account, never on a command line.
+        To keep the runner reporting after a restart, install a systemd unit (the runner prints one for your folder). Keep the site access code in a file readable only by the service account, never on a command line.
         For unattended unlock the download can include <code>unlock-headless.sh --passphrase-file FILE</code>; the passphrase is read from the file by a container on standard input, so it is never an argument or an environment variable.
       </p>
       <pre style={pre}>{HEADLESS_UNIT}</pre>

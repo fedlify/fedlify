@@ -311,7 +311,7 @@ export function summarizeFailures(diagnostics: DiagnosticsContext): FailureSumma
     out.push({
       kind: "publish",
       key: `publish:${publish.id}`,
-      title: [`Publish`, publish.version, publish.failedStep ? `failed in step "${publish.failedStep}"` : "failed"].filter(Boolean).join(" "),
+      title: [`Publishing`, publish.version, "failed"].filter(Boolean).join(" "),
       lines: lines.slice(0, DIAGNOSTICS_LIMITS.firstErrorLines),
       commit: publish.commit,
       headCommit: publish.headCommit,
@@ -321,7 +321,7 @@ export function summarizeFailures(diagnostics: DiagnosticsContext): FailureSumma
   const run = diagnostics.run;
   if (run && (run.status === "FAILED" || run.status === "REJECTED")) {
     const lines = run.events.filter((event) => event.type === "FAILED" || event.type === "REJECTED" || event.type === "SITE_UPDATE").map((event) => (event.site ? `${event.site}: ${event.message}` : event.message)).filter(Boolean);
-    out.push({ kind: "run", key: `run:${run.id}`, title: `Run ${run.status === "REJECTED" ? "was rejected" : "failed"}`, lines: lines.slice(0, DIAGNOSTICS_LIMITS.firstErrorLines) });
+    out.push({ kind: "run", key: `run:${run.id}`, title: `The run ${run.status === "REJECTED" ? "was rejected" : "failed"}`, lines: lines.slice(0, DIAGNOSTICS_LIMITS.firstErrorLines) });
   }
   return out;
 }

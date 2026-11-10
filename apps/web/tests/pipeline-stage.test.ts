@@ -20,7 +20,7 @@ describe("pipeline rail stages", () => {
   it("shows a running publish once, with its step and no button", () => {
     const { stages } = computeStages({ ...base, versions: [{ id: "v2", version: "v2", gitCommit: "abcdef1234", publish: { status: "RUNNING", step: "build-image" } }] });
     const publish = stages.find((stage) => stage.key === "publish");
-    expect(publish).toMatchObject({ status: "Publishing v2 · build-image", tone: "active" });
+    expect(publish).toMatchObject({ status: "Publishing v2", technical: "Step: build-image", tone: "active" });
     expect(publish?.action).toBeUndefined();
   });
 
@@ -39,7 +39,7 @@ describe("pipeline rail stages", () => {
   it("offers Publish for a saved, unpublished commit and blocks it during a run", () => {
     const first = computeStages(base);
     expect(first.current).toBe("publish");
-    expect(first.stages[1].action?.label).toBe("Publish abcdef12");
+    expect(first.stages[1].action?.label).toBe("Publish latest saved code");
     const running = computeStages({ ...base, versions: [live], aggregator: agg, sites: [site()], jobs: [{ id: "j", status: "RUNNING", result: null }], sourceCommit: "zzzzzzzz" });
     expect(running.stages[1].action?.disabledReason).toMatch(/run is in progress/);
   });
@@ -80,6 +80,6 @@ describe("computeStages source loading", () => {
     const err = computeStages({ ...base, sourceCommit: null, sourceStatus: "error" }).stages.find((s) => s.key === "publish")!;
     expect(err.tone).toBe("error");
     const empty = computeStages({ ...base, sourceCommit: null, sourceStatus: "ready" }).stages.find((s) => s.key === "publish")!;
-    expect(empty.action?.disabledReason).toBe("No saved commit to publish.");
+    expect(empty.action?.disabledReason).toBe("There is no saved code to publish yet.");
   });
 });

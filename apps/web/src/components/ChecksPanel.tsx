@@ -51,7 +51,7 @@ export function ChecksPanel({ studyId, projectId, commit, onFailureCount }: Chec
     <div className="fedlify-ws-checks">
       <div className="fedlify-ws-section-title">
         <strong>Checks</strong>
-        <Button size="small" type="text" icon={<ReloadOutlined />} loading={loading} onClick={() => void run()} aria-label="Run checks" title="Run checks on the saved commit" />
+        <Button size="small" type="text" icon={<ReloadOutlined />} loading={loading} onClick={() => void run()} aria-label="Run checks" title="Run checks on the latest saved code" />
       </div>
       {error ? <Alert type="error" showIcon message={error} /> : null}
       {report ? (
@@ -76,7 +76,7 @@ export function ChecksPanel({ studyId, projectId, commit, onFailureCount }: Chec
       ) : loading ? (
         <Typography.Text className="fedlify-muted">Running checks...</Typography.Text>
       ) : null}
-      {report ? <Typography.Text className="fedlify-muted fedlify-ws-check-notice">{report.notice}{stale ? " Results are for an older commit." : ""}</Typography.Text> : null}
+      {report ? <Typography.Text className="fedlify-muted fedlify-ws-check-notice">{report.notice}{stale ? " Results are for an older save." : ""}</Typography.Text> : null}
     </div>
   );
 }

@@ -171,7 +171,7 @@ describe("relevance and summaries", () => {
     };
     const out = summarizeFailures(base);
     expect(out.map((f) => f.key)).toEqual(["publish:r1", "run:j1"]);
-    expect(out[0].title).toBe('Publish v2 failed in step "build-image"');
+    expect(out[0].title).toBe("Publishing v2 failed");
     expect(out[1].lines).toEqual(["site-a: client died"]);
     expect(out[0]).toMatchObject({ commit: null, headCommit: null, headMoved: null });
     const moved = summarizeFailures({ ...base, publish: { ...base.publish!, commit: "aaaaaaaaaaaa", headCommit: "bbbbbbbbbbbb", headMoved: true } });

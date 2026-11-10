@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { RecordTable } from "@/components/RecordTable";
 import { StatusTag } from "@/components/StatusTag";
+import { statusLabel } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
 
 type RunRow = {
@@ -49,13 +50,13 @@ export default function StudyRunsPage() {
 
   return (
     <AppPage>
-      <AppPageHeader title="Results" subtitle="One row per run. Open a run for its performance, code, model and audit trail." onBack={() => router.push(`/studies/${studyId}`)} backLabel="Study" />
+      <AppPageHeader title="Results" subtitle="One row per run. Open a run to see how it performed, its code, its model and its activity history." onBack={() => router.push(`/studies/${studyId}`)} backLabel="Study" />
       {error ? (
         <Alert type={error.status === 403 ? "warning" : "error"} showIcon message={error.status === 403 ? "You do not have access to this study's runs" : "Runs could not be loaded"} description={error.message} />
       ) : (
         <div className="fedlify-section-stack">
           <Typography.Paragraph type="secondary">
-            Best AUROC is the highest round average of the global model scored on each site's local validation split. It is not a held-out test and not evidence of clinical validity.
+            Best AUROC is the highest round average of the shared model, scored on each site&apos;s own validation data. It is not an independent test and not evidence of clinical validity. AUROC is a score from 0.5 to 1 for how well the model tells cases from non-cases; 0.5 is no better than chance.
           </Typography.Paragraph>
           <RecordTable<RunRow>
             rowKey="id"
@@ -67,8 +68,8 @@ export default function StudyRunsPage() {
               {
                 title: "Run",
                 render: (_, run) => (
-                  <Link href={`/studies/${studyId}/runs/${run.id}`}>
-                    {new Date(run.createdAt).toLocaleString()} <code>{run.nvflareJobId?.slice(0, 8) ?? run.id.slice(0, 8)}</code>
+                  <Link href={`/studies/${studyId}/runs/${run.id}`} title={`Run ID ${run.nvflareJobId ?? run.id}`}>
+                    Run from {new Date(run.createdAt).toLocaleString()}
                   </Link>
                 )
               },
@@ -79,21 +80,20 @@ export default function StudyRunsPage() {
                   <span>
                     {run.pipelineVersion}
                     {run.imageMismatchSites.length ? (
-                      <Tooltip title={`When this run started, ${run.imageMismatchSites.join(", ")} reported a different image from this version, so the code that trained may not be ${run.pipelineVersion}.`}>
+                      <Tooltip title={`When this run started, ${run.imageMismatchSites.join(", ")} reported a different code version from this pipeline version, so the code that trained may not be ${run.pipelineVersion}.`}>
                         {" "}
-                        <Tag color="warning">image mismatch</Tag>
+                        <Tag color="warning">Code version differs</Tag>
                       </Tooltip>
                     ) : null}
                   </span>
                 )
               },
               {
-                title: "Commit",
+                title: "Code",
                 render: (_, run) =>
                   run.gitCommit ? (
-                    <span title={run.gitCommitRecordedOnRun ? "Snapshotted when the run was submitted" : "Taken from the pipeline version; not snapshotted on this older run"}>
-                      <code>{run.gitCommit.slice(0, 10)}</code>
-                      {run.gitCommitRecordedOnRun ? null : <Typography.Text type="secondary"> (from version)</Typography.Text>}
+                    <span title={`Commit ${run.gitCommit.slice(0, 10)}. ${run.gitCommitRecordedOnRun ? "Recorded when the run was started" : "Taken from the pipeline version; not recorded on this older run"}`}>
+                      {run.gitCommitRecordedOnRun ? "Recorded with the run" : <Typography.Text type="secondary">From the pipeline version</Typography.Text>}
                     </span>
                   ) : (
                     missing
@@ -124,7 +124,7 @@ export default function StudyRunsPage() {
               },
               {
                 title: "Model",
-                render: (_, run) => (run.modelRelease ? <StatusTag value={run.modelRelease.status} label={`${run.modelRelease.version} ${run.modelRelease.status.toLowerCase()}`} /> : run.modelSaved ? <StatusTag value="NOT_RELEASED" label="Saved, not released" /> : <StatusTag value="NOT_CREATED" label="Not saved" />)
+                render: (_, run) => (run.modelRelease ? <StatusTag value={run.modelRelease.status} label={`${run.modelRelease.version} ${statusLabel(run.modelRelease.status).toLowerCase()}`} /> : run.modelSaved ? <StatusTag value="NOT_RELEASED" label="Saved, not released" /> : <StatusTag value="NOT_CREATED" label="Not saved" />)
               }
             ]}
           />

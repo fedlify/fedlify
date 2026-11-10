@@ -26,7 +26,7 @@ const RUNNER_STATUSES = new Set(["CONNECTED", "DEGRADED", "OFFLINE"]);
 export async function POST(request: NextRequest, context: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await context.params;
   const parsed = heartbeatSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid heartbeat.");
+  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "The runner report is not valid.");
 
   // Look the site up first so limiter buckets exist only for real sites (bounded memory).
   const site = await prisma.site.findUnique({ where: { id: siteId }, include: { study: true, studySite: true } });
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
   // Limits are keyed on siteId, never on a client-supplied header, so they cannot be dodged by rotating a header value.
   // Failed-token attempts have their own bucket so a guesser cannot lock the real runner out. Per-process limits.
   if (!rateLimit(`heartbeat:${siteId}`, HEARTBEAT_LIMIT_PER_MINUTE, 60_000, { consume: false })) {
-    return problem(429, "Too many heartbeats from this site. Slow down.", "rate_limited");
+    return problem(429, "Too many reports from this site. Slow down.", "rate_limited");
   }
   if (!rateLimit(`heartbeat-fail:${siteId}`, FAILED_TOKEN_LIMIT_PER_MINUTE, 60_000, { consume: false })) {
     return problem(429, "Too many failed attempts for this site. Try again later.", "rate_limited");
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
   if (site.apiTokenHash) {
     if (!token || !safeEqual(sha256(token), site.apiTokenHash)) {
       rateLimit(`heartbeat-fail:${siteId}`, FAILED_TOKEN_LIMIT_PER_MINUTE, 60_000);
-      return problem(401, "Invalid site token.", "unauthorized");
+      return problem(401, "The site access token is not valid.", "unauthorized");
     }
     tokenAuthenticated = true;
   } else {
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
       return problem(403, "This site is disabled for the study.", "site_disabled");
     }
     if (!RUNNER_STATUSES.has(parsed.data.status)) {
-      return problem(400, "A site runner may report only CONNECTED, DEGRADED or OFFLINE.", "invalid_status");
+      return problem(400, "A runner can only report that a site is connected, unstable or not reporting.", "invalid_status");
     }
   }
 

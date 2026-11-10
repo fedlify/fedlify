@@ -18,7 +18,7 @@ export const OS_GUIDES: OsGuide[] = [
     title: "Windows 10 (2004 or later) and Windows 11",
     verified: "Not verified on a real Windows machine. Nothing on this tab has been run.",
     steps: [
-      "Windows support means WSL 2 plus Docker Desktop. The Fedlify runner is a bash program and there is no native PowerShell version: on Windows it runs inside WSL 2, and the PowerShell files in your kit are launchers that call it.",
+      "Windows support means WSL 2 plus Docker Desktop. The Fedlify runner is a bash program and there is no native PowerShell version: on Windows it runs inside WSL 2, and the PowerShell files in your site kit are launchers that call it.",
       "Install WSL 2 with an Ubuntu distribution (administrator PowerShell), then restart Windows.",
       "Install Docker Desktop for Windows and keep the WSL 2 backend selected.",
       "In Docker Desktop open Settings, Resources, WSL integration, and switch on your Ubuntu distribution. Without this, Docker is not visible inside WSL and the runner cannot start.",
@@ -35,7 +35,7 @@ export const OS_GUIDES: OsGuide[] = [
       "Install Docker Desktop for Mac (the Apple silicon build on M-series Macs).",
       "Start Docker Desktop and wait until it says it is running. Raise its memory limit to 4 GB or more under Settings, Resources if the check warns.",
       "Open Terminal, go to the folder with preflight.sh and run it.",
-      "Apple silicon: the study image is published for amd64 only today, so Docker runs it under emulation. It is slower and has not been verified on Apple silicon."
+      "Apple silicon: the study software is published for amd64 only today, so Docker runs it under emulation. It is slower and has not been verified on Apple silicon."
     ],
     commands: ["chmod +x preflight.sh", "./preflight.sh --aggregator <study-server-host>"]
   },
@@ -54,15 +54,15 @@ export const OS_GUIDES: OsGuide[] = [
 ];
 
 export const ARCHITECTURE_STATEMENT =
-  "The published study image is amd64 only. Intel and AMD machines run it natively. Apple silicon and other ARM machines run it under emulation, which is slower and has not been verified. A multi-architecture build is prepared in the repository (deploy/images/build-multiarch.sh) but has not been built, published or tested, so do not rely on arm64 yet.";
+  "The published study software is amd64 only. Intel and AMD computers run it natively. Apple silicon and other ARM machines run it under emulation, which is slower and has not been verified. A build for other computer types is prepared in the repository but has not been built, published or tested, so do not rely on arm64 yet.";
 
 export const GPU_STATEMENT =
-  "CPU is the default and is all the starter study needs. A GPU is used only if you ask for it (FEDLIFY_GPU=auto in the kit's .env) and the runner detects both an NVIDIA GPU and the NVIDIA container toolkit; it also needs a CUDA flavour of the study image. This has not been run on a GPU host.";
+  "CPU is the default and is all the starter study needs. A GPU is used only if you ask for it (FEDLIFY_GPU=auto in the site kit's .env) and the runner detects both an NVIDIA GPU and the NVIDIA container toolkit; it also needs a GPU-enabled version of the study software. This has not been run on a GPU host.";
 
 export const HEADLESS_UNIT = [
   "# /etc/systemd/system/fedlify-agent.service   (generate the exact text for your folder with: ./fedlify-runner.sh agent-unit)",
   "[Unit]",
-  "Description=Fedlify site heartbeat agent",
+  "Description=Fedlify site runner (status reporting)",
   "After=docker.service network-online.target",
   "Wants=network-online.target",
   "",

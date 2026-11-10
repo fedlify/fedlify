@@ -59,10 +59,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
   }
 
   const parsed = governanceSchema.safeParse(await request.json());
-  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid site governance update.");
+  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "The site update is not valid.");
 
   const studySite = await prisma.studySite.findUnique({ where: { id: siteId }, include: { study: true } });
-  if (!studySite) return problem(404, "Participant site not found.", "not_found");
+  if (!studySite) return problem(404, "Site not found.", "not_found");
 
   const latestCheck = parsed.data.readiness
     ? await prisma.siteReadinessCheck.findFirst({ where: { studySiteId: siteId }, orderBy: { createdAt: "desc" } })
@@ -71,7 +71,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
   // acceptance (or withdrawing it) does not need it.
   const newlyAcceptsPolicy = parsed.data.readiness?.policyAccepted === true && !latestCheck?.policyAccepted;
   if (newlyAcceptsPolicy && !(await canAccessSite(authResult.userId, siteId, "acceptSitePolicy"))) {
-    return problem(403, "Only a site administrator, site PI or data steward can accept the data-use policy for this site.", "forbidden");
+    return problem(403, "Only a site administrator, site principal investigator or data steward can accept the data-use policy for this site.", "forbidden");
   }
 
   const updated = await prisma.$transaction(async (tx) => {

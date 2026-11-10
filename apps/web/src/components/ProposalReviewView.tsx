@@ -3,6 +3,7 @@
 import { CheckCircleOutlined, CloseOutlined, FullscreenExitOutlined, FullscreenOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { Alert, Button, Checkbox, Segmented, Tag, Tooltip, Typography } from "antd";
 import { useEffect, useState, type ReactNode } from "react";
+import { statusLabel } from "@/lib/terms";
 import { SCAN_NOTICE, type ProposalFileSummary, type ProposalStatus } from "@/lib/agent-proposal-client";
 
 export type DiffViewOptions = { sideBySide: boolean; changesOnly: boolean };
@@ -64,9 +65,9 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
   const decided = !["PROPOSED", "STALE"].includes(proposal.status);
   const isAccepted = proposal.status === "ACCEPTED";
   const tag = isAccepted
-    ? `Accepted${proposal.acceptedCommit ? ` · ${proposal.acceptedCommit.slice(0, 8)}` : ""}`
+    ? "Accepted and saved"
     : stale
-      ? proposal.status === "PROPOSED" ? (filesUnknown ? "Loading" : "Stale") : proposal.status.charAt(0) + proposal.status.slice(1).toLowerCase()
+      ? proposal.status === "PROPOSED" ? (filesUnknown ? "Loading" : "Out of date") : statusLabel(proposal.status)
       : "Proposed by assistant";
 
   return (
@@ -74,7 +75,7 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
       <header className="fedlify-proposal-review-head">
         <div className="fedlify-proposal-review-title">
           <Typography.Text strong ellipsis={{ tooltip: proposal.title }}>{proposal.title}</Typography.Text>
-          <Tag color={isAccepted ? "green" : decided ? "default" : stale ? "orange" : "purple"}>{tag}</Tag>
+          <Tag color={isAccepted ? "green" : decided ? "default" : stale ? "orange" : "purple"} title={isAccepted && proposal.acceptedCommit ? `Commit ${proposal.acceptedCommit.slice(0, 8)}` : undefined}>{tag}</Tag>
           <span className="fedlify-proposal-counts"><span className="is-add">+{totals.added}</span> <span className="is-del">-{totals.removed}</span></span>
         </div>
         <div className="fedlify-proposal-review-tools">
@@ -91,17 +92,17 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
 
       {proposal.baseUnavailable ? <Alert banner type="warning" message="The original code could not be loaded, so this diff may not show what the proposal changed." /> : null}
       {filesUnknown ? <Alert banner type="info" message={filesLoading ? "Loading current files…" : "The current files could not be loaded, so this change cannot be reviewed yet."} /> : null}
-      {stale && proposal.status === "PROPOSED" && !filesUnknown ? <Alert banner type="warning" message="The saved code changed after this proposal was written. Close this review and ask the assistant again so the change applies to the latest commit." /> : null}
+      {stale && proposal.status === "PROPOSED" && !filesUnknown ? <Alert banner type="warning" message="The saved code changed after this proposal was written. Close this review and ask the assistant again so the change applies to the latest saved code." /> : null}
 
       <div className="fedlify-proposal-review-body">
         <nav className="fedlify-proposal-review-files" aria-label="Files in this proposal">
-          <div className="fedlify-proposal-review-files-head">{decided ? (isAccepted ? `${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} committed` : "Nothing was committed") : `${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} selected`}</div>
+          <div className="fedlify-proposal-review-files-head">{decided ? (isAccepted ? `${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} saved` : "Nothing was saved") : `${selectedCount} of ${files.length} file${files.length === 1 ? "" : "s"} selected`}</div>
           <ul>
             {files.map((file) => {
               const fileAccepted = Boolean(accepted[file.path]);
               return (
                 <li key={file.path} className={[file.path === current?.path ? "is-selected" : "", fileAccepted || !isAccepted && decided ? "" : "is-skipped"].join(" ")}>
-                  {decided ? null : <Checkbox checked={fileAccepted} disabled={stale || busy} onChange={(event) => onToggle?.(file.path, event.target.checked)} aria-label={`Include ${file.path} in the commit`} />}
+                  {decided ? null : <Checkbox checked={fileAccepted} disabled={stale || busy} onChange={(event) => onToggle?.(file.path, event.target.checked)} aria-label={`Include ${file.path} in the save`} />}
                   <button type="button" onClick={() => onSelect(file.path)} title={file.path} aria-current={file.path === current?.path ? "true" : undefined}>
                     <span className="fedlify-proposal-path">{file.path}</span>
                     <span className="fedlify-proposal-counts">
@@ -132,14 +133,14 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
       </div>
 
       <footer className="fedlify-proposal-review-foot">
-        <Typography.Text className="fedlify-muted">{decided ? "This change has been decided. The diff shows what it changed from the commit it was written against." : SCAN_NOTICE}</Typography.Text>
+        <Typography.Text className="fedlify-muted">{decided ? "This change has been decided. The diff shows what it changed from the saved code it was written against." : SCAN_NOTICE}</Typography.Text>
         {decided ? (
           <div className="fedlify-proposal-review-actions"><Button onClick={() => onClose?.()}>Close</Button></div>
         ) : (
         <div className="fedlify-proposal-review-actions">
           <Button danger disabled={busy || !["PROPOSED", "STALE"].includes(proposal.status)} onClick={() => onReject?.()}>Reject proposal</Button>
           <Button type="primary" icon={<CheckCircleOutlined />} loading={busy} disabled={stale || selectedCount === 0} onClick={() => onAccept?.()}>
-            {`Commit ${selectedCount} selected file${selectedCount === 1 ? "" : "s"}`}
+            {`Save ${selectedCount} selected file${selectedCount === 1 ? "" : "s"}`}
           </Button>
         </div>
         )}

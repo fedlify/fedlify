@@ -1,0 +1,44 @@
+{
+  "src/app/(app)/studies/[studyId]/page.tsx": {
+    "aggregator": 9,
+    "compose project": 1,
+    "gitea": 2,
+    "nvflare": 5,
+    "readiness check": 1,
+    "source workspace": 9
+  },
+  "src/app/(app)/studies/[studyId]/projects/page.tsx": {
+    "digest": 1
+  },
+  "src/app/(app)/studies/[studyId]/runs/[jobId]/page.tsx": {
+    "digest": 2
+  },
+  "src/app/(app)/templates/[templateId]/page.tsx": {
+    "aggregator": 1,
+    "gitea": 5,
+    "nvflare": 6
+  },
+  "src/app/(app)/templates/page.tsx": {
+    "gitea": 3,
+    "nvflare": 5,
+    "startup kit": 1
+  },
+  "src/app/get-ready/page.tsx": {
+    "aggregator": 1
+  },
+  "src/components/CodeReviewPanel.tsx": {
+    "nvflare": 2
+  },
+  "src/components/RoundMetricsChart.tsx": {
+    "aggregator": 1
+  },
+  "src/components/RunCodeView.tsx": {
+    "digest": 1
+  },
+  "src/components/StartPipeline.tsx": {
+    "nvflare": 1
+  },
+  "src/lib/get-ready.ts": {
+    "aggregator": 1
+  }
+}

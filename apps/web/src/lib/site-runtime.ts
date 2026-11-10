@@ -11,7 +11,7 @@ export type SiteRuntime = {
   kitState: KitState;
   imageState: SiteImageState;
   imageFix: string[];
-  /** null: the aggregator could not be asked, or nothing is published. */
+  /** null: the study server could not be asked, or nothing is published. */
   connected: boolean | null;
   lastHeartbeatAt: string | null;
   lastHeartbeatLabel: string;
@@ -55,42 +55,42 @@ export function summarizeSiteRuntime(input: RuntimeInput): SiteRuntime {
 
   let nextStep: string | null = null;
   if (active) {
-    if (kit === "NOT_RELEASED") nextStep = "Create a startup kit for this site.";
-    else if (kit === "OUTDATED") nextStep = "The study image moved, so this site needs a new startup kit.";
-    else if (!lastBeat) nextStep = "Unlock the kit on the site's machine and run ./fedlify-runner.sh start.";
-    else if (silent) nextStep = `The runner last reported ${ago}. Its reporting agent has stopped or the machine is offline. In the kit folder run ./fedlify-runner.sh start.`;
-    else if (noData) nextStep = "The runner found no data files. Put the site's CSV file in the kit's data folder.";
-    else if (isImageMismatch(check.state)) nextStep = check.state === "OUTDATED" ? `This site is not on ${versionLabel || "the published version"}. In the kit folder run ./fedlify-runner.sh update.` : "This site has not reported its image yet.";
-    else if (connected === false) nextStep = "The runner is reporting, but the aggregator does not list this site. Check that the machine can reach the aggregator on port 443.";
+    if (kit === "NOT_RELEASED") nextStep = "Create a site kit for this site.";
+    else if (kit === "OUTDATED") nextStep = "The code version changed, so this site needs a new site kit.";
+    else if (!lastBeat) nextStep = "Unlock the site kit on the site's computer, then start the runner with ./fedlify-runner.sh start.";
+    else if (silent) nextStep = `The runner last reported ${ago}. It has stopped or the computer is offline. In the site kit folder, run ./fedlify-runner.sh start.`;
+    else if (noData) nextStep = "The runner found no data files. Put the site's CSV file in the site kit's data folder.";
+    else if (isImageMismatch(check.state)) nextStep = check.state === "OUTDATED" ? `This site is not on ${versionLabel || "the published pipeline version"}. In the site kit folder, run ./fedlify-runner.sh update.` : "This site has not reported its code version yet.";
+    else if (connected === false) nextStep = "The runner is reporting, but the study server does not list this site. Check that the computer can reach the study server on port 443.";
   }
 
   const stages: SiteStage[] = [
     {
       key: "kit",
-      title: "Startup kit",
+      title: "Site kit",
       tab: "runner",
-      status: kit === "NOT_RELEASED" ? "Not released" : kit === "OUTDATED" ? "New kit needed" : `Released · expires ${day(input.activeKit?.expiresAt ?? null)}`,
+      status: kit === "NOT_RELEASED" ? "Not created yet" : kit === "OUTDATED" ? "New site kit needed" : `Ready · expires ${day(input.activeKit?.expiresAt ?? null)}`,
       tone: kit === "RELEASED" ? "ok" : active ? "warn" : "idle"
     },
     {
       key: "runner",
       title: "Runner",
       tab: "readiness",
-      status: !lastBeat ? "Not started" : silent ? `Silent · last report ${ago}` : noData ? "Running · no data files" : `Running · ${ago}`,
+      status: !lastBeat ? "Not connected" : silent ? `Not reporting · last report ${ago}` : noData ? "Connected · no data files" : `Connected · ${ago}`,
       tone: !lastBeat ? "idle" : silent ? "error" : noData ? "warn" : "ok"
     },
     {
       key: "image",
-      title: "Study image",
+      title: "Code version",
       tab: "runner",
-      status: check.state === "CURRENT" ? `Current${versionLabel ? ` · ${versionLabel}` : ""}` : check.state === "OUTDATED" ? "Outdated · run update" : check.state === "NOT_REPORTED" ? "Not reported" : "Nothing published",
+      status: check.state === "CURRENT" ? `Up to date${versionLabel ? ` · ${versionLabel}` : ""}` : check.state === "OUTDATED" ? "Needs update" : check.state === "NOT_REPORTED" ? "Not reported" : "Nothing published",
       tone: check.state === "CURRENT" ? "ok" : isImageMismatch(check.state) ? "warn" : "idle"
     },
     {
       key: "connection",
       title: "Connection",
       tab: "runner",
-      status: !active ? "Nothing published" : connected === null ? "Unknown" : connected ? "Connected" : "Waiting",
+      status: !active ? "Nothing published" : connected === null ? "Unknown" : connected ? "Connected" : "Not connected",
       tone: !active ? "idle" : connected ? "ok" : "warn"
     }
   ];
@@ -109,4 +109,13 @@ export function summarizeSiteRuntime(input: RuntimeInput): SiteRuntime {
     stages,
     nextStep
   };
+}
+
+/** Plain-words state of the study software on a site, from the runner's raw container/health values. */
+export function studySoftwareLabel(container: string | null | undefined, health: string | null | undefined): "Running" | "Running, with a problem" | "Stopped" | "Not reported" {
+  const c = (container ?? "").trim().toLowerCase();
+  const h = (health ?? "").trim().toLowerCase();
+  if (!c) return "Not reported";
+  if (c === "running" || c === "up" || c.startsWith("up ")) return h === "unhealthy" ? "Running, with a problem" : "Running";
+  return "Stopped";
 }

@@ -6,8 +6,9 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { RecordTable } from "@/components/RecordTable";
-import { StatusTag } from "@/components/StatusTag";
+import { Details } from "@/components/Details";
 import type { AuditEventDto } from "@/lib/audit-query";
+import { auditActionLabel } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
 
 type AuditPayload = {
@@ -18,6 +19,24 @@ type AuditPayload = {
   facets: { actions: string[]; actors: Array<{ id: string; name: string }> };
 };
 type Filters = { actor?: string; action?: string; target?: string; from?: string; to?: string };
+
+const TARGET_LABELS: Record<string, string> = {
+  Study: "Study",
+  StudySite: "Site",
+  PipelineProject: "Pipeline",
+  PipelineVersion: "Pipeline version",
+  NvflareJob: "Run",
+  NvflareDeployment: "Study server",
+  SiteJoinPackage: "Site kit",
+  ModelRelease: "Model release",
+  User: "Person"
+};
+
+function targetLabel(type: string) {
+  if (TARGET_LABELS[type]) return TARGET_LABELS[type];
+  const words = type.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 function buildQuery(filters: Filters, extra: Record<string, string> = {}) {
   const params = new URLSearchParams();
@@ -41,7 +60,7 @@ export default function StudyAuditPage() {
       setData(await apiCall<AuditPayload>(`/api/v1/studies/${studyId}/audit?${buildQuery(filters, { page: String(page), pageSize: String(pageSize) })}`));
       setError(null);
     } catch (err) {
-      setError({ message: err instanceof Error ? err.message : "Audit log could not be loaded.", status: err instanceof ApiError ? err.status : undefined });
+      setError({ message: err instanceof Error ? err.message : "The activity log could not be loaded.", status: err instanceof ApiError ? err.status : undefined });
     } finally {
       setLoading(false);
     }
@@ -61,8 +80,8 @@ export default function StudyAuditPage() {
   return (
     <AppPage>
       <AppPageHeader
-        title="Audit log"
-        subtitle="Study-scoped events for access, governance, artifacts, runs, and release decisions."
+        title="Activity log"
+        subtitle="Who did what in this study: access, approvals, files, runs and model release decisions."
         actions={
           <Space>
             <Button icon={<DownloadOutlined />} href={exportHref("csv")} disabled={!data}>
@@ -78,7 +97,7 @@ export default function StudyAuditPage() {
         <Alert
           type={error.status === 403 ? "warning" : "error"}
           showIcon
-          message={error.status === 403 ? "You do not have access to this study's audit log" : "Audit log could not be loaded"}
+          message={error.status === 403 ? "You do not have access to this study's activity log" : "The activity log could not be loaded"}
           description={error.message}
         />
       ) : (
@@ -87,15 +106,15 @@ export default function StudyAuditPage() {
             <Select
               allowClear
               showSearch
-              placeholder="Action"
+              placeholder="What happened"
               style={{ minWidth: 220 }}
               value={filters.action}
-              options={(data?.facets.actions ?? []).map((value) => ({ value, label: value }))}
+              options={(data?.facets.actions ?? []).map((value) => ({ value, label: auditActionLabel(value) }))}
               onChange={(value) => applyFilter({ action: value })}
             />
             <Select
               allowClear
-              placeholder="Actor"
+              placeholder="Person"
               style={{ minWidth: 200 }}
               value={filters.actor}
               options={(data?.facets.actors ?? []).map((actor) => ({ value: actor.id, label: actor.name }))}
@@ -103,7 +122,7 @@ export default function StudyAuditPage() {
             />
             <Input.Search
               allowClear
-              placeholder="Target or run id"
+              placeholder="Search by item or run ID"
               style={{ width: 240 }}
               value={targetDraft}
               onChange={(event) => setTargetDraft(event.target.value)}
@@ -118,12 +137,21 @@ export default function StudyAuditPage() {
             rowKey="id"
             loading={loading}
             dataSource={data?.events ?? []}
-            emptyText="No audit events match."
+            emptyText="No activity matches."
             expandable={{
               expandedRowRender: (event) => (
-                <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(event.metadata ?? {}, null, 2)}</pre>
+                <Details
+                  defaultOpen
+                  items={[
+                    { label: "Action key", value: <code>{event.action}</code>, copyText: event.action },
+                    { label: "Item type", value: <code>{event.targetType}</code> },
+                    ...(event.targetId ? [{ label: "Item ID", value: <code>{event.targetId}</code>, copyText: event.targetId }] : []),
+                    ...(event.actorUserId ? [{ label: "User ID", value: <code>{event.actorUserId}</code>, copyText: event.actorUserId }] : []),
+                    { label: "Data", value: <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(event.metadata ?? {}, null, 2)}</pre> }
+                  ]}
+                />
               ),
-              rowExpandable: (event) => event.metadata !== null && event.metadata !== undefined
+              rowExpandable: () => true
             }}
             pagination={{
               current: page,
@@ -138,17 +166,9 @@ export default function StudyAuditPage() {
             }}
             columns={[
               { title: "Time", dataIndex: "createdAt", render: (value: string) => new Date(value).toLocaleString() },
-              { title: "Actor", render: (_, event) => event.actorName ?? event.actorEmail ?? <Typography.Text type="secondary">system</Typography.Text> },
-              { title: "Action", dataIndex: "action" },
-              {
-                title: "Target",
-                render: (_, event) => (
-                  <Space size={6}>
-                    <StatusTag value={event.targetType} />
-                    <span className="fedlify-muted">{event.targetId ?? ""}</span>
-                  </Space>
-                )
-              }
+              { title: "Person", render: (_, event) => event.actorName ?? event.actorEmail ?? <Typography.Text type="secondary">System</Typography.Text> },
+              { title: "What happened", dataIndex: "action", render: (value: string) => auditActionLabel(value) },
+              { title: "Item", dataIndex: "targetType", render: (value: string, event) => <span title={event.targetId ?? undefined}>{targetLabel(value)}</span> }
             ]}
           />
         </div>

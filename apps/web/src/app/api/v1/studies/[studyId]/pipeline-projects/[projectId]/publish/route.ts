@@ -14,7 +14,7 @@ import { audit } from "@/lib/audit";
 import { ensureGiteaTag, getGiteaBranch, GiteaApiError, isRuntimeConfigurationError } from "@/lib/gitea";
 import { HarborError } from "@/lib/harbor-registry";
 import { ensureStudyRegistryProject, registryMode } from "@/lib/registry-access";
-import { ethicsCleared, latestEthicsStatus, requirementsGate } from "@/lib/governance";
+import { ethicsCleared, latestEthicsStatus, publishRequirementMessage, requirementsGate } from "@/lib/governance";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
@@ -69,26 +69,47 @@ export async function POST(request: NextRequest, { params }: Params) {
     prisma.pipelineProject.findUnique({ where: { id: projectId }, include: { versions: { select: { id: true } } } })
   ]);
   if (!study) return problem(404, "Study not found.", "not_found");
-  if (!project || project.studyId !== studyId) return problem(404, "Pipeline project not found for this study.", "not_found");
-  if (!project.giteaOwner || !project.giteaRepo) return problem(409, "Save the project to Gitea before publishing.", "gitea_repo_required");
+  if (!project || project.studyId !== studyId) return problem(404, "Pipeline not found for this study.", "not_found");
+  if (!project.giteaOwner || !project.giteaRepo) return problem(409, "Save the pipeline before publishing.", "gitea_repo_required");
 
   // Governance gates: the same ones that guard code generation and job execution.
   const missing: string[] = [];
-  if (!ethicsCleared(latestEthicsStatus(study.ethics))) missing.push("ethicsApproval");
+  const messages: string[] = [];
+  if (!ethicsCleared(latestEthicsStatus(study.ethics))) {
+    missing.push("ethicsApproval");
+    messages.push(publishRequirementMessage("ethicsApproval"));
+  }
   const requirements = requirementsGate(await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true } }));
-  if (!requirements.allowed) missing.push(`requirements (${requirements.missing.join(", ")})`);
-  if (study.studySites.length === 0) missing.push("studySites");
-  if (missing.length > 0) return problem(409, `Publishing is blocked by missing requirements: ${missing.join("; ")}.`, "publish_gate");
+  if (!requirements.allowed) {
+    missing.push(`requirements (${requirements.missing.join(", ")})`);
+    messages.push(publishRequirementMessage("studyQuestions", { remaining: requirements.missing.length }));
+  }
+  if (study.studySites.length === 0) {
+    missing.push("studySites");
+    messages.push(publishRequirementMessage("studySites"));
+  }
+  if (missing.length > 0) {
+    return json(
+      {
+        error: {
+          code: "publish_gate",
+          message: `Publishing is not possible yet. ${messages.join(". ")}.`,
+          details: { missing, steps: messages }
+        }
+      },
+      { status: 409 }
+    );
+  }
 
   const inFlight = await prisma.cIValidationRun.findFirst({
     where: { provider: PUBLISH_PROVIDER, status: { in: ["QUEUED", "RUNNING"] }, pipelineVersion: { projectId } }
   });
-  if (inFlight) return problem(409, "A publish is already in progress for this project.", "publish_in_progress");
+  if (inFlight) return problem(409, "A publish is already in progress for this pipeline.", "publish_in_progress");
 
   const deployment = await prisma.nvflareDeployment.findFirst({ where: { studyId, runtimeMode: "k8s" } });
   if (deployment) {
     const running = await prisma.nvflareJob.count({ where: { deploymentId: deployment.id, status: { in: ["SUBMITTED", "SCHEDULED", "RUNNING"] } } });
-    if (running > 0) return problem(409, "A run is in progress on the aggregator; wait for it to finish or abort it before republishing.", "run_in_progress");
+    if (running > 0) return problem(409, "A run is in progress on the study server; wait for it to finish or stop it before publishing again.", "run_in_progress");
   }
 
   // Resolve and freeze the commit.
@@ -96,7 +117,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const branch = await getGiteaBranch({ owner: project.giteaOwner, repo: project.giteaRepo, branchName: project.defaultBranch });
     commitSha = parsed.data.commit ?? branch.commit?.id ?? branch.commit?.sha ?? "";
-    if (!commitSha) return problem(409, "The project branch has no commits yet.", "no_commits");
+    if (!commitSha) return problem(409, "This pipeline has no saved code yet. Save it first.", "no_commits");
   } catch (error) {
     if (isRuntimeConfigurationError(error)) return problem(503, error.message, "gitea_not_configured");
     if (error instanceof GiteaApiError) return problem(502, error.message, "gitea_api_error");
@@ -220,7 +241,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       prisma.pipelineVersion.update({ where: { id: version.id }, data: { publishWorkflowId: submitted.workflowId, validationStatus: "RUNNING" } })
     ]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Publish workflow submission failed.";
+    const message = error instanceof Error ? error.message : "Publishing could not be started. Try again.";
     await prisma.$transaction([
       prisma.cIValidationRun.update({ where: { id: ciRun.id }, data: { status: "FAILED", summary: message, completedAt: new Date() } }),
       prisma.pipelineVersion.update({ where: { id: version.id }, data: { validationStatus: "FAILED" } }),

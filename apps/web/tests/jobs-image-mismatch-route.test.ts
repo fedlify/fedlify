@@ -45,7 +45,7 @@ import { POST } from "@/app/api/v1/studies/[studyId]/nvflare/jobs/route";
 
 const now = () => new Date();
 const site = (code: string, metadata: unknown) => ({
-  id: `ss-${code}`, siteId: `site-${code}`, code, name: code, readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }],
+  id: `ss-${code}`, siteId: `site-${code}`, code, name: `Hospital ${code}`, readinessChecks: [{ dependenciesVerified: true, policyAccepted: true }],
   site: { nvflareClientName: `site-${code}`, heartbeats: [{ createdAt: now(), metadata }] }
 });
 const post = () =>
@@ -68,8 +68,9 @@ describe("POST nvflare/jobs image currency", () => {
     expect(error.code).toBe("site_image_mismatch");
     expect(error.sites.map((s: { clientName: string }) => s.clientName)).toEqual(["site-B"]);
     expect(error.sites[0].fix.join(" ")).toContain("fedlify-runner.sh update");
-    expect(error.message).toContain("site-B");
-    expect(error.message).not.toContain("site-A");
+    expect(error.message).toContain("Hospital B");
+    expect(error.message).not.toContain("Hospital A");
+    expect(error.message).not.toMatch(/aggregator|digest|image|site-B/i);
     expect(jobCreate).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
   });

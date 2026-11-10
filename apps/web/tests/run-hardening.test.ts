@@ -251,7 +251,7 @@ describe("run code view and audit notice rendering", () => {
     const out = render(view());
     expect(out).toContain("sha256:img");
     expect(out).toContain("sha256:sitea");
-    expect(out).toMatch(/Site B reported:.*not reported/);
+    expect(out).toMatch(/Site B reported.*Not reported/);
   });
   it("flags a commit that was reconstructed from the pipeline version", () => {
     expect(render(view())).not.toContain("Not recorded on this run");
@@ -269,7 +269,7 @@ describe("run code view and audit notice rendering", () => {
     expect(out).not.toContain("grid-template-columns");
   });
   it("says when the audit table is partial, and stays quiet when complete or unknown", () => {
-    expect(renderToStaticMarkup(createElement(AuditPartialNotice, { shown: 100, total: 250 }))).toContain("Showing the latest 100 of 250 audit events");
+    expect(renderToStaticMarkup(createElement(AuditPartialNotice, { shown: 100, total: 250 }))).toContain("Showing the latest 100 of 250 activity entries");
     expect(renderToStaticMarkup(createElement(AuditPartialNotice, { shown: 100, total: 100 }))).toBe("");
     expect(renderToStaticMarkup(createElement(AuditPartialNotice, { shown: null, total: null }))).toBe("");
   });

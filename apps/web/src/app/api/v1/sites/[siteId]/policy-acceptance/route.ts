@@ -24,13 +24,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
   }
 
   const parsed = policyAcceptanceSchema.safeParse(await request.json().catch(() => ({})));
-  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid policy acceptance.");
+  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "The data-use policy acceptance is not valid.");
 
   const studySite = await prisma.studySite.findUnique({
     where: { id: siteId },
     include: { readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 } }
   });
-  if (!studySite) return problem(404, "Participant site not found.", "not_found");
+  if (!studySite) return problem(404, "Site not found.", "not_found");
 
   const latest = studySite.readinessChecks[0];
   const readiness = {

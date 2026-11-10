@@ -122,7 +122,7 @@ const PROPOSE_PROMPTS = [
   "Document how this pipeline works in README.md"
 ];
 
-const STATUS_LABEL: Record<ProposalStatus, string> = { PROPOSED: "Proposed", ACCEPTED: "Accepted", REJECTED: "Rejected", STALE: "Stale" };
+const STATUS_LABEL: Record<ProposalStatus, string> = { PROPOSED: "Proposed", ACCEPTED: "Accepted", REJECTED: "Rejected", STALE: "Out of date" };
 const STATUS_COLOR: Record<ProposalStatus, string> = { PROPOSED: "purple", ACCEPTED: "green", REJECTED: "default", STALE: "orange" };
 
 function ProposalCard({
@@ -156,10 +156,9 @@ function ProposalCard({
     <div className="fedlify-ws-proposal" role="group" aria-label={`Proposal: ${proposal.title}`}>
       <div className="fedlify-ws-proposal-head">
         <strong>{proposal.title}</strong>
-        <Tag color={STATUS_COLOR[status]}>
+        <Tag color={STATUS_COLOR[status]} title={status === "ACCEPTED" && proposal.acceptedCommit ? `Commit ${proposal.acceptedCommit.slice(0, 8)}` : undefined}>
           {STATUS_LABEL[status]}
           {partial ? ` (${applied.size} of ${proposal.files.length} files)` : ""}
-          {status === "ACCEPTED" && proposal.acceptedCommit ? ` - commit ${proposal.acceptedCommit.slice(0, 8)}` : ""}
         </Tag>
       </div>
       <p className="fedlify-ws-msg-text">{proposal.rationale}</p>
@@ -176,10 +175,10 @@ function ProposalCard({
         ))}
       </ul>
       <Typography.Text className="fedlify-muted">{status === "ACCEPTED"
-          ? `${appliedFiles.length} of ${proposal.files.length} file(s) committed, +${appliedAdded} -${appliedRemoved}.`
+          ? `${appliedFiles.length} of ${proposal.files.length} file(s) saved, +${appliedAdded} -${appliedRemoved}.`
           : `${proposal.files.length} file(s), +${added} -${removed}. Nothing is saved until you accept.`}</Typography.Text>
       {status === "STALE" ? (
-        <Alert type="warning" showIcon message="The saved code changed after this was written." description="Regenerate it against the latest commit." />
+        <Alert type="warning" showIcon message="The saved code changed after this was written." description="Regenerate it against the latest saved code." />
       ) : null}
       {error ? <Alert type="error" showIcon message={error} /> : null}
       <div className="fedlify-ws-proposal-actions">
@@ -187,8 +186,8 @@ function ProposalCard({
           <>
             <Button size="small" onClick={onReview} disabled={busy}>Review diff</Button>
             <Popconfirm
-              title={`Commit ${proposal.files.length} file(s) to the saved code?`}
-              description="This creates one commit under your name. It does not publish or run anything."
+              title={`Save ${proposal.files.length} file(s) to the pipeline?`}
+              description="This saves the change under your name. It does not publish or run anything."
               okText="Accept all"
               onConfirm={onAccept}
             >
@@ -936,7 +935,7 @@ export function AssistantPanel({
     failItem(planId, "");
     const decided = await decidePlan(studyId, projectId, id, planId, { decision: "approve", approvedStepIds, ackAssumptions });
     if (!decided.ok) {
-      failItem(planId, decided.code === "plan_stale" ? "The saved code changed since this plan was written. Re-plan from the latest commit." : [decided.message, ...decided.details].join(" "));
+      failItem(planId, decided.code === "plan_stale" ? "The saved code changed since this plan was written. Re-plan from the latest saved code." : [decided.message, ...decided.details].join(" "));
       await refreshThread(id);
     } else if (mode === "agent") {
       await writeCode(id, planId);
@@ -1015,7 +1014,7 @@ export function AssistantPanel({
               onReject={() => void rejectPlan(plan.id)}
               onRevise={revisePlan}
               onWriteCode={() => void codeApprovedPlan(plan.id)}
-              onReplan={() => void sendThreadTurn("Re-plan from the latest commit, keeping the same goal and my earlier answers.", "plan")}
+              onReplan={() => void sendThreadTurn("Re-plan from the latest saved code, keeping the same goal and my earlier answers.", "plan")}
             />
           </div>
         );
@@ -1065,11 +1064,11 @@ export function AssistantPanel({
   const unsavedNote = unsavedPaths.length > 0;
 
   return (
-    <aside className={["fedlify-ws-assistant", expanded ? "is-expanded" : ""].join(" ")} aria-label="Project assistant">
+    <aside className={["fedlify-ws-assistant", expanded ? "is-expanded" : ""].join(" ")} aria-label="Pipeline assistant">
       <div className="fedlify-ws-assistant-head">
         <div>
           <strong><RobotOutlined /> Assistant</strong>
-          <Tooltip title="The assistant never saves, publishes, runs or releases. A change is committed only when you accept it.">
+          <Tooltip title="The assistant never saves, publishes, runs or releases. A change is saved only when you accept it.">
             <Tag className="fedlify-ws-readonly">Proposes only</Tag>
           </Tooltip>
         </div>
@@ -1143,7 +1142,7 @@ export function AssistantPanel({
             </div>
             {stale ? (
               <Typography.Text className="fedlify-ws-stale-note" data-testid="failure-notice-stale">
-                This failure was for commit <code>{failedCommit?.slice(0, 8)}</code>; you have saved newer commits since (head is <code>{headNow?.slice(0, 8)}</code>).
+                This failure was for an older save; you have saved newer code since. <span title={`Failed commit ${failedCommit?.slice(0, 8) ?? ""}; latest saved commit ${headNow?.slice(0, 8) ?? ""}`}>(technical details)</span>
               </Typography.Text>
             ) : null}
             <Typography.Paragraph className="fedlify-ws-failure-summary" ellipsis={{ rows: 2 }}>{failureNoticeText(notice.lines).headline ?? "No error text was recorded."}</Typography.Paragraph>
@@ -1151,7 +1150,7 @@ export function AssistantPanel({
               {notice.lines.length > 0 ? <Button size="small" type="link" className="fedlify-ws-failure-details" onClick={() => setNoticeDetail(notice)}>View details</Button> : null}
               <Button size="small" disabled={streaming} onClick={() => explainFailure(notice.kind)}>Explain</Button>
               {stale && onOpenPublish ? (
-                <Button size="small" type="primary" onClick={openPublish}>Publish latest</Button>
+                <Button size="small" type="primary" onClick={openPublish}>Publish latest saved code</Button>
               ) : (
                 <Button size="small" type="primary" disabled={streaming} onClick={() => proposeFix(notice.kind)}>Propose fix</Button>
               )}
@@ -1169,7 +1168,7 @@ export function AssistantPanel({
                   ? "Describe a goal. The assistant may ask questions, then writes a plan. No code is written until you approve the plan, and nothing is saved until you accept the diff."
                   : mode === "agent"
                     ? "Describe a goal. The assistant plans, waits for your approval, then writes a proposal. You still review and accept the diff."
-                    : "Ask about this project. It can read your study context and the saved code, but it cannot save, publish, run, or release anything."}
+                    : "Ask about this pipeline. It can read your study context and the saved code, but it cannot save, publish, run, or release anything."}
             </Typography.Text>
             {threadMode ? <Typography.Text className="fedlify-muted fedlify-ws-retention" data-testid="retention-notice">{RETENTION_NOTICE}</Typography.Text> : null}
             <div className="fedlify-ws-quick-list">
@@ -1216,12 +1215,12 @@ export function AssistantPanel({
       ) : (
       <div className="fedlify-ws-composer">
         <div className="fedlify-ws-chips" aria-label="Context sent with your next message">
-          <Tooltip title="Protocol fields, your requirement answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
+          <Tooltip title="Protocol fields, your study question answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
             <Tag color={context && context.answered < context.total ? "orange" : "purple"}>
               {context ? `Study context ${context.answered}/${context.total}` : "Study context"}
             </Tag>
           </Tooltip>
-          <Tag>{commit ? `commit ${commit.slice(0, 8)}` : "no commit"}</Tag>
+          <Tag title={commit ? `Commit ${commit.slice(0, 8)}` : undefined}>{commit ? "Latest saved code" : "Nothing saved yet"}</Tag>
           {attachedPath ? (
             <Tag closable onClose={(event) => { event.preventDefault(); setIncludeFile(false); setSelection(null); }} title={attachedPath}>
               {attachedPath}
@@ -1242,7 +1241,7 @@ export function AssistantPanel({
             </Tooltip>
           ) : null}
           {unsavedNote ? (
-            <Tooltip title="The assistant reads the saved commit. Save first if you want it to see your edits.">
+            <Tooltip title="The assistant reads the saved code. Save first if you want it to see your edits.">
               <Tag color="gold">unsaved edits not included</Tag>
             </Tooltip>
           ) : null}
@@ -1253,7 +1252,7 @@ export function AssistantPanel({
           maxLength={MAX_MESSAGE_CHARS}
           variant="borderless"
           autoSize={{ minRows: 1, maxRows: 8 }}
-          placeholder={mode === "edit" ? "Describe the change you want proposed..." : mode === "plan" || mode === "agent" ? "Describe what you want to build or change..." : focusFile ? `Ask about ${focusFile} or the project...` : "Ask about the project..."}
+          placeholder={mode === "edit" ? "Describe the change you want proposed..." : mode === "plan" || mode === "agent" ? "Describe what you want to build or change..." : focusFile ? `Ask about ${focusFile} or the pipeline...` : "Ask about the pipeline..."}
           aria-label="Message to the assistant"
           onChange={(event) => setInput(event.target.value)}
           onPressEnter={(event) => {

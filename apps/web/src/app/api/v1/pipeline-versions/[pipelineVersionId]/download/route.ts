@@ -37,7 +37,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pip
     return json({
       pipelineVersion: version,
       downloadUrl: null,
-      message: "Pipeline bundle metadata is registered, but object storage is not available for download."
+      message: "The pipeline files are registered, but file storage is not set up for downloads. Contact the platform administrator."
     });
   }
 

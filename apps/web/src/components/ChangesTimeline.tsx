@@ -4,10 +4,11 @@ import { Button, Empty, Modal, Segmented, Spin, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import type { CommitDiff } from "@/lib/agent-timeline";
 import { getCommitDiff, getTimeline, relativeTime } from "@/lib/agent-thread-client";
+import { statusLabel } from "@/lib/terms";
 import type { TimelineEntryDto, TimelineKind } from "@/lib/agent-thread-types";
 
 type Filter = "all" | "agent" | "manual" | "published";
-const KIND_LABEL: Record<TimelineKind, string> = { agent: "Agent", manual: "Manual save", published: "Published", rejected: "Rejected", external: "External or unrecorded" };
+const KIND_LABEL: Record<TimelineKind, string> = { agent: "Assistant", manual: "Manual save", published: "Published", rejected: "Rejected", external: "External or unrecorded" };
 const KIND_COLOR: Record<TimelineKind, string> = { agent: "purple", manual: "blue", published: "green", rejected: "default", external: "gold" };
 
 /** What changed in this project: agent proposals, manual saves, publishes. Diff opens the proposal review; Open thread jumps to the chat. */
@@ -59,7 +60,7 @@ export function ChangesTimeline({
 
   return (
     <div className="fedlify-ws-changes" data-testid="changes-timeline">
-      <Segmented size="small" value={filter} onChange={(value) => setFilter(value as Filter)} options={[{ label: "All", value: "all" }, { label: "Agent", value: "agent" }, { label: "Manual", value: "manual" }, { label: "Published", value: "published" }]} aria-label="Filter changes" />
+      <Segmented size="small" value={filter} onChange={(value) => setFilter(value as Filter)} options={[{ label: "All", value: "all" }, { label: "Assistant", value: "agent" }, { label: "Manual", value: "manual" }, { label: "Published", value: "published" }]} aria-label="Filter changes" />
       {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
       {entries.length === 0 && !loading && !error ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No changes yet" /> : null}
       <ul className="fedlify-ws-changes-list">
@@ -68,11 +69,11 @@ export function ChangesTimeline({
             <div className="fedlify-ws-changes-head">
               <Tag color={KIND_COLOR[entry.kind]}>{KIND_LABEL[entry.kind]}</Tag>
               <span className="fedlify-muted">{relativeTime(entry.at)}</span>
-              {entry.commit ? <code>{entry.commit.slice(0, 7)}</code> : null}
+              {entry.commit ? <code title="Commit">{entry.commit.slice(0, 7)}</code> : null}
             </div>
             <div>{entry.title}</div>
             <div className="fedlify-muted">
-              {[entry.actor.name, entry.added !== null && entry.removed !== null ? `+${entry.added} -${entry.removed}` : null, entry.published ? `v${entry.published.version} published${entry.published.approvedByName ? `, approved by ${entry.published.approvedByName}` : ""}` : null, entry.proposalStatus && entry.kind !== "agent" ? entry.proposalStatus.toLowerCase() : null]
+              {[entry.actor.name, entry.added !== null && entry.removed !== null ? `+${entry.added} -${entry.removed}` : null, entry.published ? `v${entry.published.version} published${entry.published.approvedByName ? `, approved by ${entry.published.approvedByName}` : ""}` : null, entry.proposalStatus && entry.kind !== "agent" ? statusLabel(entry.proposalStatus).toLowerCase() : null]
                 .filter(Boolean)
                 .join(" - ")}
             </div>
@@ -84,7 +85,8 @@ export function ChangesTimeline({
           </li>
         ))}
       </ul>
-      <Modal open={diff !== null} onCancel={() => setDiff(null)} footer={null} width={900} title={diff ? `Commit ${diff.commit.slice(0, 7)}` : ""}>
+      <Modal open={diff !== null} onCancel={() => setDiff(null)} footer={null} width={900} title={diff ? "Saved change" : ""}>
+        {diff ? <Typography.Text className="fedlify-muted" title={diff.commit}>Commit {diff.commit.slice(0, 7)}</Typography.Text> : null}
         {diff?.loading ? <Spin /> : null}
         {diff?.error ? <Typography.Text type="danger">{diff.error}</Typography.Text> : null}
         {diff?.data?.files.map((file) => (

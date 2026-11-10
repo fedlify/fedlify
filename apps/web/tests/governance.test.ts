@@ -111,22 +111,41 @@ describe("execution gate message", () => {
     const unready = describeUnreadySites(sites);
     expect(unready.map((s) => s.code)).toEqual(["B", "C"]);
     expect(unready[0].problems).toEqual(["data-use policy not accepted"]);
-    expect(unready[1].problems).toEqual(["no sign-off has been recorded"]);
+    expect(unready[1].problems).toEqual(["no site sign-off has been recorded"]);
   });
 
   it("names the sites and the fix in the message", () => {
     const message = executionGateMessage(["allSitesReady"], describeUnreadySites(sites));
-    expect(message).toContain("Site B (B)");
-    expect(message).toContain("Site C (C)");
+    expect(message).toContain("Site B:");
+    expect(message).toContain("Site C:");
     expect(message).not.toContain("Site A");
-    expect(message).toMatch(/site attestation/);
-    expect(message).not.toMatch(/connectivity|kit/i);
+    expect(message).toMatch(/site sign-off/);
+    expect(message).not.toMatch(/connectivity|kit|attestation|aggregator/i);
     expect(message).not.toContain("allSitesReady");
   });
 
   it("explains other missing requirements in words", () => {
     const message = executionGateMessage(["ethicsApproval", "approvedPipelineVersion"]);
-    expect(message).toMatch(/ethics approval/);
+    expect(message).toMatch(/ethics decision/);
     expect(message).toMatch(/pipeline version is not approved/);
+    expect(message).not.toMatch(/ethicsApproval|approvedPipelineVersion/);
+  });
+
+  it("never shows raw requirement keys", () => {
+    const message = executionGateMessage(
+      ["ethicsApproval", "approvedPipelineVersion", "passedPipelineValidation", "readySites", "allSitesReady"],
+      describeUnreadySites(sites)
+    );
+    expect(message).not.toMatch(/ethicsApproval|approvedPipelineVersion|passedPipelineValidation|readySites|allSitesReady|attestation|aggregator|participat/i);
+  });
+});
+
+import { publishRequirementMessage } from "@/lib/governance";
+
+describe("publish requirement messages", () => {
+  it("are plain sentences without raw keys", () => {
+    expect(publishRequirementMessage("ethicsApproval")).toBe("Record the ethics decision");
+    expect(publishRequirementMessage("studySites")).toBe("Add at least one site");
+    expect(publishRequirementMessage("studyQuestions", { remaining: 3 })).toBe("Answer the remaining study questions (3 left)");
   });
 });

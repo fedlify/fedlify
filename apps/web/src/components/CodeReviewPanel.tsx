@@ -913,18 +913,18 @@ export function CodeReviewPanel({
   const compactRef = (
     <div className={["fedlify-code-compact-ref", statusBar ? "is-statusbar" : ""].join(" ")}>
       {payload?.branchName ? (
-        <Typography.Text type="secondary" title={payload.branchName}>
+        <Typography.Text type="secondary" title={`Branch: ${payload.branchName}`}>
           {statusBar ? <BranchesOutlined /> : "Branch:"} <code>{payload.branchName.length > 50 ? `…${payload.branchName.slice(-44)}` : payload.branchName}</code>
         </Typography.Text>
       ) : null}
       {reviewCommit ? (
-        <Typography.Text type="secondary" title={reviewCommit}>
+        <Typography.Text type="secondary" title={`Commit: ${reviewCommit}`}>
           {statusBar ? null : "Commit: "}<code>{shortCommit(reviewCommit)}</code>
         </Typography.Text>
       ) : null}
       {validation?.status ? <StatusTag value={validation.status} /> : null}
       <Button size="small" type="text" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
-        {contextOpen && !statusBar ? "Hide context" : "Review context"}
+        {statusBar ? "Details" : contextOpen ? "Hide context" : "Review context"}
       </Button>
       {contextNote ? <Typography.Text type="secondary" className="fedlify-code-compact-note" ellipsis={{ tooltip: contextNote }}>{contextNote}</Typography.Text> : null}
     </div>

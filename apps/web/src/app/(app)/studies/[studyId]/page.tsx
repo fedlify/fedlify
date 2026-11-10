@@ -224,13 +224,13 @@ const CREATE_FORM_META = {
     backLabel: "Study protocol"
   },
   site: {
-    title: "Register participant site",
+    title: "Add site",
     subtitle: "Add the institution identity first. Data and resource profiles are completed from the site view.",
     backLabel: "Sites and data"
   },
   job: {
     title: WORKFLOW_TERMS.startRun,
-    subtitle: "Run an approved pipeline version against ready participant sites through the Fedlify FLARE API wrapper.",
+    subtitle: "Run an approved pipeline version on the sites that are ready.",
     backLabel: "Federated run"
   }
 } as const;
@@ -767,15 +767,15 @@ export default function StudyDetailPage() {
   }, [activeDetail?.kind, activeDetail?.id, study?.id]);
 
   async function provisionDeployment() {
-    await post(`/api/v1/studies/${studyId}/nvflare/deployments`, {}, "NVFLARE deployment provisioned.");
+    await post(`/api/v1/studies/${studyId}/nvflare/deployments`, {}, "Study server prepared.");
   }
 
   async function startDeployment(deploymentId: string) {
-    await post(`/api/v1/studies/${studyId}/nvflare/deployments/${deploymentId}/start`, {}, "NVFLARE aggregator started.");
+    await post(`/api/v1/studies/${studyId}/nvflare/deployments/${deploymentId}/start`, {}, "Study server started.");
   }
 
   async function stopDeployment(deploymentId: string) {
-    await post(`/api/v1/studies/${studyId}/nvflare/deployments/${deploymentId}/stop`, {}, "NVFLARE aggregator stopped.");
+    await post(`/api/v1/studies/${studyId}/nvflare/deployments/${deploymentId}/stop`, {}, "Study server stopped.");
   }
 
   async function updateStudyMemberRoles(userId: string, roles: string[]) {
@@ -1264,7 +1264,7 @@ export default function StudyDetailPage() {
               }
             }}
           >
-            <FormError title="Participant site was not registered" message={formError} />
+            <FormError title="Site was not added" message={formError} />
             <div className="fedlify-intake-field-grid">
               <Form.Item name="name" label="Site name" rules={[{ required: true }]}>
                 <Input />
@@ -1282,7 +1282,7 @@ export default function StudyDetailPage() {
             <Space className="fedlify-form-actions">
               <Button onClick={closeCreate}>Cancel</Button>
               <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={formSubmitting}>
-                Register site
+                Add site
               </Button>
             </Space>
           </Form>
@@ -1308,7 +1308,7 @@ export default function StudyDetailPage() {
               commandSummary: "Submit approved pipeline version as a Fedlify federated run."
             }}
             onFinish={async (values) => {
-              const result = await post(`/api/v1/studies/${studyId}/nvflare/jobs`, values, "Federated run submitted.");
+              const result = await post(`/api/v1/studies/${studyId}/nvflare/jobs`, values, "Run started.");
               if (result) closeCreate();
             }}
           >
@@ -1323,7 +1323,7 @@ export default function StudyDetailPage() {
                 placeholder="Select approved version"
               />
             </Form.Item>
-            <Form.Item name="studySiteIds" label="Participant sites">
+            <Form.Item name="studySiteIds" label="Sites">
               <Select
                 mode="multiple"
                 options={(study?.studySites ?? []).map((site) => ({
@@ -1336,7 +1336,7 @@ export default function StudyDetailPage() {
             <div className="fedlify-intake-field-grid">
               <Form.Item
                 name={["runtimeParameters", "minClients"]}
-                label="Minimum participating sites"
+                label="Minimum sites"
                 rules={[{ required: true, message: "Set the minimum number of sites required to start." }]}
                 extra="Default is the number of selected sites. Lower this only for a partial-site smoke test."
               >
@@ -1387,7 +1387,7 @@ export default function StudyDetailPage() {
     const missingActivationItems = [
       ...missingProtocolFieldLabels,
       ethicsReady ? null : "Ethics decision",
-      hasParticipantSite ? null : "Participant site",
+      hasParticipantSite ? null : "Site",
       requirementsReady ? null : `Requirements checklist (${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered)`
     ].filter(Boolean) as string[];
     return {
@@ -1493,7 +1493,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "site") {
       return {
-        title: text(record.name, "Participant site"),
+        title: text(record.name, "Site"),
         subtitle: text(record.institutionName, "Institution not recorded"),
         status: <StatusTag value={status(record.participationStatus, "INVITED")} />,
         actions: <Button icon={<ClusterOutlined />} onClick={() => router.push(`/sites/${record.id}`)}>Open onboarding dashboard</Button>,
@@ -1519,7 +1519,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "deployment") {
       return {
-        title: text(record.name, "NVFLARE deployment"),
+        title: text(record.name, "Study server"),
         subtitle: text(record.serverAddress, "No server address"),
         status: <StatusTag value={status(record.status, "DRAFT")} />,
         backLabel: activeSectionMeta.title
@@ -1549,8 +1549,8 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "codeRelease") {
       return {
-        title: `Code/kit release ${text(record.version)}`,
-        subtitle: "Startup kits, source bundles, and checksum manifests",
+        title: `Site kits ${text(record.version)}`,
+        subtitle: "The site kits and files published with this version.",
         status: <StatusTag value={record.status} />,
         backLabel: "Results"
       };
@@ -1716,7 +1716,7 @@ export default function StudyDetailPage() {
       return (
         <EntityDetailView
           bodyOnly
-          title={text(record.name, "Participant site")}
+          title={text(record.name, "Site")}
           subtitle={text(record.institutionName, "Institution not recorded")}
           status={<StatusTag value={status(record.participationStatus, "INVITED")} />}
           onBack={closeDetail}
@@ -1833,7 +1833,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "deployment") {
       return (
-        <EntityDetailView bodyOnly title={text(record.name, "NVFLARE deployment")} subtitle={text(record.serverAddress, "No server address")} status={<StatusTag value={status(record.status, "DRAFT")} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={text(record.name, "Study server")} subtitle={text(record.serverAddress, "No server address")} status={<StatusTag value={status(record.status, "DRAFT")} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Runtime" value={text(record.runtimeMode, "local-docker")} />
             <FieldRow label="Server address" value={text(record.serverAddress)} />
@@ -1932,7 +1932,7 @@ export default function StudyDetailPage() {
 
     if (detail.kind === "codeRelease") {
       return (
-        <EntityDetailView bodyOnly title={`Code/kit release ${text(record.version)}`} subtitle="Startup kits, source bundles, and checksum manifests" status={<StatusTag value={record.status} />} onBack={closeDetail}>
+        <EntityDetailView bodyOnly title={`Site kits ${text(record.version)}`} subtitle="The site kits and files published with this version." status={<StatusTag value={record.status} />} onBack={closeDetail}>
           <FieldGrid>
             <FieldRow label="Version" value={text(record.version)} />
             <FieldRow label="Approval state" value={displayEnum(record.status)} />
@@ -2133,10 +2133,10 @@ export default function StudyDetailPage() {
         },
         {
           key: "sites",
-          title: "Participant sites",
+          title: "Sites",
           detail: hasParticipantSite
-            ? `${participantSiteCount} participant site(s) registered.`
-            : "Add at least one participant site before activation.",
+            ? `${participantSiteCount} site(s) added.`
+            : "Add at least one site before activation.",
           status: hasParticipantSite ? "READY" : "NEEDS_ATTENTION",
           icon: <ClusterOutlined />,
           action: hasParticipantSite ? "Review sites" : "Add sites",
@@ -2389,7 +2389,7 @@ export default function StudyDetailPage() {
                       className="fedlify-protocol-note"
                       message={
                         activationReady
-                          ? "This study has the study design, ethics decision, participant sites, and the 29 requirement answers required for activation."
+                          ? "This study has the study design, ethics decision, sites, and the 29 study question answers required for activation."
                           : activationBlockedMessage
                       }
                     />
@@ -2509,8 +2509,8 @@ export default function StudyDetailPage() {
             <Alert
               type="success"
               showIcon
-              message="Participant site token created"
-              description={`Store this token in the participant site's agent secret store: ${siteToken}`}
+              message="Site access code (shown once)"
+              description={`Give this site access code to the person setting up the runner at the site, and keep it private: ${siteToken}`}
             />
           ) : null}
           <StudySitesTable studyId={studyId} onRegister={() => openCreate("site")} />
@@ -2771,7 +2771,7 @@ export default function StudyDetailPage() {
                         <WorkspaceRecordCard
                           key={text(deployment.id, deployment.createdAt)}
                           icon={<ClusterOutlined />}
-                          title={text(deployment.name, "NVFLARE deployment")}
+                          title={text(deployment.name, "Study server")}
                           description={text(deployment.serverAddress, "Server address not assigned")}
                           status={<StatusTag value={status(deployment.status, "DRAFT")} />}
                           meta={[
@@ -2967,7 +2967,7 @@ export default function StudyDetailPage() {
                           <WorkspaceRecordCard
                             key={release.id}
                             icon={<CloudDownloadOutlined />}
-                            title={`Code/kit release ${release.version}`}
+                            title={`Site kits ${release.version}`}
                             description={`Approved ${formatDate(release.approvedAt)}`}
                             status={<StatusTag value={release.status} />}
                             meta={[`${release.artifacts?.length ?? 0} artifacts`, `${release.checksum.slice(0, 12)}...`]}

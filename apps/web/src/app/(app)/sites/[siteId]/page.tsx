@@ -15,11 +15,13 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { CardGrid, EntityCard } from "@/components/DataCards";
+import { Details } from "@/components/Details";
 import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { StatusTag } from "@/components/StatusTag";
 import { toneIcon } from "@/components/PipelineRail";
-import type { SiteRuntime } from "@/lib/site-runtime";
+import { studySoftwareLabel, type SiteRuntime } from "@/lib/site-runtime";
+import { auditActionLabel, kitStateLabel, roleLabel, statusLabel } from "@/lib/terms";
 import {
   DATA_MODALITY_OPTIONS,
   normalizeMultiSelectValue,
@@ -45,11 +47,7 @@ function text(value: unknown, fallback = "Not set") {
 
 function displayEnum(value: unknown, fallback = "Not set") {
   if (!value || typeof value !== "string") return fallback;
-  return value
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-    .replace("Nvflare", "NVFLARE");
+  return statusLabel(value);
 }
 
 function formatDate(value: unknown) {
@@ -61,6 +59,13 @@ function shortImage(value: string | null) {
   const sha = value?.match(/sha256:([0-9a-f]{12})/)?.[1];
   return sha ? `sha256:${sha}` : "Not reported";
 }
+
+const IMAGE_STATE_LABEL: Record<string, string> = {
+  CURRENT: "Up to date",
+  OUTDATED: "Needs update",
+  NOT_REPORTED: "Not reported",
+  UNKNOWN: "Nothing published"
+};
 
 function Facts({ items }: { items: Array<[string, ReactNode]> }) {
   return (
@@ -100,11 +105,11 @@ export default function SiteOnboardingPage() {
     try {
       const response = await fetch(`/api/v1/sites/${siteId}`, { cache: "no-store" });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error?.message ?? "Site onboarding dashboard could not be loaded.");
+      if (!response.ok) throw new Error(body?.error?.message ?? "This site could not be loaded.");
       setDashboard(body);
     } catch (error) {
       setDashboard(null);
-      setLoadError(error instanceof Error ? error.message : "Site onboarding dashboard could not be loaded.");
+      setLoadError(error instanceof Error ? error.message : "This site could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -190,9 +195,9 @@ export default function SiteOnboardingPage() {
           body: JSON.stringify({ password: stepUpPassword })
         });
         const body = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(body?.error?.message ?? "The startup kit could not be created.");
+        if (!response.ok) throw new Error(body?.error?.message ?? "The site kit could not be created.");
         closeStepUp();
-        messageApi.success("Startup kit prepared.");
+        messageApi.success("Site kit created.");
         setEnrollmentToken(body.enrollmentToken ?? null);
         setKitPassphrase(body.passphrase ?? null);
         setInlineManifest(body.manifest ?? null);
@@ -207,11 +212,11 @@ export default function SiteOnboardingPage() {
           body: JSON.stringify({ password: stepUpPassword })
         });
         const grantBody = await grantResponse.json().catch(() => null);
-        if (!grantResponse.ok) throw new Error(grantBody?.error?.message ?? "Startup kit could not be downloaded.");
+        if (!grantResponse.ok) throw new Error(grantBody?.error?.message ?? "The site kit could not be downloaded.");
         closeStepUp();
         if (!grantBody.grant) {
           setInlineManifest(grantBody.manifest ?? null);
-          messageApi.info(grantBody.message ?? "Startup kit manifest is available inline.");
+          messageApi.info(grantBody.message ?? "The site kit contents are shown below.");
           return;
         }
         const urlResponse = await fetch(base, {
@@ -220,7 +225,7 @@ export default function SiteOnboardingPage() {
           body: JSON.stringify({ grant: grantBody.grant })
         });
         const urlBody = await urlResponse.json().catch(() => null);
-        if (!urlResponse.ok || !urlBody?.downloadUrl) throw new Error(urlBody?.error?.message ?? "Startup kit could not be downloaded.");
+        if (!urlResponse.ok || !urlBody?.downloadUrl) throw new Error(urlBody?.error?.message ?? "The site kit could not be downloaded.");
         window.location.href = urlBody.downloadUrl;
       }
     } catch (error) {
@@ -231,7 +236,7 @@ export default function SiteOnboardingPage() {
   }
 
   async function rotateToken() {
-    const result = await post(`/api/v1/sites/${siteId}/token/rotate`, {}, "Site token rotated.");
+    const result = await post(`/api/v1/sites/${siteId}/token/rotate`, {}, "Site access code reset.");
     if (!result) return;
     setEnrollmentToken(result.enrollmentToken ?? null);
     if (result.message) messageApi.info(result.message);
@@ -241,7 +246,7 @@ export default function SiteOnboardingPage() {
     const response = await fetch(`/api/v1/releases/${releaseId}/download?artifactId=${artifactId}`);
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      messageApi.error(body?.error?.message ?? "Pipeline bundle could not be downloaded.");
+      messageApi.error(body?.error?.message ?? "Pipeline files could not be downloaded.");
       return;
     }
     if (body.downloadUrl) window.location.assign(body.downloadUrl);
@@ -252,11 +257,11 @@ export default function SiteOnboardingPage() {
     const response = await fetch(`/api/v1/pipeline-versions/${versionId}/download`);
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      messageApi.error(body?.error?.message ?? "Pipeline bundle could not be downloaded.");
+      messageApi.error(body?.error?.message ?? "Pipeline files could not be downloaded.");
       return;
     }
     if (body.downloadUrl) window.location.assign(body.downloadUrl);
-    else messageApi.info(body.message ?? "Pipeline bundle metadata is registered, but no download URL is available.");
+    else messageApi.info(body.message ?? "The pipeline files are registered, but cannot be downloaded yet.");
   }
 
   const site = dashboard?.studySite;
@@ -283,7 +288,7 @@ export default function SiteOnboardingPage() {
     "# Unzip the download, then (the passphrase is typed at the prompt):",
     "chmod +x unlock.sh && ./unlock.sh",
     "cd fedlify-site-kit",
-    `FEDLIFY_SITE_TOKEN=${enrollmentToken ?? "<token-from-fedlify>"} ./fedlify-runner.sh start`
+    `FEDLIFY_SITE_TOKEN=${enrollmentToken ?? "<site-access-code>"} ./fedlify-runner.sh start`
   ].join("\n");
   if (loading && !dashboard) {
     return (
@@ -301,15 +306,15 @@ export default function SiteOnboardingPage() {
     );
   }
 
-  if (!dashboard || !site || !runtime) return <Alert type="error" message="Site onboarding dashboard could not be loaded." />;
+  if (!dashboard || !site || !runtime) return <Alert type="error" message="This site could not be loaded." />;
 
   return (
     <>
       {contextHolder}
       <Modal
         open={stepUp !== null}
-        title={stepUp?.mode === "create" ? "Confirm your password to create a kit" : "Confirm your password to download"}
-        okText={stepUp?.mode === "create" ? "Create kit" : "Download"}
+        title={stepUp?.mode === "create" ? "Confirm your password to create a site kit" : "Confirm your password to download"}
+        okText={stepUp?.mode === "create" ? "Create site kit" : "Download"}
         confirmLoading={submitting}
         onOk={() => void confirmStepUp()}
         onCancel={closeStepUp}
@@ -318,8 +323,8 @@ export default function SiteOnboardingPage() {
         <Space direction="vertical" style={{ width: "100%" }}>
           <Typography.Text>
             {stepUp?.mode === "create"
-              ? "Creating a kit rotates this site's token, revokes the previous kit, and issues a new passphrase."
-              : "Each confirmation allows one download. The kit file is useless without its passphrase."}
+              ? "Creating a site kit replaces this site's access code, cancels the previous site kit, and issues a new passphrase."
+              : "Each confirmation allows one download. The site kit file is useless without its passphrase."}
           </Typography.Text>
           <Input.Password
             autoFocus
@@ -334,9 +339,9 @@ export default function SiteOnboardingPage() {
       </Modal>
       <AppPage>
         <AppPageHeader
-          title={text(site.name, "Participant site")}
+          title={text(site.name, "Site")}
           subtitle={`${text(site.institutionName, "Institution")} - ${text(site.study?.title, "Study")}`}
-          backLabel="Participant sites"
+          backLabel="Sites"
           onBack={() => router.push(`/studies/${site.studyId}?section=sites`)}
           actions={<Button icon={<ReloadOutlined />} onClick={() => void load()} aria-label="Refresh site status" />}
         />
@@ -357,18 +362,18 @@ export default function SiteOnboardingPage() {
           </nav>
           {runtime.nextStep ? <Alert type="warning" showIcon message="Next step" description={runtime.nextStep} data-testid="site-next-step" /> : null}
 
-          <FormError title="Site onboarding request failed" message={formError} />
+          <FormError title="That did not work" message={formError} />
 
           {enrollmentToken ? (
             <Alert
               type="success"
               showIcon
-              message="One-time enrollment token"
+              message="Site access code (shown once)"
               description={
                 <Space direction="vertical" size={8}>
                   <Typography.Text copyable={{ text: enrollmentToken }}>{enrollmentToken}</Typography.Text>
                   <Typography.Text className="fedlify-muted">
-                    Use this once with the Fedlify runner command. The runner writes it to the local `.env`; Fedlify stores only the hash.
+                    Use this once when you start the runner. The runner saves it on the site&apos;s computer; Fedlify keeps only a scrambled copy.
                   </Typography.Text>
                 </Space>
               }
@@ -395,38 +400,38 @@ export default function SiteOnboardingPage() {
                   <div className="fedlify-tab-panel">
                     <section className="fedlify-site-panel">
                       <div className="fedlify-site-panel-head">
-                        <strong>1. Startup kit</strong>
-                        <Tag color={runtime.kitState === "RELEASED" ? "green" : "orange"}>{runtime.kitState === "RELEASED" ? "Released" : runtime.kitState === "OUTDATED" ? "New kit needed" : "Not released"}</Tag>
+                        <strong>1. Site kit</strong>
+                        <Tag color={runtime.kitState === "RELEASED" ? "green" : "orange"}>{kitStateLabel(runtime.kitState)}</Tag>
                       </div>
                       <Typography.Text type="secondary">
-                        {activeJoinPackage ? `Created ${formatDate(activeJoinPackage.createdAt)}, expires ${formatDate(activeJoinPackage.expiresAt)}. A kit carries this site's identity, so only release it to this site's operator.` : "Creates this site's identity and an encrypted download."}
+                        {activeJoinPackage ? `Created ${formatDate(activeJoinPackage.createdAt)}, expires ${formatDate(activeJoinPackage.expiresAt)}. A site kit carries this site's identity, so only give it to this site's operator.` : "Creates this site's identity and an encrypted download."}
                       </Typography.Text>
                       <Space wrap>
                         <Button type={activeJoinPackage ? "default" : "primary"} icon={<CloudDownloadOutlined />} loading={submitting} onClick={() => askPassword({ mode: "create" })}>
-                          {activeJoinPackage ? "Create new kit" : "Create encrypted kit"}
+                          {activeJoinPackage ? "Create new site kit" : "Create site kit"}
                         </Button>
                         {activeJoinPackage ? (
                           <Button type="primary" icon={<CloudDownloadOutlined />} onClick={() => askPassword({ mode: "download", packageId: activeJoinPackage.id })}>
-                            Download kit
+                            Download site kit
                           </Button>
                         ) : null}
                         <Button icon={<ReloadOutlined />} loading={submitting} onClick={() => void rotateToken()}>
-                          Rotate token
+                          Reset site access code
                         </Button>
                       </Space>
                     {kitPassphrase ? (
                       <Alert
                         type="warning"
                         showIcon
-                        message="Kit passphrase: shown once"
+                        message="Site kit passphrase: shown once"
                         description={
                           <Space direction="vertical" style={{ width: "100%" }}>
                             <Typography.Text code copyable={false} style={{ fontSize: 16, wordBreak: "break-all" }}>
                               {kitPassphrase}
                             </Typography.Text>
                             <Typography.Text>
-                              Fedlify does not keep it. Send it to the site operator by a different channel than the kit file (phone, a messaging app,
-                              in person). Never send it with the file, and never by email together with the file. If it is lost, create a new kit.
+                              Fedlify does not keep it. Send it to the site operator by a different channel than the site kit file (phone, a messaging app,
+                              in person). Never send it with the file, and never by email together with the file. If it is lost, create a new site kit.
                             </Typography.Text>
                             <Space wrap>
                               <Button
@@ -445,7 +450,7 @@ export default function SiteOnboardingPage() {
                       />
                     ) : null}
                       <Typography.Text type="secondary" className="fedlify-site-note">
-                        Creating a new kit or rotating the token revokes the old kit and token. The site&apos;s NVFLARE certificate cannot be re-issued yet, so a kit that was already unlocked keeps a valid certificate until the study is republished with new site identities.
+                        Creating a new site kit or resetting the site access code cancels the old site kit and access code. The site&apos;s security certificate cannot be re-issued yet, so a site kit that was already unlocked keeps working until the study is republished with new site identities.
                       </Typography.Text>
                     </section>
 
@@ -464,7 +469,7 @@ export default function SiteOnboardingPage() {
                       <section className="fedlify-site-panel">
                         <div className="fedlify-site-panel-head">
                           <strong>3. Bring this site up to date</strong>
-                          <Tag color="orange">{runtime.imageState === "OUTDATED" ? "Outdated" : "Not reported"}</Tag>
+                          <Tag color="orange">{runtime.imageState === "OUTDATED" ? "Needs update" : "Not reported"}</Tag>
                         </div>
                         <ol className="fedlify-site-steps">{runtime.imageFix.map((step) => <li key={step}>{step}</li>)}</ol>
                       </section>
@@ -474,10 +479,16 @@ export default function SiteOnboardingPage() {
                       <div className="fedlify-site-panel-head"><strong>Connection</strong></div>
                       <Facts
                         items={[
-                          ["Aggregator", runtime.live?.hostname ? `${runtime.live.hostname}:443` : "Nothing published"],
-                          ["Serving", runtime.live?.version ? `${runtime.live.version}${runtime.live.gitCommit ? ` (${runtime.live.gitCommit.slice(0, 8)})` : ""}` : "Nothing published"],
-                          ["NVFLARE client", runtime.clientName],
+                          ["Study server", runtime.live?.hostname ? "Running" : "Not published yet"],
+                          ["Pipeline version", runtime.live?.version ?? "Nothing published"],
                           ["Runner's last report", runtime.lastHeartbeatLabel]
+                        ]}
+                      />
+                      <Details
+                        items={[
+                          ...(runtime.live?.hostname ? [{ label: "Study server address", value: <code>{runtime.live.hostname}:443</code>, copyText: runtime.live.hostname }] : []),
+                          { label: "Site ID", value: <code>{runtime.clientName}</code>, copyText: runtime.clientName },
+                          ...(runtime.live?.gitCommit ? [{ label: "Commit", value: <code>{runtime.live.gitCommit}</code>, copyText: runtime.live.gitCommit }] : [])
                         ]}
                       />
                     </section>
@@ -489,24 +500,25 @@ export default function SiteOnboardingPage() {
               },
               {
                 key: "readiness",
-                label: "Readiness",
+                label: "Checks and sign-off",
                 children: (
                   <div className="fedlify-tab-panel">
                     <section className="fedlify-site-panel">
-                      <div className="fedlify-site-panel-head"><strong>Machine evidence</strong><Typography.Text type="secondary">Reported by the site&apos;s runner, {runtime.lastHeartbeatLabel.toLowerCase()}</Typography.Text></div>
+                      <div className="fedlify-site-panel-head"><strong>Site checks</strong><Typography.Text type="secondary">Reported automatically by the runner on this site&apos;s computer ({runtime.lastHeartbeatLabel.toLowerCase()})</Typography.Text></div>
                       <Facts
                         items={[
                           ["Runner", text(runtime.evidence.runner, "Not reported")],
-                          ["Container", `${text(runtime.evidence.container, "Not reported")}${runtime.evidence.health ? `, ${runtime.evidence.health}` : ""}`],
+                          ["Study software", studySoftwareLabel(runtime.evidence.container, runtime.evidence.health)],
                           ["Restarts", text(runtime.evidence.restarts, "Not reported")],
                           ["Data files found", text(runtime.evidence.dataFiles, "Not reported")],
                           ["Disk free", runtime.evidence.diskFreeGb === null ? "Not reported" : `${runtime.evidence.diskFreeGb} GB`],
                           ["GPUs", text(runtime.evidence.gpus, "Not reported")],
-                          ["Study image", shortImage(runtime.evidence.reportedImage)]
+                          ["Code version", IMAGE_STATE_LABEL[runtime.imageState] ?? "Not reported"]
                         ]}
                       />
+                      <Details items={[{ label: "Study software (raw report)", value: <code>{`${text(runtime.evidence.container, "Not reported")}${runtime.evidence.health ? `, ${runtime.evidence.health}` : ""}`}</code> }, { label: "Reported code version ID", value: <code>{shortImage(runtime.evidence.reportedImage)}</code>, copyText: runtime.evidence.reportedImage ?? undefined }]} />
                     </section>
-                    <div className="fedlify-site-panel-head"><strong>Site attestation</strong><Typography.Text type="secondary">Confirmed by a person responsible for this site</Typography.Text></div>
+                    <div className="fedlify-site-panel-head"><strong>Site sign-off</strong><Typography.Text type="secondary">Confirmed by a person responsible for this site</Typography.Text></div>
                     <div className="fedlify-inline-create-card">
                       <Form
                         key={latestReadiness?.id ?? "readiness"}
@@ -519,18 +531,18 @@ export default function SiteOnboardingPage() {
                         }}
                         onFinish={async (values) => {
                           // Connectivity is checked live when a run starts, so the sign-off is only what staff confirm here.
-                          await patch(`/api/v1/sites/${siteId}/governance`, { readiness: values }, "Site attestation saved.");
+                          await patch(`/api/v1/sites/${siteId}/governance`, { readiness: values }, "Site sign-off saved.");
                         }}
                       >
                         <div className="fedlify-readiness-checks">
                           <Form.Item name="dependenciesVerified" valuePropName="checked">
-                            <Checkbox>Runtime dependencies verified</Checkbox>
+                            <Checkbox>Required software is installed and working</Checkbox>
                           </Form.Item>
                           <Form.Item name="policyAccepted" valuePropName="checked">
                             <Checkbox>Local policy accepted by authorized site staff</Checkbox>
                           </Form.Item>
                         </div>
-                        <Form.Item name="notes" label="Readiness notes">
+                        <Form.Item name="notes" label="Notes">
                           <Input.TextArea rows={3} />
                         </Form.Item>
                         <Space className="fedlify-form-actions">
@@ -542,7 +554,7 @@ export default function SiteOnboardingPage() {
                             Accept policy
                           </Button>
                           <Button type="primary" htmlType="submit" icon={<CheckCircleOutlined />} className="fedlify-dark-action" loading={submitting}>
-                            Save attestation
+                            Save sign-off
                           </Button>
                         </Space>
                       </Form>
@@ -653,8 +665,8 @@ export default function SiteOnboardingPage() {
                     {dashboard.pipelineVersions.length === 0 && sourceArtifacts.length === 0 ? (
                       <EmptyState
                         icon={<FileTextOutlined />}
-                        title="No validated pipeline bundles"
-                        description="Validated or approved pipeline versions will appear here for site review."
+                        title="No pipeline versions published yet"
+                        description="Pipeline versions that passed their checks will appear here for site review."
                       />
                     ) : (
                       <CardGrid>
@@ -665,31 +677,38 @@ export default function SiteOnboardingPage() {
                             subtitle={version.id === runtime.live?.versionId ? "Serving now" : "Earlier version"}
                             status={version.id === runtime.live?.versionId ? <Tag color="green">Live</Tag> : <StatusTag value={version.approvalStatus} />}
                             meta={[
-                              `Validation: ${displayEnum(version.validationStatus)}`,
-                              `Commit: ${text(version.gitCommit)}`,
-                              `Branch: ${text(version.gitBranch)}`,
-                              `Repo: ${text(version.project?.giteaRepoUrl)}`
+                              `Checks: ${displayEnum(version.validationStatus)}`
                             ]}
                             actions={
                               <Button icon={<CloudDownloadOutlined />} onClick={() => void downloadPipelineVersion(version.id)}>
                                 Download approved pipeline bundle
                               </Button>
                             }
-                          />
+                          >
+                            <Details
+                              items={[
+                                { label: "Commit", value: <code>{text(version.gitCommit)}</code>, copyText: version.gitCommit ?? undefined },
+                                { label: "Branch", value: <code>{text(version.gitBranch)}</code> },
+                                { label: "Repository address", value: <code>{text(version.project?.giteaRepoUrl)}</code> }
+                              ]}
+                            />
+                          </EntityCard>
                         ))}
                         {sourceArtifacts.map(({ release, artifact }) => (
                           <EntityCard
                             key={artifact.id}
                             title={displayEnum(artifact.kind)}
-                            subtitle={`Release ${text(release.version)}`}
+                            subtitle={`Pipeline files, version ${text(release.version)}`}
                             status={<StatusTag value={release.status} />}
-                            meta={[`Checksum: ${text(artifact.checksum).slice(0, 16)}...`, `Downloads: ${artifact.downloadCount ?? 0}`]}
+                            meta={[`Downloads: ${artifact.downloadCount ?? 0}`]}
                             actions={
                               <Button icon={<CloudDownloadOutlined />} onClick={() => void downloadReleaseArtifact(release.id, artifact.id)}>
                                 Download approved pipeline bundle
                               </Button>
                             }
-                          />
+                          >
+                            <Details items={[{ label: "Checksum", value: <code>{text(artifact.checksum)}</code>, copyText: artifact.checksum ?? undefined }]} />
+                          </EntityCard>
                         ))}
                       </CardGrid>
                     )}
@@ -698,35 +717,42 @@ export default function SiteOnboardingPage() {
               },
               {
                 key: "activity",
-                label: "Staff, logs & audit",
+                label: "Staff, logs and activity",
                 children: (
                   <div className="fedlify-tab-panel">
                     <CardGrid>
                       <EntityCard
                         title="Assigned staff"
-                        subtitle={`${site.members?.length ?? 0} site-scoped assignments`}
+                        subtitle={`${site.members?.length ?? 0} people assigned to this site`}
                         status={<TeamOutlined />}
-                        meta={(site.members ?? []).map((member: EntityRecord) => `${text(member.user?.email, member.user?.name)}: ${displayEnum(member.role)}`)}
+                        meta={(site.members ?? []).map((member: EntityRecord) => `${text(member.user?.name, member.user?.email)}: ${roleLabel(member.role)}`)}
                       />
                       <EntityCard
-                        title="Operational logs"
-                        subtitle={`${site.logArtifacts?.length ?? 0} retained artifacts`}
+                        title="Site logs"
+                        subtitle={`${site.logArtifacts?.length ?? 0} saved files`}
                         status={<ApiOutlined />}
                         meta={(site.logArtifacts ?? []).slice(0, 4).map((artifact: EntityRecord) => `${text(artifact.kind)}: ${text(artifact.filename)}`)}
                       />
                     </CardGrid>
 
                     {dashboard.auditEvents.length === 0 ? (
-                      <EmptyState icon={<SafetyCertificateOutlined />} title="No site audit events" description="Site onboarding actions will be recorded here." />
+                      <EmptyState icon={<SafetyCertificateOutlined />} title="No site activity yet" description="Actions taken for this site will be recorded here." />
                     ) : (
                       <CardGrid>
                         {dashboard.auditEvents.slice(0, 6).map((event) => (
                           <EntityCard
                             key={event.id}
-                            title={displayEnum(event.action)}
+                            title={auditActionLabel(event.action)}
                             subtitle={formatDate(event.createdAt)}
-                            meta={[`Target: ${text(event.targetType)}`, `Actor: ${text(event.actorUserId)}`]}
-                          />
+                          >
+                            <Details
+                              items={[
+                                { label: "Action key", value: <code>{text(event.action)}</code> },
+                                { label: "Target", value: <code>{`${text(event.targetType)} ${text(event.targetId, "")}`.trim()}</code> },
+                                { label: "User ID", value: <code>{text(event.actorUserId, "System")}</code> }
+                              ]}
+                            />
+                          </EntityCard>
                         ))}
                       </CardGrid>
                     )}

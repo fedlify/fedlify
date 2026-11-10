@@ -24,13 +24,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ si
   }
 
   const parsed = siteMemberSchema.safeParse(await request.json());
-  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid site member.");
+  if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "The site member details are not valid.");
 
   const studySite = await prisma.studySite.findUnique({ where: { id: siteId }, include: { study: true } });
-  if (!studySite) return problem(404, "Participant site not found.", "not_found");
+  if (!studySite) return problem(404, "Site not found.", "not_found");
 
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
-  if (!user) return problem(404, "The site member must register before they can be assigned to a site.", "user_not_found");
+  if (!user) return problem(404, "This person must register before they can be added to a site.", "user_not_found");
 
   const member = await prisma.siteMember.upsert({
     where: { studySiteId_userId_role: { studySiteId: siteId, userId: user.id, role: parsed.data.role } },
