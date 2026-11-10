@@ -627,11 +627,13 @@ export default function StudyProjectsPage() {
                 Repository
               </Button>
             ) : null}
-            <Tooltip title={activeJob ? "A run is in progress; publishing restarts the aggregator." : undefined}>
-              <Button type="primary" icon={<CloudUploadOutlined />} loading={publishing || publishInFlight} disabled={Boolean(activeJob) || !sourceCommit} onClick={requestPublish}>
-                {sourceStatus === "loading" && !sourceCommit ? "Publish" : `Publish ${short(sourceCommit, 8)}`}
-              </Button>
-            </Tooltip>
+            {publishInFlight ? null : (
+              <Tooltip title={activeJob ? "A run is in progress; publishing restarts the aggregator." : undefined}>
+                <Button type="primary" icon={<CloudUploadOutlined />} loading={publishing} disabled={Boolean(activeJob) || !sourceCommit} onClick={requestPublish}>
+                  {sourceStatus === "loading" && !sourceCommit ? "Publish" : `Publish ${short(sourceCommit, 8)}`}
+                </Button>
+              </Tooltip>
+            )}
           </Space>
         }
       />

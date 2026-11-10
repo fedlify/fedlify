@@ -75,10 +75,9 @@ export function computeStages(input: StageInput): { current: StageKey; stages: S
     publish = {
       key: "publish",
       title: "Publish",
-      status: `Publishing ${inFlight.version}`,
-      detail: inFlight.publish?.step ? `Step: ${inFlight.publish.step}` : "Building the study image.",
-      tone: "active",
-      action: publishAction("Publishing")
+      status: `Publishing ${inFlight.version}${inFlight.publish?.step ? ` · ${inFlight.publish.step}` : ""}`,
+      detail: "Building the study image.",
+      tone: "active"
     };
   else if (lastFailed) publish = { key: "publish", title: "Publish", status: "Last publish failed", tone: "error", action: publishAction(`Retry ${short(sourceCommit)}`) };
   else if (live && liveCurrent) publish = { key: "publish", title: "Publish", status: `${live.version} live`, detail: "Matches the saved commit.", tone: "ok" };
