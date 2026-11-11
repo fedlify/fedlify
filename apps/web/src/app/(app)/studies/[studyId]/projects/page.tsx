@@ -2,7 +2,7 @@
 
 import type { Key } from "react";
 import { CloudUploadOutlined, FolderOutlined, LinkOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, StopOutlined, UnorderedListOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Popover, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Card, Empty, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography, message } from "antd";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,6 +15,7 @@ import { Details } from "@/components/Details";
 import { FileTree } from "@/components/FileTree";
 import { PipelineRail } from "@/components/PipelineRail";
 import { PipelinesList } from "@/components/PipelinesList";
+import { SitesTable } from "@/components/SitesTable";
 import { StatusTag } from "@/components/StatusTag";
 import { StartPipeline, type CreatedPipeline } from "@/components/StartPipeline";
 import { acceptProposal, appliedPaths, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
@@ -23,7 +24,7 @@ import { publishRefusalText } from "@/lib/assistant-control-client";
 import type { StartPath } from "@/lib/pipeline-start";
 import { PreflightChecklist, PreflightApiError, failingCount, postWithChecklist, thingsToFix, usePreflight } from "@/components/PreflightChecklist";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
-import { kitStateLabel, statusLabel, TERMS } from "@/lib/terms";
+import { statusLabel, TERMS } from "@/lib/terms";
 import { useStudyPermissions } from "@/lib/use-permissions";
 import { ApiError, apiCall } from "@/lib/web-api";
 
@@ -254,7 +255,6 @@ export default function StudyProjectsPage() {
   const mayRun = permissionsLoading ? (overview?.can?.submitJob ?? true) : Boolean(studyCan.submitJob);
   const mayStop = permissionsLoading ? true : Boolean(studyCan.abortJob);
   const maySaveModel = permissionsLoading ? true : Boolean(studyCan.manage || studyCan.approveRelease);
-  const mayManageSites = permissionsLoading ? true : Boolean(studyCan.manageSites || studyCan.manageSiteProfiles);
   const publishBlocked = publishCheck.result ? !publishCheck.result.ok : false;
   const runBlocked = Boolean(activeJob) || (runCheck.result ? !runCheck.result.ok : runCheck.error ? runBlockers.length > 0 : true);
 
@@ -813,54 +813,11 @@ export default function StudyProjectsPage() {
       {overview?.aggregator?.hostname ? <Details items={[{ label: "Study server address", value: <code>{overview.aggregator.hostname}:443</code>, copyText: overview.aggregator.hostname }]} /> : null}
       {overview?.aggregator?.lastError ? <Alert type="warning" showIcon message={overview.aggregator.lastError} style={{ marginBottom: 12 }} /> : null}
       {overview?.aggregator?.error ? <Alert type="error" showIcon message={overview.aggregator.error} style={{ marginBottom: 12 }} /> : null}
-      <Table<Site>
-        size="small"
-        rowKey="studySiteId"
-        pagination={false}
-        scroll={{ x: "max-content" }}
-        dataSource={overview?.sites ?? []}
-        columns={[
-          {
-            title: TERMS.site,
-            render: (_, row) => (
-              <div>
-                {row.name} ({row.code})
-                <Details
-                  items={[
-                    { label: TERMS.siteId, value: <code>{row.nvflareClientName}</code>, copyText: row.nvflareClientName },
-                    { label: "Certificate", value: row.provisioned ? "Issued" : overview?.aggregator ? "Issued when you republish" : "Issued on publish" }
-                  ]}
-                />
-              </div>
-            )
-          },
-          {
-            title: TERMS.siteKit,
-            render: (_, row) =>
-              row.kitReleased ? (
-                <Tag color={row.needsNewKit ? "orange" : "green"}>{kitStateLabel(row.needsNewKit ? "OUTDATED" : "RELEASED")}</Tag>
-              ) : mayManageSites ? (
-                <Button size="small" type="link" onClick={() => leaveTo(`/sites/${row.studySiteId}`)}>
-                  Release site kit
-                </Button>
-              ) : (
-                <Tag>{kitStateLabel("NOT_RELEASED")}</Tag>
-              )
-          },
-          {
-            title: TERMS.codeVersion,
-            render: (_, row) =>
-              row.imageState === "OUTDATED" || row.imageState === "NOT_REPORTED" ? (
-                <Popover title="How to bring this site up to date" content={<ol style={{ margin: 0, paddingLeft: 18, maxWidth: 360 }}>{(row.imageFix ?? []).map((step) => <li key={step}>{step}</li>)}</ol>}>
-                  <Tag color="orange" style={{ cursor: "help" }}>{row.imageState === "OUTDATED" ? "Needs update" : "Not reported"}</Tag>
-                </Popover>
-              ) : row.imageState === "CURRENT" ? <Tag color="green">Up to date</Tag> : <Tag>Not reported</Tag>
-          },
-          {
-            title: TERMS.runner,
-            render: (_, row) => (row.connected == null ? <Tag>{TERMS.runnerNotReporting}</Tag> : row.connected ? <Tag color="green">{TERMS.runnerConnected}</Tag> : <Tag color="default">{TERMS.runnerNotConnected}</Tag>)
-          }
-        ]}
+      <SitesTable
+        studyId={studyId}
+        onNavigate={leaveTo}
+        liveConnection={overview ? Object.fromEntries(overview.sites.map((site) => [site.studySiteId, site.connected])) : undefined}
+        refreshKey={`${overview?.aggregator?.status ?? ""}:${overview?.aggregator?.imageDigest ?? ""}:${(overview?.sites ?? []).map((site) => `${site.studySiteId}=${site.connected}/${site.imageState}`).join(",")}`}
       />
     </Card>
   );

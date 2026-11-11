@@ -16,14 +16,6 @@ type SubmitJobInput = {
   };
 };
 
-type SystemInfoInput = {
-  studyId: string;
-  connectedSiteCount: number;
-  runningJobCount: number;
-  deployment?: (Pick<NvflareDeployment, "id" | "status" | "serverAddress" | "adminStartupKitStorageKey"> &
-    Partial<Pick<NvflareDeployment, "adminStartupPath">>) | null;
-};
-
 export function buildNvflareJobId(fedlifyJobId: string): string {
   return `fedlify-${fedlifyJobId.slice(0, 12)}`;
 }
@@ -117,31 +109,5 @@ export async function downloadNvflareJobResult(input: {
     jobId: body.jobId ?? input.nvflareJobId,
     resultPath: body.resultPath,
     files: body.files
-  };
-}
-
-export async function getNvflareSystemInfo(input: SystemInfoInput) {
-  const apiBaseUrl = flareApiBaseUrl();
-  if (apiBaseUrl && input.deployment) {
-    const query = new URLSearchParams({
-      deploymentId: input.deployment.id,
-      ...(input.deployment.adminStartupPath ? { adminStartupPath: input.deployment.adminStartupPath } : {})
-    });
-    const response = await fetch(`${apiBaseUrl}/system-info?${query.toString()}`);
-    if (response.ok) {
-      return response.json();
-    }
-  }
-
-  return {
-    studyId: input.studyId,
-    deploymentId: input.deployment?.id ?? null,
-    mode: apiBaseUrl ? "flare-api-http" : "local-wrapper",
-    serverAddress: input.deployment?.serverAddress ?? null,
-    deploymentStatus: input.deployment?.status ?? null,
-    connectedSiteCount: input.connectedSiteCount,
-    runningJobCount: input.runningJobCount,
-    message:
-      "Fedlify records the FLARE API command surface. Configure NVFLARE_FLARE_API_BASE_URL to connect a live FLARE API adapter."
   };
 }

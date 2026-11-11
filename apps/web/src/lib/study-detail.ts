@@ -1,36 +1,11 @@
-export type StudyDetailKind =
-  | "member"
-  | "invitation"
-  | "ethics"
-  | "document"
-  | "site"
-  | "pipelineProject"
-  | "pipelineVersion"
-  | "deployment"
-  | "experimentRun"
-  | "modelRelease"
-  | "codeRelease"
-  | "auditEvent";
+export type StudyDetailKind = "ethics" | "document";
 
 export type StudyDetailState = {
   kind: StudyDetailKind;
   id: string;
 };
 
-const detailKinds = new Set<StudyDetailKind>([
-  "member",
-  "invitation",
-  "ethics",
-  "document",
-  "site",
-  "pipelineProject",
-  "pipelineVersion",
-  "deployment",
-  "experimentRun",
-  "modelRelease",
-  "codeRelease",
-  "auditEvent"
-]);
+const detailKinds = new Set<StudyDetailKind>(["ethics", "document"]);
 
 export function parseStudyDetailParam(value?: string | null): StudyDetailState | null {
   if (!value) return null;

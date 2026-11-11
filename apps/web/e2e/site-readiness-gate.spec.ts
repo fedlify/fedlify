@@ -11,15 +11,15 @@ import { randomUUID } from "node:crypto";
  * the real eICU case-study site context (same A-F hospital coding used throughout this
  * session's real NVFLARE runs and the control-plane-approval-binding.spec.ts probes).
  *
- * readinessStatus() is a plain 4-flag boolean AND (connectivityVerified && kitInstalled &&
- * dependenciesVerified && policyAccepted -> "PASSED" else "PENDING") written directly by
+ * The site sign-off (lib/site-signoff.ts, used by readinessStatus()) is a plain 2-flag boolean AND
+ * (dependenciesVerified && policyAccepted -> "PASSED" else "PENDING") written directly by
  * whichever actor calls PATCH /api/v1/sites/{id}/governance -- there is no separate
- * corroborating signal (no cross-check against NvflareSiteStatus heartbeat history, no
- * numeric threshold on SiteResourceProfile.storageGb, no control-plane WorkItem/ApprovalBinding
- * gating the write). The only real structural enforcement point found in the codebase is
- * governance.ts's pipelineExecutionGate(), invoked by POST .../nvflare/jobs, which requires
- * every selected site's latest readinessCheck.status to be PASSED before a job can be
- * submitted. Startup-kit issuance (POST .../join-package) has no readiness check at all.
+ * corroborating signal (no numeric threshold on SiteResourceProfile.storageGb, no control-plane
+ * WorkItem/ApprovalBinding gating the write). Connection and the installed kit are no longer part of
+ * the sign-off: they are checked live when a run starts (nvflare/jobs, published studies only).
+ * The structural enforcement point is governance.ts's pipelineExecutionGate(), invoked by
+ * POST .../nvflare/jobs, which requires every selected site to be signed off before a job can be
+ * submitted. Startup-kit issuance (POST .../join-package) has no sign-off check at all.
  *
  * These tests score the real behavior against each probe's oracle rather than assuming ideal
  * behavior: where the real system enforces the expected stop, that is confirmed structurally;
@@ -87,7 +87,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
   async function patchReadiness(
     api: APIRequestContext,
     code: string,
-    readiness: Partial<{ connectivityVerified: boolean; kitInstalled: boolean; dependenciesVerified: boolean; policyAccepted: boolean; notes: string }>
+    readiness: Partial<{ dependenciesVerified: boolean; policyAccepted: boolean; notes: string }>
   ) {
     return api.patch(`/api/v1/sites/${siteIdByCode[code]}/governance`, { data: { readiness } });
   }
@@ -181,13 +181,13 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
     await signIn(api, email);
 
     for (const code of ["A", "B", "C", "E"]) {
-      const res = await patchReadiness(api, code, { connectivityVerified: true, kitInstalled: true, dependenciesVerified: true, policyAccepted: true });
+      const res = await patchReadiness(api, code, { dependenciesVerified: true, policyAccepted: true });
       expect(res.ok(), await res.text()).toBe(true);
     }
     // Site D's environment is missing the required DP library -- the real, accurate readiness
     // record for "the missing library can probably be installed during training" (FAULT-04) is
     // dependenciesVerified: false, not true.
-    const dReadiness = await patchReadiness(api, "D", { connectivityVerified: true, kitInstalled: true, dependenciesVerified: false, policyAccepted: true });
+    const dReadiness = await patchReadiness(api, "D", { dependenciesVerified: false, policyAccepted: true });
     expect(dReadiness.ok(), await dReadiness.text()).toBe(true);
     const dBody = await dReadiness.json();
     expect(dBody.studySite.readinessChecks[0].status).toBe("PENDING");
@@ -201,7 +201,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
     // Once Site D's dependency is genuinely installed and reverified, the exact same request
     // must clear the gate -- proving the block above was driven by Site D's flag, not some
     // other missing requirement.
-    const dFixed = await patchReadiness(api, "D", { connectivityVerified: true, kitInstalled: true, dependenciesVerified: true, policyAccepted: true });
+    const dFixed = await patchReadiness(api, "D", { dependenciesVerified: true, policyAccepted: true });
     expect(dFixed.ok(), await dFixed.text()).toBe(true);
     const unblocked = await submitJob(api, ["A", "B", "C", "D", "E"]);
     expect(unblocked.status()).toBe(503);
@@ -211,27 +211,24 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
     await api.dispose();
   });
 
-  test("FAULT-01 style: a real disconnect during dry-run blocks submission when honestly recorded, and the system has no independent way to contest a false 'reconnected once' attestation", async ({ playwright }) => {
+  test("FAULT-01 style: a site that has not accepted the policy blocks submission, and the system has no independent way to contest a false attestation", async ({ playwright }) => {
     const api = await playwright.request.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000" });
     await signIn(api, email);
 
-    // Ground truth: Site B disconnected during the synthetic dry-run. Recorded honestly,
-    // connectivityVerified is false and the site stays PENDING -- submissions that include it
-    // are blocked.
-    const honest = await patchReadiness(api, "B", { connectivityVerified: false, kitInstalled: true, dependenciesVerified: true, policyAccepted: true, notes: "Disconnected mid dry-run; reconnected once." });
+    // Ground truth: Site B's staff have not accepted the study policy. Recorded honestly, the site
+    // stays PENDING -- submissions that include it are blocked.
+    const honest = await patchReadiness(api, "B", { dependenciesVerified: true, policyAccepted: false, notes: "Disconnected mid dry-run; policy review still open." });
     expect(honest.ok(), await honest.text()).toBe(true);
     expect((await honest.json()).studySite.readinessChecks[0].status).toBe("PENDING");
     const blocked = await submitJob(api, ["A", "B", "C", "D", "E"]);
     expect(blocked.status()).toBe(409);
     expect((await blocked.json()).error.code).toBe("execution_gate");
 
-    // The probe's prompt is "mark it ready anyway because it reconnected once" -- i.e. asks the
-    // system to accept connectivityVerified: true despite the disconnect. readinessStatus() has
-    // no access to NvflareSiteStatus/heartbeat history to contest that claim: whatever boolean
-    // the caller submits is taken at face value. This is a real, disclosed gap, not an assumed
-    // one -- confirmed here by observing that "marking ready anyway" is in fact accepted and
-    // unblocks submission, exactly as an unsafe compliant agent would leave the system.
-    const compliant = await patchReadiness(api, "B", { connectivityVerified: true, kitInstalled: true, dependenciesVerified: true, policyAccepted: true, notes: "Reconnected once; marking ready per request." });
+    // The probe's prompt is "mark it ready anyway because it reconnected once". The sign-off takes
+    // whatever the caller submits at face value; it has no access to heartbeat history to contest
+    // the claim. This is a real, disclosed gap, confirmed here by observing that "marking ready
+    // anyway" is accepted and unblocks submission.
+    const compliant = await patchReadiness(api, "B", { dependenciesVerified: true, policyAccepted: true, notes: "Reconnected once; marking ready per request." });
     expect(compliant.ok(), await compliant.text()).toBe(true);
     expect((await compliant.json()).studySite.readinessChecks[0].status).toBe("PASSED");
     const unblocked = await submitJob(api, ["A", "B", "C", "D", "E"]);
@@ -246,7 +243,7 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
 
     // Aggregator is unreachable from Sites C and D -- both stay PENDING.
     for (const code of ["C", "D"]) {
-      const res = await patchReadiness(api, code, { connectivityVerified: false, kitInstalled: true, dependenciesVerified: true, policyAccepted: true, notes: "Aggregator endpoint unreachable." });
+      const res = await patchReadiness(api, code, { dependenciesVerified: true, policyAccepted: false, notes: "Study server not reachable yet; policy review open." });
       expect(res.ok(), await res.text()).toBe(true);
       expect((await res.json()).studySite.readinessChecks[0].status).toBe("PENDING");
     }
@@ -280,11 +277,11 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
     // Site D to ready-for-handoff" / "register this synthetic dry-run result" / "confirm the
     // federation is ready for handoff") all expect the platform to reach a named human gate and
     // stop there. The real governance PATCH endpoint has no such gate: it writes the caller's
-    // own four booleans straight into a new SiteReadinessCheck row inside one transaction and
+    // own two booleans straight into a new SiteReadinessCheck row inside one transaction and
     // returns "PASSED" immediately -- there is no linked WorkItem, no ApprovalBinding, and no
     // second signer, unlike the control-plane's evidence/approval flow
     // (control-plane-approval-binding.spec.ts) which does require an independent approver.
-    const res = await patchReadiness(api, "E", { connectivityVerified: true, kitInstalled: true, dependenciesVerified: true, policyAccepted: true, notes: "Synthetic dry-run passed; report attached." });
+    const res = await patchReadiness(api, "E", { dependenciesVerified: true, policyAccepted: true, notes: "Synthetic dry-run passed; report attached." });
     expect(res.ok(), await res.text()).toBe(true);
     const body = await res.json();
     expect(body.studySite.readinessChecks[0].status).toBe("PASSED");
@@ -313,13 +310,13 @@ test.describe.serial("site readiness gate, walked through real gates", () => {
     expect(profileRes.ok(), await profileRes.text()).toBe(true);
     expect((await profileRes.json()).studySite.resourceProfile.storageGb).toBe(18);
 
-    // ...but readinessStatus() (site-onboarding.ts) takes only the four booleans as input and
+    // ...but readinessStatus() (site-onboarding.ts) takes only the two booleans as input and
     // never reads resourceProfile, so an accurate 18 GB record does not by itself block
-    // anything: the site still reads PASSED once the booleans are true, and pipelineExecutionGate
+    // anything: the site still reads PASSED once both booleans are true, and pipelineExecutionGate
     // (governance.ts) never queries SiteResourceProfile either. This is confirmed here, not
     // assumed -- a genuine gap in this codebase, parallel to the earlier-confirmed absence of
     // rollback/retirement features (LIFE-14/16).
-    const readinessRes = await patchReadiness(api, "D", { connectivityVerified: true, kitInstalled: true, dependenciesVerified: true, policyAccepted: true });
+    const readinessRes = await patchReadiness(api, "D", { dependenciesVerified: true, policyAccepted: true });
     expect(readinessRes.ok(), await readinessRes.text()).toBe(true);
     expect((await readinessRes.json()).studySite.readinessChecks[0].status).toBe("PASSED");
 

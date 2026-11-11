@@ -45,8 +45,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     include: {
       deployment: true,
       pipelineVersion: { include: { project: true } },
-      events: { orderBy: { createdAt: "desc" }, take: 20 },
-      logArtifacts: { orderBy: { createdAt: "desc" }, take: 10 }
+      events: { orderBy: { createdAt: "desc" }, take: 20 }
     },
     orderBy: { createdAt: "desc" }
   });
@@ -55,7 +54,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
     if (viewer.canViewLogs) return json({ jobs });
     // The server log is for study managers only, the same rule as the run's Logs tab.
     return json({
-      jobs: jobs.map(({ logText: _text, logChecksum: _checksum, logTruncated: _truncated, logCapturedAt: _captured, logsStorageKey: _key, logArtifacts: _artifacts, ...job }) => ({ ...job, logArtifacts: [] }))
+      jobs: jobs.map(({ logText: _text, logChecksum: _checksum, logTruncated: _truncated, logCapturedAt: _captured, logsStorageKey: _key, ...job }) => job)
     });
   }
 
@@ -82,8 +81,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
       deployment: null,
       siteDigests: null,
       metricsSummary: null,
-      events: [],
-      logArtifacts: []
+      events: []
     }));
   return json({ jobs: ownJobs });
 }
@@ -325,8 +323,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       include: {
         deployment: true,
         pipelineVersion: { include: { project: true } },
-        events: true,
-        logArtifacts: true
+        events: true
       }
     });
 

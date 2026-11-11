@@ -36,8 +36,7 @@ export async function GET(request: NextRequest) {
     where,
     include: {
       currentApprovedVersion: true,
-      templateVersions: { orderBy: { createdAt: "desc" }, take: 10 },
-      templateProposals: { orderBy: { createdAt: "desc" }, take: 5 }
+      templateVersions: { orderBy: { createdAt: "desc" }, take: 10 }
     },
     orderBy: [{ framework: "asc" }, { name: "asc" }]
   });

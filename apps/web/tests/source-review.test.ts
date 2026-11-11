@@ -15,7 +15,7 @@ describe("source review helpers", () => {
     expect(parseSourceRef()).toEqual({ kind: "current", id: null });
     expect(parseSourceRef("current")).toEqual({ kind: "current", id: null });
     expect(parseSourceRef("version:template-version-1")).toEqual({ kind: "version", id: "template-version-1" });
-    expect(parseSourceRef("proposal:proposal-1")).toEqual({ kind: "proposal", id: "proposal-1" });
+    expect(parseSourceRef("proposal:proposal-1")).toEqual({ kind: "current", id: null });
     expect(parseSourceRef("unknown:value")).toEqual({ kind: "current", id: null });
   });
 

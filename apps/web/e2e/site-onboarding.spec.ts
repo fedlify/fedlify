@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 const prisma = new PrismaClient();
 const password = "E2eSiteAdminPassw0rd!";
@@ -15,10 +15,6 @@ type SeededScenario = {
   runtimeSiteId: string;
   siteName: string;
 };
-
-function sha256(value: string) {
-  return createHash("sha256").update(value).digest("hex");
-}
 
 async function cleanupE2eRecords() {
   const users = await prisma.user.findMany({
@@ -243,45 +239,6 @@ async function seedSiteOnboardingScenario(): Promise<SeededScenario> {
     }
   });
 
-  const agentRun = await prisma.agentRun.create({
-    data: {
-      studyId: study.id,
-      requestedById: user.id,
-      status: "APPROVED",
-      inputSummary: "E2E approved source bundle for site review.",
-      modelName: "nvflare",
-      gitCommit: `e2e-${runId}`,
-      validationSummary: "E2E validation passed."
-    }
-  });
-
-  const storagePrefix = `e2e/${runId}/release/v1`;
-  const release = await prisma.kitRelease.create({
-    data: {
-      studyId: study.id,
-      agentRunId: agentRun.id,
-      version: "v1",
-      status: "APPROVED",
-      approvedById: user.id,
-      approvedAt: new Date(),
-      checksum: sha256(`${study.id}:${agentRun.id}:v1:${storagePrefix}`),
-      storagePrefix,
-      releaseNotes: "E2E approved pipeline source bundle."
-    }
-  });
-
-  await prisma.kitArtifact.create({
-    data: {
-      releaseId: release.id,
-      kind: "SOURCE_BUNDLE",
-      filename: "e2e-pipeline-source.zip",
-      contentType: "application/zip",
-      storageKey: `${storagePrefix}/e2e-pipeline-source.zip`,
-      checksum: sha256("e2e-pipeline-source"),
-      sizeBytes: BigInt(0)
-    }
-  });
-
   return {
     email,
     studyId: study.id,
@@ -321,7 +278,7 @@ test.describe.serial("site onboarding and experiment join", () => {
     await prisma.$disconnect();
   });
 
-  test("site admin joins the experiment from the participant site card", async ({ page }) => {
+  test("site admin gets the site kit, fills in data and gives the site sign-off from the study's sites table", async ({ page }) => {
     await signInWithCredentials(page, scenario.email);
     const studyResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/v1/studies/${scenario.studyId}`), {
       timeout: 45_000
@@ -330,46 +287,40 @@ test.describe.serial("site onboarding and experiment join", () => {
     const studyResponse = await studyResponsePromise;
     expect(studyResponse.ok(), await studyResponse.text()).toBe(true);
 
-    await expect(page.getByText(scenario.siteName)).toBeVisible();
-    const dashboardButton = page.getByRole("button", { name: "Open onboarding dashboard" });
-    if (!(await dashboardButton.isVisible().catch(() => false))) {
-      await page.getByText(scenario.siteName).first().click();
-    }
-    await dashboardButton.click();
+    await expect(page.getByText(scenario.siteName).first()).toBeVisible();
+    await page.getByRole("button", { name: `Open ${scenario.siteName}` }).click();
 
     await expect(page).toHaveURL(new RegExp(`/sites/${scenario.studySiteId}`));
     await expect(page.getByRole("heading", { name: scenario.siteName })).toBeVisible();
-    await expect(page.getByText("Accept participation")).toBeVisible();
-    await expect(page.getByText("Join federation")).toBeVisible();
-    await page.getByRole("tab", { name: "Startup kit" }).click();
+    await page.getByRole("tab", { name: "Get site kit" }).click();
 
     const joinPackageResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/v1/sites/${scenario.studySiteId}/join-package`) && response.request().method() === "POST"
     );
-    await page.getByRole("button", { name: "Create encrypted kit" }).click();
+    await page.getByRole("button", { name: "Create site kit" }).click();
     await page.getByPlaceholder("Account password").fill(password);
-    await page.getByRole("button", { name: "Create kit" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Create site kit" }).click();
     const joinPackageResponse = await joinPackageResponsePromise;
     expect(joinPackageResponse.ok(), await joinPackageResponse.text()).toBe(true);
     const joinPackagePayload = (await joinPackageResponse.json()) as { enrollmentToken?: string };
     const token = joinPackagePayload.enrollmentToken ?? "";
 
-    await expect(page.getByText("One-time enrollment token")).toBeVisible();
+    await expect(page.getByText("Site access code (shown once)")).toBeVisible();
     await expect(page.getByText(token, { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("fedlify-site-startup-kit")).toBeVisible();
-    expect(token, "one-time enrollment token should be returned exactly once after package generation").toMatch(/^[A-Za-z0-9_-]{32,}$/);
+    await expect(page.getByText("Site kit passphrase: shown once")).toBeVisible();
+    expect(token, "the site access code should be returned exactly once after the site kit is created").toMatch(/^[A-Za-z0-9_-]{32,}$/);
 
     await expect
       .poll(async () => prisma.siteJoinPackage.count({ where: { studySiteId: scenario.studySiteId, status: "ACTIVE" } }))
       .toBe(1);
 
-    await page.getByRole("tab", { name: "Data profile" }).click();
+    await page.getByRole("tab", { name: "Your data" }).click();
     await page.getByPlaceholder("e.g. 1k-5k records").fill("100-500 records");
     await page.getByPlaceholder("Cohort-level description only. Do not enter patient-level data.").fill(
       "Adult inpatient encounters prepared in the site-local warehouse."
     );
-    await page.getByRole("button", { name: "Save data profile" }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect
       .poll(async () => {
@@ -378,23 +329,10 @@ test.describe.serial("site onboarding and experiment join", () => {
       })
       .toBe("100-500 records");
 
-    await page.getByRole("tab", { name: "Readiness" }).click();
-    await page.getByRole("button", { name: "Accept policy" }).click();
-    await expect
-      .poll(async () => {
-        const latest = await prisma.siteReadinessCheck.findFirst({
-          where: { studySiteId: scenario.studySiteId },
-          orderBy: { createdAt: "desc" }
-        });
-        return latest?.policyAccepted;
-      })
-      .toBe(true);
-
-    await page.getByLabel("Fedlify heartbeat or NVFLARE client connection verified").check();
-    await page.getByLabel("Startup kit installed in the local site environment").check();
-    await page.getByLabel("Runtime dependencies verified").check();
-    await page.getByLabel("Local policy accepted by authorized site staff").check();
-    await page.getByRole("button", { name: "Run readiness check" }).click();
+    await page.getByRole("tab", { name: "Sign-off" }).click();
+    await page.getByLabel("Required software is installed and working").check();
+    await page.getByLabel(/data-use rules of this hospital allow this study/).check();
+    await page.getByRole("button", { name: "Confirm sign-off" }).click();
 
     await expect
       .poll(async () => {
@@ -418,12 +356,5 @@ test.describe.serial("site onboarding and experiment join", () => {
 
     await page.reload();
     await expect(page.getByText("Connected").first()).toBeVisible();
-    await expect(page.getByText("Passed").first()).toBeVisible();
-
-    await page.getByRole("tab", { name: "Pipeline review" }).click();
-    await expect(page.getByText("E2E Site Review Pipeline")).toBeVisible();
-    await expect(page.getByText("Source Bundle")).toBeVisible();
-    await page.getByRole("button", { name: "Download approved pipeline bundle" }).last().click();
-    await expect(page.getByText(/no download URL is available|Object storage artifact/i)).toBeVisible();
   });
 });

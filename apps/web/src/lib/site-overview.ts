@@ -26,6 +26,13 @@ export type SiteOverviewRow = {
   imageFix: string[];
   connection: string;
   lastHeartbeatAt: string | null;
+  /** The name this site's runner connects with (technical; shown under Details). */
+  nvflareClientName: string;
+  /** Whether the study server already holds this site's certificate, and if not, when it will. */
+  certificate: "ISSUED" | "ON_REPUBLISH" | "ON_PUBLISH";
+  /** People with access to this site, and invitations still waiting to be accepted. */
+  people: number;
+  waiting: number;
 };
 
 export function formatHeartbeat(value: string | null, now = Date.now()): string {

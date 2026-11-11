@@ -5,16 +5,21 @@ import { LEGACY_SECTION_REDIRECTS } from "@/lib/study-workspace";
 
 describe("legacy study section redirects", () => {
   it("redirects pipeline, run and audit sections without deleting them", async () => {
-    const rules = (await nextConfig.redirects()) as Array<{ source: string; has: Array<{ key: string; value: string }>; destination: string }>;
+    const rules = (await nextConfig.redirects()) as Array<{ source: string; has?: Array<{ key: string; value: string }>; destination: string }>;
     for (const section of Object.keys(LEGACY_SECTION_REDIRECTS)) {
-      const rule = rules.find((r) => r.has.some((h) => h.key === "section" && new RegExp(`^${h.value}$`).test(section)));
+      const rule = rules.find((r) => (r.has ?? []).some((h) => h.key === "section" && new RegExp(`^${h.value}$`).test(section)));
       expect(rule, section).toBeTruthy();
       expect(rule!.source).toBe("/studies/:studyId");
       expect(rule!.destination.replace(":studyId", "s1")).toBe(LEGACY_SECTION_REDIRECTS[section]("s1"));
     }
-    expect(rules.some((r) => r.has.some((h) => new RegExp(`^${h.value}$`).test("sites")))).toBe(false);
-    // The Results list redirects, but a legacy record view (?detail=) must stay reachable.
-    const results = (rules as Array<{ has: Array<{ value: string }>; missing?: Array<{ key: string }> }>).find((r) => r.has.some((h) => h.value === "results"))!;
-    expect(results.missing).toEqual([{ type: "query", key: "detail" }]);
+    expect(rules.some((r) => (r.has ?? []).some((h) => new RegExp(`^${h.value}$`).test("sites")))).toBe(false);
+    // The Results list redirects unconditionally now that the old record views are gone.
+    const results = (rules as Array<{ has?: Array<{ value: string }>; missing?: Array<{ key: string }> }>).find((r) => (r.has ?? []).some((h) => h.value === "results"))!;
+    expect(results.missing).toBeUndefined();
+  });
+
+  it("sends the removed template catalog pages to the studies list", async () => {
+    const rules = (await nextConfig.redirects()) as Array<{ source: string; destination: string }>;
+    expect(rules.find((r) => r.source === "/templates/:path*")?.destination).toBe("/studies");
   });
 });

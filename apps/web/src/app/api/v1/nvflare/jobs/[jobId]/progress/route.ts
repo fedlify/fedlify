@@ -12,9 +12,22 @@ import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { captureRunLog, captureRunMetrics } from "@/lib/run-capture";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { adapterJobMeta, adapterJobMetrics, fedlifyJobStatus, StudyRuntimeError, summarizeRoundMetrics } from "@/lib/study-runtime";
+import { adapterJobMeta, adapterJobMetrics, fedlifyJobStatus, StudyRuntimeError, summarizeRoundMetrics, type AdapterMetricRecord } from "@/lib/study-runtime";
 
 const TERMINAL = new Set(["COMPLETED", "FAILED", "ABORTED", "REJECTED"]);
+
+/** The per-round records kept at the end of a run, one JSON object per line; unreadable lines are skipped. */
+function storedRecords(jsonl: string): AdapterMetricRecord[] {
+  return jsonl.split("\n").flatMap((line) => {
+    if (!line.trim()) return [];
+    try {
+      const value = JSON.parse(line) as unknown;
+      return value && typeof value === "object" ? [value as AdapterMetricRecord] : [];
+    } catch {
+      return [];
+    }
+  });
+}
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ jobId: string }> }) {
   const authResult = await requireUser();
@@ -32,6 +45,12 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ jo
   }
   if (job.deployment?.runtimeMode !== "k8s") return problem(409, "Live progress is available for published study aggregators.", "not_published_runtime");
   if (!job.nvflareJobId) return json({ job, nvflareStatus: null, rounds: [] });
+
+  // A finished run whose metrics were kept needs no study server: it may have been restarted by a later publish and
+  // no longer know this run, which would otherwise show an error every time the page opens.
+  if (TERMINAL.has(job.status) && job.metricsJsonl) {
+    return json({ job, nvflareStatus: null, metricsSource: "stored", rounds: summarizeRoundMetrics(storedRecords(job.metricsJsonl)) });
+  }
 
   const target = { studyId: job.studyId, adapterUrl: job.deployment.adapterUrl };
   let nvflareStatus: string;

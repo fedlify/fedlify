@@ -28,13 +28,14 @@ describe("study workspace navigation", () => {
   });
 
   it("parses and serializes typed detail URL state", () => {
-    expect(parseStudyDetailParam("site:site-1")).toEqual({ kind: "site", id: "site-1" });
-    expect(parseStudyDetailParam("modelRelease:release:with:colon")).toEqual({
-      kind: "modelRelease",
-      id: "release:with:colon"
+    expect(parseStudyDetailParam("ethics:e-1")).toEqual({ kind: "ethics", id: "e-1" });
+    expect(parseStudyDetailParam("document:doc:with:colon")).toEqual({
+      kind: "document",
+      id: "doc:with:colon"
     });
+    expect(parseStudyDetailParam("experimentRun:1")).toBeNull();
     expect(parseStudyDetailParam("unknown:1")).toBeNull();
-    expect(serializeStudyDetailParam({ kind: "experimentRun", id: "job-1" })).toBe("experimentRun:job-1");
+    expect(serializeStudyDetailParam({ kind: "ethics", id: "e-1" })).toBe("ethics:e-1");
   });
 
   it("sends pipeline and run actions to the Code & run workspace, never a legacy section", () => {

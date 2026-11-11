@@ -54,8 +54,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
       dataProfile: true,
       readinessChecks: { orderBy: { createdAt: "desc" }, take: 5 },
       joinPackages: { omit: { downloadGrantHash: true, downloadGrantExpiresAt: true }, orderBy: { createdAt: "desc" }, take: 5 },
-      nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 5 },
-      logArtifacts: { orderBy: { createdAt: "desc" }, take: 10 }
+      nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 5 }
     }
   });
 
@@ -88,27 +87,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
     validationStatus: "PASSED" as const,
     approvalStatus: { in: ["VALIDATED" as const, "APPROVED" as const] }
   };
-  const [approvedReleases, pipelineVersions, activeDeployment, auditEvents] = await Promise.all([
-    studyWide
-      ? prisma.kitRelease.findMany({
-          where: { studyId: studySite.studyId, status: "APPROVED" },
-          include: { artifacts: true },
-          orderBy: { approvedAt: "desc" }
-        })
-      : // A site-only person gets the release names and the files meant for every site or for this site: no storage keys.
-        prisma.kitRelease.findMany({
-          where: { studyId: studySite.studyId, status: "APPROVED" },
-          select: {
-            id: true,
-            version: true,
-            approvedAt: true,
-            artifacts: {
-              where: { OR: [{ siteId: null }, ...(studySite.siteId ? [{ siteId: studySite.siteId }] : [])] },
-              select: { id: true, kind: true, filename: true, siteId: true }
-            }
-          },
-          orderBy: { approvedAt: "desc" }
-        }),
+  const [pipelineVersions, activeDeployment, auditEvents] = await Promise.all([
     studyWide
       ? prisma.pipelineVersion.findMany({
           where: pipelineWhere,
@@ -163,7 +142,6 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ si
       ? activeDeployment
       : { id: activeDeployment.id, status: activeDeployment.status, pipelineVersionId: activeDeployment.pipelineVersionId, updatedAt: activeDeployment.updatedAt },
     runtime,
-    approvedReleases,
     pipelineVersions,
     auditEvents
   });

@@ -14,8 +14,6 @@ export type StudySummary = {
   _count?: {
     members?: number;
     documents?: number;
-    agentRuns?: number;
-    releases?: number;
     sites?: number;
   };
 };

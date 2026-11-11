@@ -31,6 +31,19 @@ export const TERMS = {
   details: "Details"
 } as const;
 
+/** Plain names for the kinds of study document. */
+export const DOCUMENT_KIND_LABELS: Record<string, string> = {
+  REQUIREMENTS_PDF: "Study requirements (PDF)",
+  ETHICS_APPROVAL: "Ethics approval",
+  DATA_PROCESSING_AGREEMENT: "Data agreement",
+  SITE_POLICY: "Site policy",
+  OTHER: "Other"
+};
+
+export function documentKindLabel(value: unknown, fallback = "Other"): string {
+  return typeof value === "string" && DOCUMENT_KIND_LABELS[value] ? DOCUMENT_KIND_LABELS[value] : fallback;
+}
+
 function sentenceCase(value: string): string {
   const text = value.replace(/[_.\-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";

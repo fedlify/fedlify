@@ -44,7 +44,6 @@ const job = (id: string, codes: string[]) => ({
   siteDigests: [{ site: "A" }],
   metricsSummary: { best: 1 },
   events: [{ id: "e" }],
-  logArtifacts: [{ id: "l" }],
   metricsJsonl: "{}",
   metricsChecksum: "x",
   logText: "server log",
@@ -70,7 +69,6 @@ describe("GET nvflare/jobs scoping", () => {
     const { jobs } = await ((await GET(new Request("http://x") as never, params)) as Response).json();
     expect(jobs.map((j: { id: string }) => j.id)).toEqual(["j1", "j2", "j3"]);
     expect(jobs[0].events).toHaveLength(1);
-    expect(jobs[0].logArtifacts).toHaveLength(1);
   });
 
   it("keeps the server log from a researcher who is not a study manager", async () => {
@@ -79,7 +77,6 @@ describe("GET nvflare/jobs scoping", () => {
     expect(jobs).toHaveLength(3);
     expect(jobs[0].metricsSummary).toEqual({ best: 1 });
     for (const key of ["logText", "logChecksum", "logsStorageKey"]) expect(jobs[0]).not.toHaveProperty(key);
-    expect(jobs[0].logArtifacts).toEqual([]);
   });
 
   it("shows a site operator only runs that include their own site, without other sites, logs or aggregates", async () => {
@@ -90,7 +87,7 @@ describe("GET nvflare/jobs scoping", () => {
     expect(jobs[0].selectedSites).toEqual([{ code: "A", nvflareClientName: "site-A" }]);
     for (const key of ["metricsJsonl", "metricsChecksum", "logText", "logChecksum", "logsStorageKey", "siteLostSites", "runParameters"]) expect(jobs[0]).not.toHaveProperty(key);
     expect(jobs[0].pipelineVersion).toEqual({ id: "pv1", version: "v1" });
-    expect(jobs[0]).toMatchObject({ events: [], logArtifacts: [], metricsSummary: null, siteDigests: null, deployment: null });
+    expect(jobs[0]).toMatchObject({ events: [], metricsSummary: null, siteDigests: null, deployment: null });
   });
 
   it("refuses someone without study access", async () => {

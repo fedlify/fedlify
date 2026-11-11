@@ -3,8 +3,7 @@ import path from "node:path";
 
 export type SourceRef =
   | { kind: "current"; id: null }
-  | { kind: "version"; id: string }
-  | { kind: "proposal"; id: string };
+  | { kind: "version"; id: string };
 
 export type ReviewSourceFile = {
   path: string;
@@ -38,7 +37,7 @@ export function parseSourceRef(value?: string | null): SourceRef {
   if (!value || value === "current") return { kind: "current", id: null };
   const [kind, ...rest] = value.split(":");
   const id = rest.join(":").trim();
-  if ((kind === "version" || kind === "proposal") && id) return { kind, id };
+  if (kind === "version" && id) return { kind, id };
   return { kind: "current", id: null };
 }
 

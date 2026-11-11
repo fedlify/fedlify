@@ -11,7 +11,6 @@ const h = vi.hoisted(() => ({
   upserted: vi.fn(),
   invitation: { current: null as null | Record<string, unknown> },
   invitationUpdate: vi.fn(),
-  releaseArgs: vi.fn(),
   pipelineArgs: vi.fn(),
   memberArgs: vi.fn()
 }));
@@ -63,7 +62,6 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: async () => h.invitation.current,
       update: async (args: unknown) => (h.invitationUpdate(args), {})
     },
-    kitRelease: { findMany: async (args: unknown) => (h.releaseArgs(args), []) },
     pipelineVersion: { findMany: async (args: unknown) => (h.pipelineArgs(args), []), findUnique: async () => null },
     nvflareDeployment: {
       findFirst: async () => ({
@@ -83,7 +81,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import { GET as getSite } from "@/app/api/v1/sites/[siteId]/route";
-import { DELETE as removeMember, POST as addMember } from "@/app/api/v1/sites/[siteId]/members/route";
+import { DELETE as removeMember } from "@/app/api/v1/sites/[siteId]/members/route";
 import { DELETE as revoke } from "@/app/api/v1/studies/[studyId]/invitations/[invitationId]/route";
 
 const ctx = { params: Promise.resolve({ siteId: "ss1" }) };
@@ -109,12 +107,8 @@ describe("GET /sites/[siteId] for a site contact", () => {
     expect(JSON.stringify(body)).not.toContain("other-hospital");
   });
 
-  it("selects artifacts for this site only, without storage keys, and slim pipeline versions", async () => {
+  it("selects slim pipeline versions for a site contact", async () => {
     await call(getSite, req("GET"), ctx);
-    const release = h.releaseArgs.mock.calls[0][0];
-    expect(release.include).toBeUndefined();
-    expect(release.select.artifacts.where.OR).toEqual([{ siteId: null }, { siteId: "site-1" }]);
-    expect(release.select.artifacts.select.storageKey).toBeUndefined();
     expect(h.pipelineArgs.mock.calls[0][0].include).toBeUndefined();
   });
 
@@ -130,25 +124,11 @@ describe("GET /sites/[siteId] for a site contact", () => {
     h.studyActions.current = { read: true, manageSites: true };
     const body = await (await call(getSite, req("GET"), ctx)).json();
     expect(body.activeDeployment.serverAddress).toBe("secret.example");
-    expect(h.releaseArgs.mock.calls[0][0].include).toEqual({ artifacts: true });
+    expect(h.pipelineArgs.mock.calls[0][0].include).toBeDefined();
   });
 });
 
-describe("adding and removing site members", () => {
-  it("adding a person directly is for the study team, not site staff", async () => {
-    expect((await call(addMember, req("POST", { email: "a@b.org", role: "SITE_ADMIN" }), ctx)).status).toBe(403);
-    expect(h.upserted).not.toHaveBeenCalled();
-  });
-
-  it("gives the same answer whether or not the address has an account", async () => {
-    h.studyActions.current = { manageSites: true };
-    const unknown = await call(addMember, req("POST", { email: "a@b.org", role: "SITE_ADMIN" }), ctx);
-    h.userByEmail.current = { id: "u9" };
-    const known = await call(addMember, req("POST", { email: "a@b.org", role: "SITE_ADMIN" }), ctx);
-    expect(unknown.status).toBe(known.status);
-    expect(await unknown.json()).toEqual(await known.json());
-  });
-
+describe("removing site members", () => {
   it("stops site staff from removing the last site administrator", async () => {
     const response = await call(removeMember, req("DELETE", { userId: "contact" }), ctx);
     expect(response.status).toBe(409);

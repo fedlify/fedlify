@@ -13,7 +13,7 @@ import type { SiteRole } from "@prisma/client";
 import { Alert, Button, Checkbox, Collapse, Form, Input, Modal, Popconfirm, Select, Space, Tabs, Tag, Typography, message } from "antd";
 import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { Details } from "@/components/Details";
 import { FormError } from "@/components/FormFeedback";
@@ -37,7 +37,6 @@ type SiteDashboard = {
   studySite: EntityRecord;
   activeDeployment?: EntityRecord | null;
   runtime: SiteRuntime;
-  approvedReleases: EntityRecord[];
   pipelineVersions: EntityRecord[];
   auditEvents: EntityRecord[];
 };
@@ -266,17 +265,6 @@ export default function SiteOnboardingPage() {
     if (result.message) messageApi.info(result.message);
   }
 
-  async function downloadReleaseArtifact(releaseId: string, artifactId: string) {
-    const response = await fetch(`/api/v1/releases/${releaseId}/download?artifactId=${artifactId}`);
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      messageApi.error(body?.error?.message ?? "Pipeline files could not be downloaded.");
-      return;
-    }
-    if (body.downloadUrl) window.location.assign(body.downloadUrl);
-    else messageApi.info(body.message ?? "Artifact is registered, but no download URL is available.");
-  }
-
   async function downloadPipelineVersion(versionId: string) {
     const response = await fetch(`/api/v1/pipeline-versions/${versionId}/download`);
     const body = await response.json().catch(() => null);
@@ -357,15 +345,6 @@ export default function SiteOnboardingPage() {
   const activeJoinPackage = site?.joinPackages?.find(
     (item: EntityRecord) => item.status === "ACTIVE" && (!item.expiresAt || new Date(item.expiresAt) > new Date())
   );
-  const sourceArtifacts = useMemo(
-    () =>
-      (dashboard?.approvedReleases ?? []).flatMap((release) =>
-        (release.artifacts ?? [])
-          .filter((artifact: EntityRecord) => ["SOURCE_BUNDLE", "CHECKSUM_MANIFEST", "SIGNATURE"].includes(artifact.kind))
-          .map((artifact: EntityRecord) => ({ release, artifact }))
-      ),
-    [dashboard?.approvedReleases]
-  );
   const runnerCommand = [
     "# Unzip the download, then (the passphrase is typed at the prompt):",
     "chmod +x unlock.sh && ./unlock.sh",
@@ -394,11 +373,7 @@ export default function SiteOnboardingPage() {
   const canSeeBack = Boolean(backHref) && (backHref !== "/my-site" || siteCount > 1);
   const live = runtime.live;
   const liveVersion = dashboard.pipelineVersions.find((version) => version.id === live?.versionId) ?? null;
-  const bundleSource = liveVersion
-    ? () => void downloadPipelineVersion(liveVersion.id)
-    : sourceArtifacts[0]
-      ? () => void downloadReleaseArtifact(sourceArtifacts[0].release.id, sourceArtifacts[0].artifact.id)
-      : null;
+  const bundleSource = liveVersion ? () => void downloadPipelineVersion(liveVersion.id) : null;
 
   // People on this site, one row per person with their plain role.
   const people = (() => {

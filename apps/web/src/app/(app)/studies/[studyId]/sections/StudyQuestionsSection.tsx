@@ -116,7 +116,7 @@ export function StudyQuestionsSection({ studyId, onChange }: { studyId: string; 
   function accept(payload: unknown) {
     const next = payload as ChecklistPayload & { confirmationCleared?: boolean };
     if (next && Array.isArray(next.requirements)) setData(next);
-    if (next?.confirmationCleared) messageApi.info("The study specification was confirmed before. Because an answer changed, it needs to be confirmed again.");
+    if (next?.confirmationCleared) messageApi.info("Your earlier confirmation of the study questions no longer applies because an answer changed. Please confirm again.");
     onChange?.();
   }
 

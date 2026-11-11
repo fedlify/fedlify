@@ -46,7 +46,7 @@ Rule: lifecycle pages use the new rail-and-panels style. Record pages (Sites, Re
 | Audit card grid | **Audit** table at `/studies/{id}/audit`, plus a prefiltered tab in Run detail and in the site page | New paged endpoint `/api/v1/studies/{id}/audit`. |
 | Sites & Data, two duplicate tabs | One **Sites** table | Columns: site, institution, readiness, kit state, last heartbeat, action. Remove legacy site-token alert later. |
 | `/sites/{id}` tabs | Operator home: Get runner, Readiness, Data profile, Activity | One reusable "Get runner" panel, linked from the workspace Sites stage and the Sites table. |
-| Header button "Template Catalog", `/templates` | "Start from template" in the Code stage; `/templates` stays as admin curation | Fix fork Back path to `/projects`. Retire the duplicate template assistant (`template-agent-sessions`) in favour of the workspace assistant. |
+| Header button "Template Catalog", `/templates` | "Start from template" in the Code stage; `/templates` has since been removed (it redirects to `/studies`) | Fix fork Back path to `/projects`. Retire the duplicate template assistant (`template-agent-sessions`) in favour of the workspace assistant. |
 | Summary next-action cards | Point to `/projects` | Edit `lib/study-summary.ts`, `page.tsx`. |
 
 Resulting sidebar: Summary, Protocol, Sites, Team, Code & run, Results, Audit.

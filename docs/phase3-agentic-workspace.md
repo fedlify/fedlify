@@ -1,3 +1,5 @@
+> Note (2026-11-10): pipeline-agent, quick-deploy and template-agent-sessions have been removed from the web app.
+
 # Phase 3: the agentic code workspace (UX/UI plan)
 
 Goal: a researcher who has finished the protocol and the 29 requirements reaches a published, running study

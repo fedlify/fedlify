@@ -496,8 +496,6 @@ test.describe.serial("live full cycle", () => {
       const governanceResponse = await page.request.patch(`/api/v1/sites/${studySiteId}/governance`, {
         data: {
           readiness: {
-            connectivityVerified: true,
-            kitInstalled: true,
             dependenciesVerified: true,
             policyAccepted: true,
             notes: `Synthetic E2E approval for eICU hospital ${participant.hospitalId}; not a real expert approval.`
@@ -565,10 +563,11 @@ test.describe.serial("live full cycle", () => {
 
     await signInWithCredentials(page, scenario.email);
 
-    const statusResponse = await page.request.get(`/api/v1/studies/${scenario.studyId}/nvflare/status`);
-    expect(statusResponse.ok(), await statusResponse.text()).toBe(true);
-    const statusPayload = await statusResponse.json();
-    expect(JSON.stringify(statusPayload.systemInfo)).toContain("systemInfo");
+    // The study's own sites list shows every site as connected before the run starts.
+    const overviewResponse = await page.request.get(`/api/v1/studies/${scenario.studyId}/sites/overview`);
+    expect(overviewResponse.ok(), await overviewResponse.text()).toBe(true);
+    const overview = await overviewResponse.json();
+    expect(overview.sites).toHaveLength(scenario.studySiteIds.length);
 
     const submitResponse = await page.request.post(`/api/v1/studies/${scenario.studyId}/nvflare/jobs`, {
       data: {

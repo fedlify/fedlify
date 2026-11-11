@@ -5,7 +5,6 @@ import { audit } from "@/lib/audit";
 import { activationGate } from "@/lib/governance";
 import { normalizeNullableMultiSelectValue } from "@/lib/governance-options";
 import { json, problem } from "@/lib/json";
-import { Prisma } from "@prisma/client";
 import { reactivateStudyRegistryAccess, revokeStudyRegistryAccess } from "@/lib/registry-access";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
@@ -91,7 +90,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
       documents: { orderBy: { createdAt: "desc" } },
       // Only answers a person gave count as answered on the Summary; suggestions, gaps and disagreements are listed under Study questions.
       requirementResponses: { where: { status: { in: ["ANSWERED", "ASSUMED"] } }, select: { requirementId: true, updatedAt: true }, orderBy: { requirementId: "asc" } },
-      sites: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1 }, studySite: true } },
+      sites: { include: { studySite: true } },
       studySites: {
         include: {
           resourceProfile: true,
@@ -99,48 +98,10 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
           members: { include: { user: { select: { id: true, name: true, email: true } } } },
           readinessChecks: { orderBy: { createdAt: "desc" }, take: 1 },
           nvflareStatuses: { orderBy: { observedAt: "desc" }, take: 1 },
-          site: true,
-          logArtifacts: { orderBy: { createdAt: "desc" }, take: 5 }
+          site: true
         },
         orderBy: { createdAt: "desc" }
-      },
-      agentRuns: { include: { pipelineSpec: true, releases: true }, orderBy: { createdAt: "desc" } },
-      pipelineProjects: {
-        include: {
-          template: true,
-          templateVersion: true,
-          versions: { include: { ciRuns: true, templateVersion: true }, orderBy: { createdAt: "desc" } },
-          proposals: { where: { files: { equals: Prisma.DbNull } }, include: { ciRuns: true }, orderBy: { createdAt: "desc" } }
-        },
-        orderBy: { updatedAt: "desc" }
-      },
-      nvflareDeployments: { orderBy: { createdAt: "desc" } },
-      nvflareJobs: {
-        include: {
-          pipelineVersion: { include: { project: true } },
-          events: { orderBy: { createdAt: "desc" }, take: 20 },
-          logArtifacts: { orderBy: { createdAt: "desc" }, take: 10 },
-          result: { include: { artifacts: true, modelRelease: { include: { artifacts: true } } } }
-        },
-        orderBy: { createdAt: "desc" }
-      },
-      modelReleases: {
-        include: {
-          artifacts: true,
-          sourceResult: {
-            include: {
-              job: {
-                include: {
-                  pipelineVersion: { include: { project: true } }
-                }
-              }
-            }
-          }
-        },
-        orderBy: { createdAt: "desc" }
-      },
-      releases: { include: { artifacts: true }, orderBy: { createdAt: "desc" } },
-      auditEvents: { orderBy: { createdAt: "desc" }, take: 50 }
+      }
     }
   });
 
@@ -280,7 +241,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
     include: {
       organization: true,
       ethics: { orderBy: { createdAt: "desc" }, take: 1 },
-      _count: { select: { members: true, documents: true, agentRuns: true, releases: true, sites: true, studySites: true } }
+      _count: { select: { members: true, documents: true, sites: true, studySites: true } }
     }
   });
 

@@ -2,9 +2,7 @@
 
 import {
   BranchesOutlined,
-  CheckCircleOutlined,
   CodeOutlined,
-  DiffOutlined,
   DownOutlined,
   FileTextOutlined,
   FullscreenExitOutlined,
@@ -20,8 +18,7 @@ import {
   RightOutlined,
   RobotOutlined
 } from "@ant-design/icons";
-import { Bubble, Prompts, Sender, ThoughtChain } from "@ant-design/x";
-import { Alert, Button, Modal, Segmented, Select, Space, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Modal, Space, Tag, Tooltip, Typography, message } from "antd";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { Monaco } from "@monaco-editor/react";
@@ -45,11 +42,6 @@ const MonacoDiffEditor = dynamic(() => import("@monaco-editor/react").then((mod)
   loading: () => <div className="fedlify-editor-loading">Loading diff...</div>
 });
 
-const BubbleList = Bubble.List as any;
-const PromptList = Prompts as any;
-const SenderBox = Sender as any;
-const ThoughtSteps = ThoughtChain as any;
-
 export type SourceFile = {
   path: string;
   content: string;
@@ -68,24 +60,6 @@ type SourcePayload = {
   files?: SourceFile[];
 };
 
-type ReviewMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-type ReviewChangedFile = {
-  path: string;
-  originalContent: string;
-  proposedContent: string;
-  reason: string;
-};
-
-type ReviewValidation = {
-  status: "PASSED" | "FAILED" | string;
-  summary: string;
-  errors?: string[];
-};
-
 type SourceTreeNode = {
   type: "folder" | "file";
   name: string;
@@ -93,9 +67,6 @@ type SourceTreeNode = {
   children?: SourceTreeNode[];
   file?: SourceFile;
 };
-
-type EditorMode = "source" | "diff" | "proposed";
-type ExplorerView = "files" | "changes";
 
 /** An assistant proposal open for review: the diff is against the files this panel loaded. Nothing commits until a person clicks Accept. */
 export type ProposalReviewState = {
@@ -124,8 +95,6 @@ type CodeReviewPanelProps = {
   onProposalReject?: () => void;
   onProposalClose?: () => void;
   sourceUrl: string;
-  reviewTemplateId?: string;
-  sourceRef?: string;
   title?: string;
   description?: string;
   reloadKey?: string | number;
@@ -136,7 +105,6 @@ type CodeReviewPanelProps = {
   hideHeader?: boolean;
   onRequestChange?: (file: SourceFile, context?: { instruction?: string; mode?: "assistant_request" }) => void;
   onSaveDraft?: (file: SourceFile, content: string) => void;
-  onReviewApplied?: (proposalId: string) => void;
   /** Workspace mode: the page owns the file tree, so the built-in explorer and layout toggles are hidden. */
   hideExplorer?: boolean;
   /** Controlled selection: when set and present in the repo, this file is shown. */
@@ -373,25 +341,8 @@ function monacoLanguage(language?: string) {
   }
 }
 
-function normalizeReviewMessages(value: unknown): ReviewMessage[] {
-  return Array.isArray(value)
-    ? value
-        .filter((item): item is Record<string, unknown> => typeof item === "object" && item != null && typeof item.content === "string")
-        .map((item) => ({
-          role: item.role === "user" ? "user" : "assistant",
-          content: String(item.content)
-        }))
-    : [];
-}
-
-function changedFileLanguage(change: ReviewChangedFile, files: SourceFile[]) {
-  return files.find((file) => file.path === change.path)?.language ?? change.path.split(".").pop() ?? "text";
-}
-
 export function CodeReviewPanel({
   sourceUrl,
-  reviewTemplateId,
-  sourceRef,
   title = "Code review",
   description,
   reloadKey,
@@ -402,7 +353,6 @@ export function CodeReviewPanel({
   hideHeader = false,
   onRequestChange,
   onSaveDraft,
-  onReviewApplied,
   hideExplorer = false,
   selectedPath: controlledPath,
   onSelectedPathChange,
@@ -430,25 +380,9 @@ export function CodeReviewPanel({
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [editMode, setEditMode] = useState(false);
   const [draftContent, setDraftContent] = useState("");
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const [reviewSessionId, setReviewSessionId] = useState<string | null>(null);
-  const [reviewMessages, setReviewMessages] = useState<ReviewMessage[]>([]);
-  const [assistantDraft, setAssistantDraft] = useState("");
-  const [startingReview, setStartingReview] = useState(false);
-  const [sendingReview, setSendingReview] = useState(false);
-  const [validatingReview, setValidatingReview] = useState(false);
-  const [applyingReview, setApplyingReview] = useState(false);
-  const [changedFiles, setChangedFiles] = useState<ReviewChangedFile[]>([]);
-  const [selectedChangePath, setSelectedChangePath] = useState<string | null>(null);
-  const [validation, setValidation] = useState<ReviewValidation | null>(null);
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
-  const [draftPrUrl, setDraftPrUrl] = useState<string | null>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [expandedEditor, setExpandedEditor] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
-  const [editorMode, setEditorMode] = useState<EditorMode>("source");
-  const [explorerView, setExplorerView] = useState<ExplorerView>("files");
   const [layoutLoaded, setLayoutLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -498,11 +432,6 @@ export function CodeReviewPanel({
   const manifest = useMemo(() => parseManifest(files), [files]);
   const sourceTree = useMemo(() => buildSourceTree(files), [files]);
   const isModified = Boolean(selectedFile && draftContent !== selectedFile.content);
-  const reviewEnabled = Boolean(reviewTemplateId);
-  const selectedChange = changedFiles.find((file) => file.path === selectedChangePath) ?? changedFiles[0];
-  const activeEditorMode: EditorMode = selectedChange ? editorMode : "source";
-  const displayedPath = activeEditorMode === "source" ? selectedFile?.path : selectedChange?.path;
-  const displayedLanguage = activeEditorMode === "source" ? selectedFile?.language : selectedChange ? changedFileLanguage(selectedChange, files) : selectedFile?.language;
   const proposalFile = proposalReview ? (proposalReview.files.find((file) => file.path === proposalPath) ?? proposalReview.files[0]) : undefined;
   const loadedCommit = payload?.commit ?? payload?.gitRef ?? null;
   // The diff is "current files -> proposed files", so it is only trustworthy once the loaded files ARE the proposal's
@@ -513,12 +442,12 @@ export function CodeReviewPanel({
       (proposalReview.status !== "PROPOSED" || !proposalReview.baseCommit || proposalFilesUnknown || (loadedCommit && loadedCommit !== proposalReview.baseCommit))
   );
   const proposalAcceptedPaths = proposalReview ? proposalReview.files.filter((file) => proposalReview.accepted[file.path]).map((file) => file.path) : [];
-  const reviewRef = payload?.ref ?? sourceRef ?? "current";
+  const reviewRef = payload?.ref ?? "current";
   const reviewCommit = payload?.commit ?? payload?.gitRef;
   const shellClassName = [
     "fedlify-code-review-shell",
     explorerOpen && !expandedEditor && !hideExplorer ? "has-explorer" : "is-explorer-hidden",
-    assistantOpen && reviewEnabled && !expandedEditor ? "has-assistant" : "is-assistant-hidden",
+    "is-assistant-hidden",
     expandedEditor ? "is-expanded" : ""
   ]
     .filter(Boolean)
@@ -530,18 +459,12 @@ export function CodeReviewPanel({
       if (saved) {
         const layout = JSON.parse(saved) as Partial<{
           explorerOpen: boolean;
-          assistantOpen: boolean;
           expandedEditor: boolean;
           contextOpen: boolean;
-          editorMode: EditorMode;
-          explorerView: ExplorerView;
         }>;
         if (typeof layout.explorerOpen === "boolean") setExplorerOpen(layout.explorerOpen);
-        if (typeof layout.assistantOpen === "boolean") setAssistantOpen(layout.assistantOpen);
         if (typeof layout.expandedEditor === "boolean") setExpandedEditor(layout.expandedEditor);
         if (typeof layout.contextOpen === "boolean") setContextOpen(layout.contextOpen);
-        if (layout.editorMode === "source" || layout.editorMode === "diff" || layout.editorMode === "proposed") setEditorMode(layout.editorMode);
-        if (layout.explorerView === "files" || layout.explorerView === "changes") setExplorerView(layout.explorerView);
       }
     } catch {
       // Browser storage is optional; layout still works with defaults.
@@ -555,12 +478,12 @@ export function CodeReviewPanel({
     try {
       localStorage.setItem(
         REVIEW_LAYOUT_STORAGE_KEY,
-        JSON.stringify({ explorerOpen, assistantOpen, expandedEditor, contextOpen, editorMode, explorerView })
+        JSON.stringify({ explorerOpen, expandedEditor, contextOpen })
       );
     } catch {
       // Ignore unavailable storage.
     }
-  }, [assistantOpen, contextOpen, editorMode, expandedEditor, explorerOpen, explorerView, layoutLoaded]);
+  }, [contextOpen, expandedEditor, explorerOpen, layoutLoaded]);
 
   useEffect(() => {
     setEditMode(false);
@@ -571,7 +494,6 @@ export function CodeReviewPanel({
   useEffect(() => {
     if (controlledPath && controlledPath !== selectedPath && files.some((file) => file.path === controlledPath)) {
       setSelectedPath(controlledPath);
-      setEditorMode("source");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controlledPath, files]);
@@ -608,20 +530,6 @@ export function CodeReviewPanel({
     };
   }, [controlRef, dirtyPath]);
 
-  useEffect(() => {
-    setReviewSessionId(null);
-    setReviewMessages([]);
-    setAssistantDraft("");
-    setChangedFiles([]);
-    setSelectedChangePath(null);
-    setValidation(null);
-    setReviewError(null);
-    setAiConfigured(null);
-    setDraftPrUrl(null);
-    setEditorMode("source");
-    setExplorerView("files");
-  }, [sourceUrl, reloadKey]);
-
   function toggleFolder(path: string) {
     setCollapsedFolders((current) => {
       const next = new Set(current);
@@ -631,190 +539,25 @@ export function CodeReviewPanel({
     });
   }
 
-  async function ensureReviewSession() {
-    if (!reviewTemplateId) return null;
-    if (reviewSessionId) return reviewSessionId;
-    setStartingReview(true);
-    setReviewError(null);
-    try {
-      const response = await fetch(`/api/v1/pipeline-templates/${reviewTemplateId}/review-sessions`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sourceRef: reviewRef, selectedPath: selectedFile?.path })
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(apiErrorMessage(body, "Code review session could not be started."));
-      setReviewSessionId(body.session?.id ?? null);
-      setReviewMessages(normalizeReviewMessages(body.session?.messages));
-      setAiConfigured(Boolean(body.aiConfigured));
-      return body.session?.id ?? null;
-    } catch (startError) {
-      setReviewError(startError instanceof Error ? startError.message : "Code review session could not be started.");
-      return null;
-    } finally {
-      setStartingReview(false);
-    }
-  }
-
-  async function openAssistant() {
-    setExpandedEditor(false);
-    setAssistantOpen(true);
-    await ensureReviewSession();
-  }
-
   function toggleExplorer() {
     setExpandedEditor(false);
     setExplorerOpen((current) => !current);
   }
 
-  function toggleAssistant() {
-    setExpandedEditor(false);
-    if (assistantOpen) {
-      setAssistantOpen(false);
-      return;
-    }
-    void openAssistant();
-  }
-
   function expandEditorOnly() {
     setExpandedEditor(true);
     setExplorerOpen(false);
-    setAssistantOpen(false);
   }
 
   function resetLayout() {
     setExpandedEditor(false);
     setExplorerOpen(true);
-    setAssistantOpen(false);
     setContextOpen(false);
-  }
-
-  function discardReviewChanges() {
-    setChangedFiles([]);
-    setSelectedChangePath(null);
-    setValidation(null);
-    setDraftPrUrl(null);
-    setEditorMode("source");
-    setExplorerView("files");
-  }
-
-  function selectReviewChange(path: string, mode: EditorMode = "diff") {
-    setSelectedChangePath(path);
-    if (files.some((file) => file.path === path)) setSelectedPath(path);
-    setEditorMode(mode);
-  }
-
-  async function sendReviewMessage(messageText: string) {
-    const trimmed = messageText.trim();
-    if (!trimmed || !reviewTemplateId) return;
-    const sessionId = await ensureReviewSession();
-    if (!sessionId) return;
-    setSendingReview(true);
-    setReviewError(null);
-    try {
-      const response = await fetch(`/api/v1/template-agent-sessions/${sessionId}/review-messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: trimmed, selectedPath: selectedFile?.path, sourceRef: reviewRef })
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(apiErrorMessage(body, "Codex review did not complete."));
-      setReviewMessages(normalizeReviewMessages(body.session?.messages));
-      const nextChanges = Array.isArray(body.result?.changedFiles) ? body.result.changedFiles : [];
-      setChangedFiles(nextChanges);
-      setSelectedChangePath(nextChanges[0]?.path ?? null);
-      if (nextChanges[0]?.path && files.some((file) => file.path === nextChanges[0].path)) setSelectedPath(nextChanges[0].path);
-      if (nextChanges.length > 0) {
-        setEditorMode("diff");
-        setExplorerView("changes");
-      }
-      setValidation(null);
-      setDraftPrUrl(null);
-      setAiConfigured(body.result?.aiConfigured ?? aiConfigured);
-      setAssistantDraft("");
-    } catch (sendError) {
-      setReviewError(sendError instanceof Error ? sendError.message : "Codex review did not complete.");
-    } finally {
-      setSendingReview(false);
-    }
   }
 
   function saveManualEditForReview() {
     if (!selectedFile) return;
-    if (reviewEnabled) {
-      const nextChange = {
-        path: selectedFile.path,
-        originalContent: selectedFile.content,
-        proposedContent: draftContent,
-        reason: "Manual edit prepared in Fedlify code review."
-      };
-      setChangedFiles([nextChange]);
-      setSelectedChangePath(nextChange.path);
-      setSelectedPath(nextChange.path);
-      setEditorMode("diff");
-      setExplorerView("changes");
-      setValidation(null);
-      setDraftPrUrl(null);
-      setEditMode(false);
-      message.info("Manual edit staged for review. Validate it before creating a draft PR.");
-      return;
-    }
     onSaveDraft?.(selectedFile, draftContent);
-  }
-
-  async function validateReviewChanges() {
-    if (!reviewTemplateId || changedFiles.length === 0) return;
-    const sessionId = await ensureReviewSession();
-    if (!sessionId) return;
-    setValidatingReview(true);
-    setReviewError(null);
-    try {
-      const response = await fetch(`/api/v1/template-agent-sessions/${sessionId}/validate-review`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ changedFiles })
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(apiErrorMessage(body, "Review validation failed."));
-      setValidation(body.validation);
-      if (Array.isArray(body.changedFiles)) {
-        setChangedFiles(body.changedFiles);
-        if (!body.changedFiles.some((file: ReviewChangedFile) => file.path === selectedChangePath)) {
-          setSelectedChangePath(body.changedFiles[0]?.path ?? null);
-          if (body.changedFiles[0]?.path && files.some((file) => file.path === body.changedFiles[0].path)) setSelectedPath(body.changedFiles[0].path);
-        }
-      }
-      if (body.validation?.status === "PASSED") message.success("Review changes passed validation.");
-      else message.warning(body.validation?.summary ?? "Review changes need attention.");
-    } catch (validateError) {
-      setReviewError(validateError instanceof Error ? validateError.message : "Review validation failed.");
-    } finally {
-      setValidatingReview(false);
-    }
-  }
-
-  async function applyReviewChanges() {
-    if (!reviewTemplateId || changedFiles.length === 0 || validation?.status !== "PASSED") return;
-    const sessionId = await ensureReviewSession();
-    if (!sessionId) return;
-    setApplyingReview(true);
-    setReviewError(null);
-    try {
-      const response = await fetch(`/api/v1/template-agent-sessions/${sessionId}/apply-review`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ changedFiles })
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(apiErrorMessage(body, "Draft PR was not created."));
-      setDraftPrUrl(body.draftPrUrl ?? body.proposal?.giteaPullRequestUrl ?? null);
-      message.success("Draft PR created from reviewed changes.");
-      if (body.proposal?.id) onReviewApplied?.(body.proposal.id);
-    } catch (applyError) {
-      setReviewError(applyError instanceof Error ? applyError.message : "Draft PR was not created.");
-    } finally {
-      setApplyingReview(false);
-    }
   }
 
   function renderSourceTree(nodes: SourceTreeNode[], depth = 0) {
@@ -840,7 +583,6 @@ export function CodeReviewPanel({
           className={["fedlify-code-tree-row", node.path === selectedFile?.path ? "is-selected" : ""].filter(Boolean).join(" ")}
           onClick={() => {
             setSelectedPath(node.path);
-            setEditorMode("source");
           }}
           style={{ paddingLeft }}
           type="button"
@@ -851,34 +593,6 @@ export function CodeReviewPanel({
         </button>
       );
     });
-  }
-
-  function renderChangeList() {
-    if (changedFiles.length === 0) {
-      return (
-        <div className="fedlify-code-change-empty">
-          <DiffOutlined />
-          <Typography.Text className="fedlify-muted">No reviewed changes yet.</Typography.Text>
-        </div>
-      );
-    }
-
-    return (
-      <div className="fedlify-code-change-list">
-        {changedFiles.map((file) => (
-          <button
-            key={file.path}
-            type="button"
-            className={file.path === selectedChange?.path ? "is-selected" : ""}
-            onClick={() => selectReviewChange(file.path)}
-          >
-            <FileTextOutlined />
-            <span>{file.path}</span>
-            <small>{file.reason}</small>
-          </button>
-        ))}
-      </div>
-    );
   }
 
   if (loading) {
@@ -922,7 +636,6 @@ export function CodeReviewPanel({
           {statusBar ? null : "Commit: "}<code>{shortCommit(reviewCommit)}</code>
         </Typography.Text>
       ) : null}
-      {validation?.status ? <StatusTag value={validation.status} /> : null}
       <Button size="small" type="text" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
         {statusBar ? "Details" : contextOpen ? "Hide context" : "Review context"}
       </Button>
@@ -963,15 +676,12 @@ export function CodeReviewPanel({
               {description ? <Typography.Text className="fedlify-muted">{description}</Typography.Text> : null}
             </div>
             <Space wrap>
-              {(reviewEnabled || onRequestChange) && selectedFile ? (
+              {onRequestChange && selectedFile ? (
                 <Button
                   type="primary"
                   className="fedlify-dark-action"
                   icon={<RobotOutlined />}
-                  onClick={() => {
-                    if (reviewEnabled) void openAssistant();
-                    else if (selectedFile) onRequestChange?.(selectedFile);
-                  }}
+                  onClick={() => onRequestChange(selectedFile)}
                 >
                   {requestChangeLabel}
                 </Button>
@@ -988,7 +698,7 @@ export function CodeReviewPanel({
               ) : null}
             </Space>
           </div>
-          {(reviewEnabled || onRequestChange) && requestChangeDescription ? (
+          {onRequestChange && requestChangeDescription ? (
             <Alert type="info" showIcon message={requestChangeDescription} />
           ) : null}
           <div className="fedlify-code-context-bar">
@@ -997,7 +707,6 @@ export function CodeReviewPanel({
               <Tag title={reviewCommit ?? undefined}>{shortCommit(reviewCommit)}</Tag>
               {payload?.branchName ? <Tag title={payload.branchName}>{compactLabel(payload.branchName)}</Tag> : null}
               {manifest?.packageType ? <Tag title={String(manifest.packageType)}>{compactLabel(String(manifest.packageType))}</Tag> : null}
-              {validation?.status ? <StatusTag value={validation.status} /> : null}
             </Space>
             <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)}>
               {contextOpen ? "Hide context" : "Review context"}
@@ -1014,42 +723,16 @@ export function CodeReviewPanel({
           <aside className="fedlify-code-file-list" aria-label="Source files">
             <div className="fedlify-code-explorer-header">
               <strong>Explorer</strong>
-              <span>{explorerView === "files" ? `${files.length} files` : `${changedFiles.length} changes`}</span>
+              <span>{files.length} files</span>
             </div>
-            {changedFiles.length > 0 ? (
-              <Segmented
-                block
-                className="fedlify-code-explorer-switch"
-                options={[
-                  { label: "Files", value: "files" },
-                  { label: "Changes", value: "changes" }
-                ]}
-                size="small"
-                value={explorerView}
-                onChange={(value) => setExplorerView(value as ExplorerView)}
-              />
-            ) : null}
-            {explorerView === "changes" ? <>{renderChangeList()}</> : <div className="fedlify-code-tree">{renderSourceTree(sourceTree)}</div>}
+            <div className="fedlify-code-tree">{renderSourceTree(sourceTree)}</div>
           </aside>
         ) : null}
         <section className="fedlify-code-file-preview">
           <div className="fedlify-code-file-title">
             <div className="fedlify-code-file-title-main">
-              <strong>{proposalFile ? proposalFile.path : (displayedPath ?? "No file selected")}</strong>
-              <span>{proposalFile ? `proposed ${proposalFile.action}` : (displayedLanguage ?? "text")}</span>
-              {changedFiles.length > 0 ? (
-                <Segmented
-                  className="fedlify-code-mode-switch"
-                  options={[
-                    { label: "Source", value: "source" },
-                    { label: "Diff", value: "diff", disabled: !selectedChange },
-                    { label: "Proposed", value: "proposed", disabled: !selectedChange }
-                  ]}
-                  size="small"
-                  value={activeEditorMode}
-                  onChange={(value) => setEditorMode(value as EditorMode)}
-                />
-              ) : null}
+              <strong>{proposalFile ? proposalFile.path : (selectedFile?.path ?? "No file selected")}</strong>
+              <span>{proposalFile ? `proposed ${proposalFile.action}` : (selectedFile?.language ?? "text")}</span>
             </div>
             <Space className="fedlify-code-editor-actions" wrap>
               {statusBar ? (
@@ -1062,11 +745,6 @@ export function CodeReviewPanel({
                 <Tooltip title={explorerOpen && !expandedEditor ? "Hide explorer" : "Show explorer"}>
                   <Button size="small" icon={explorerOpen && !expandedEditor ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={toggleExplorer} />
                 </Tooltip>
-                {reviewEnabled ? (
-                  <Tooltip title={assistantOpen && !expandedEditor ? "Hide Codex" : "Show Codex"}>
-                    <Button size="small" icon={<RobotOutlined />} onClick={toggleAssistant} />
-                  </Tooltip>
-                ) : null}
                 <Tooltip title={expandedEditor ? "Exit expanded editor" : "Expand editor"}>
                   <Button
                     size="small"
@@ -1079,7 +757,7 @@ export function CodeReviewPanel({
                 </Tooltip>
               </Space.Compact>
               )}
-              {(reviewEnabled || onSaveDraft) && selectedFile && activeEditorMode === "source" ? (
+              {onSaveDraft && selectedFile ? (
                 editMode ? (
                   <>
                     <Button
@@ -1108,23 +786,20 @@ export function CodeReviewPanel({
                   </Button>
                 )
               ) : null}
-              {onAskAssistant && selectedFile && activeEditorMode === "source" ? (
+              {onAskAssistant && selectedFile ? (
                 <Tooltip title="Send this file (and any selected lines) to the assistant. Shortcut: Cmd/Ctrl+K in the editor.">
                   <Button size="small" icon={<RobotOutlined />} onClick={() => askRef.current()}>
                     Ask assistant
                   </Button>
                 </Tooltip>
               ) : null}
-              {(reviewEnabled || onRequestChange) && selectedFile ? (
+              {onRequestChange && selectedFile ? (
                 <Button
                   size="small"
                   type="primary"
                   className="fedlify-dark-action"
                   icon={<RobotOutlined />}
-                  onClick={() => {
-                    if (reviewEnabled) void openAssistant();
-                    else onRequestChange?.(selectedFile);
-                  }}
+                  onClick={() => onRequestChange(selectedFile)}
                 >
                   Review with Codex
                 </Button>
@@ -1169,69 +844,7 @@ export function CodeReviewPanel({
               )}
             />
           ) : null}
-          {changedFiles.length > 0 && !proposalReview ? (
-            <div className="fedlify-code-change-toolbar">
-              <Space className="fedlify-code-review-status" wrap size={[6, 6]}>
-                <StatusTag value="PENDING_CHANGES" label={`${changedFiles.length} change${changedFiles.length === 1 ? "" : "s"} pending`} />
-                {validation ? <StatusTag value={validation.status} /> : null}
-                {draftPrUrl ? <StatusTag value="DRAFT_READY" label="Draft PR created" /> : null}
-                <Select
-                  className="fedlify-code-change-select"
-                  size="small"
-                  value={selectedChange?.path}
-                  options={changedFiles.map((file) => ({ label: file.path, value: file.path }))}
-                  onChange={(path) => selectReviewChange(path)}
-                />
-              </Space>
-              <Space className="fedlify-code-review-actions" wrap>
-                <Button size="small" onClick={discardReviewChanges}>
-                  Discard
-                </Button>
-                <Button size="small" icon={<CheckCircleOutlined />} onClick={() => void validateReviewChanges()} loading={validatingReview}>
-                  Validate
-                </Button>
-                <Button
-                  size="small"
-                  type="primary"
-                  className="fedlify-dark-action"
-                  icon={<GithubOutlined />}
-                  disabled={validation?.status !== "PASSED" || Boolean(draftPrUrl)}
-                  loading={applyingReview}
-                  onClick={() => void applyReviewChanges()}
-                >
-                  Create draft PR
-                </Button>
-                {draftPrUrl ? (
-                  <Button size="small" href={draftPrUrl} target="_blank" icon={<GithubOutlined />}>
-                    Open PR
-                  </Button>
-                ) : null}
-              </Space>
-            </div>
-          ) : null}
-          {validation ? (
-            <Alert className="fedlify-code-inline-alert" type={validation.status === "PASSED" ? "success" : "error"} showIcon message={validation.summary} />
-          ) : null}
           <div className="fedlify-monaco-frame" hidden={Boolean(proposalReview && proposalFile)}>
-            {activeEditorMode === "diff" && selectedChange ? (
-              <MonacoDiffEditor
-                beforeMount={configureMonaco}
-                height="100%"
-                language={monacoLanguage(changedFileLanguage(selectedChange, files))}
-                original={selectedChange.originalContent}
-                modified={selectedChange.proposedContent}
-                theme={FEDLIFY_EDITOR_THEME}
-                options={{
-                  automaticLayout: true,
-                  fontSize: 14,
-                  minimap: { enabled: false },
-                  readOnly: true,
-                  renderSideBySide: true,
-                  scrollBeyondLastLine: false,
-                  wordWrap: "on"
-                }}
-              />
-            ) : (
               <MonacoEditor
                 beforeMount={configureMonaco}
                 onMount={(editor, monaco) => {
@@ -1246,10 +859,10 @@ export function CodeReviewPanel({
                   });
                 }}
                 height="100%"
-                language={monacoLanguage(activeEditorMode === "proposed" && selectedChange ? changedFileLanguage(selectedChange, files) : selectedFile?.language)}
-                path={activeEditorMode === "proposed" && selectedChange ? `${selectedChange.path}:proposed` : selectedFile?.path ?? "source"}
+                language={monacoLanguage(selectedFile?.language)}
+                path={selectedFile?.path ?? "source"}
                 theme={FEDLIFY_EDITOR_THEME}
-                value={activeEditorMode === "proposed" && selectedChange ? selectedChange.proposedContent : editMode ? draftContent : selectedFile?.content ?? ""}
+                value={editMode ? draftContent : selectedFile?.content ?? ""}
                 onChange={(value) => setDraftContent(value ?? "")}
                 options={{
                   automaticLayout: true,
@@ -1257,109 +870,15 @@ export function CodeReviewPanel({
                   fontSize: 14,
                   lineNumbers: "on",
                   minimap: { enabled: false },
-                  readOnly: activeEditorMode === "proposed" || !editMode,
+                  readOnly: !editMode,
                   renderWhitespace: "selection",
                   scrollBeyondLastLine: false,
                   tabSize: 2,
                   wordWrap: "on"
                 }}
               />
-            )}
           </div>
         </section>
-        {assistantOpen && reviewEnabled && !expandedEditor ? (
-          <aside className="fedlify-code-review-assistant" aria-label="Fedlify Codex review assistant">
-            <div className="fedlify-code-assistant-heading">
-              <div>
-                <Typography.Title level={4}>Codex review</Typography.Title>
-                <Typography.Text className="fedlify-muted">Ask about the selected file, request safe changes, then validate the diff before creating a draft PR.</Typography.Text>
-              </div>
-              <Space.Compact>
-                <Tooltip title={contextOpen ? "Hide review context" : "Show review context"}>
-                  <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setContextOpen((current) => !current)} />
-                </Tooltip>
-                <Tooltip title="Close Codex">
-                  <Button size="small" icon={<MenuFoldOutlined />} onClick={() => setAssistantOpen(false)} />
-                </Tooltip>
-              </Space.Compact>
-            </div>
-            <div className="fedlify-code-context-chips">
-              <Tag title={selectedFile?.path}>{compactLabel(selectedFile?.path ?? "No file")}</Tag>
-              <Tag title={reviewRef}>{compactLabel(reviewRef)}</Tag>
-              <Tag title={reviewCommit ?? undefined}>{shortCommit(reviewCommit)}</Tag>
-              {manifest?.packageType ? <Tag title={String(manifest.packageType)}>{compactLabel(String(manifest.packageType), 22)}</Tag> : null}
-              {validation?.status ? <StatusTag value={validation.status} /> : null}
-            </div>
-            {reviewError ? (
-              <Alert
-                type="error"
-                showIcon
-                message={reviewError}
-                action={
-                  <Space wrap>
-                    <Button size="small" onClick={() => void ensureReviewSession()} loading={startingReview}>
-                      Retry
-                    </Button>
-                    <Button size="small" onClick={() => void load()}>
-                      Reload source
-                    </Button>
-                  </Space>
-                }
-              />
-            ) : null}
-            {aiConfigured === false ? (
-              <Alert
-                type="warning"
-                showIcon
-                message="AI code review is not configured"
-                description="Set OPENAI_API_KEY to enable natural-language Codex review. Manual edits can still be previewed, validated, and sent to a draft PR."
-              />
-            ) : null}
-            <PromptList
-              items={[
-                { key: "explain", label: "Explain this file", description: "Explain the selected file and how it fits the NVFLARE workflow." },
-                { key: "safety", label: "Check FL safety", description: "Check for raw-data leakage, hard-coded client assumptions, and runtime risks." },
-                { key: "runtime", label: "Runtime knobs", description: "Make clients, rounds, aggregation, and artifacts configurable." },
-                { key: "tests", label: "Update tests", description: "Add or update tests for the selected template behavior." },
-                { key: "change", label: "Create draft change", description: "Propose a safe reviewed change for this template." }
-              ]}
-              onItemClick={(info: any) => setAssistantDraft(info?.data?.description ?? info?.description ?? "")}
-            />
-            <div className="fedlify-code-assistant-chat">
-              {reviewMessages.length ? (
-                <BubbleList
-                  items={reviewMessages.map((item, index) => ({
-                    key: `${index}`,
-                    role: item.role,
-                    content: item.content
-                  }))}
-                />
-              ) : (
-                <div className="fedlify-code-assistant-empty">
-                  <RobotOutlined />
-                  <Typography.Text>Open a review session to ask Codex about this template source.</Typography.Text>
-                </div>
-              )}
-            </div>
-            <SenderBox
-              value={assistantDraft}
-              onChange={setAssistantDraft}
-              onSubmit={(value: string) => void sendReviewMessage(value)}
-              loading={startingReview || sendingReview}
-              disabled={aiConfigured === false}
-              placeholder={`Ask about ${selectedFile?.path ?? "the selected file"}...`}
-            />
-            <ThoughtSteps
-              items={[
-                { title: "Ask", status: reviewSessionId ? "finish" : startingReview ? "process" : "wait", description: "Review context loaded" },
-                { title: "Clarify", status: reviewMessages.length > 1 ? "finish" : "wait", description: "Questions handled in chat" },
-                { title: "Propose", status: changedFiles.length > 0 ? "finish" : "wait", description: changedFiles.length ? `${changedFiles.length} file change(s)` : "No diff yet" },
-                { title: "Validate", status: validation?.status === "PASSED" ? "finish" : validatingReview ? "process" : "wait", description: validation?.summary ?? "Pending" },
-                { title: "Draft PR", status: draftPrUrl ? "finish" : applyingReview ? "process" : "wait", description: draftPrUrl ? "Created" : "Not created" }
-              ]}
-            />
-          </aside>
-        ) : null}
       </div>
       {statusBar ? (
         <Modal open={contextOpen} title="Review context" footer={null} width={560} onCancel={() => setContextOpen(false)}>

@@ -9,13 +9,13 @@ export const STUDY_WORKSPACE_SECTIONS = [
     key: "protocol",
     label: "Protocol",
     title: "Study protocol",
-    subtitle: "Define the study design, ethics decision, governed documents, participant sites, and activation readiness."
+    subtitle: "The study's details, ethics decision, documents and questions."
   },
   {
     key: "sites",
     label: "Sites",
     title: "Sites",
-    subtitle: "Register institutions, review site-local data profiles, and track readiness for federated participation."
+    subtitle: "The institutions in this study, with each site's kit, runner, code version and sign-off."
   },
   {
     key: "team",
@@ -27,13 +27,13 @@ export const STUDY_WORKSPACE_SECTIONS = [
     key: "pipeline",
     label: "Code & run",
     title: "Code & run",
-    subtitle: "Write and save pipeline code, publish a version, release site kits, and start a federated run."
+    subtitle: "Write and save pipeline code, publish a version, release site kits, and start a run across all sites."
   },
   {
     key: "run",
     label: "Code & run",
     title: "Code & run",
-    subtitle: "Write and save pipeline code, publish a version, release site kits, and start a federated run."
+    subtitle: "Write and save pipeline code, publish a version, release site kits, and start a run across all sites."
   },
   {
     key: "results",
@@ -79,7 +79,7 @@ export const LEGACY_SECTION_REDIRECTS: Record<string, (studyId: string) => strin
   pipeline: (studyId) => `/studies/${studyId}/projects`,
   run: (studyId) => `/studies/${studyId}/projects`,
   audit: (studyId) => `/studies/${studyId}/audit`,
-  // Only the list redirects; ?section=results&detail=... (a legacy record view) still renders on the study page.
+  // Every ?section=results URL redirects, including ones with &detail=; the old result detail views no longer exist.
   results: (studyId) => `/studies/${studyId}/runs`
 };
 

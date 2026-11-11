@@ -1,3 +1,5 @@
+> Note (2026-11-10): the quick-deploy, template-agent-sessions, template catalog and release routes described below have since been removed from the web app. This review is kept as written on 2026-11-03.
+
 # Fedlify system review (2026-11-03)
 
 Written after a full read of `fedlify/` (web app, services, deploy, templates), `IaC/`, the paper draft in

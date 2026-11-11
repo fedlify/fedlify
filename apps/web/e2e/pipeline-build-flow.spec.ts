@@ -55,44 +55,6 @@ test.describe("Pipeline build flow", () => {
     }
   });
 
-  test("templates catalog shows simplified UI without 16-field form", async ({ page }) => {
-    await signIn(page);
-    await page.goto("/templates");
-    await page.waitForLoadState("networkidle");
-
-    // Should have "Build new template" button
-    await expect(page.locator('button:has-text("Build new template")')).toBeVisible({ timeout: 10_000 });
-
-    // Should NOT have the old "Template Agent" button
-    await expect(page.locator('button:has-text("Template Agent")')).toHaveCount(0);
-
-    // Should NOT have the old 16-field form visible by default
-    await expect(page.locator('text="Expected site-local inputs"')).toHaveCount(0);
-  });
-
-  test("template detail shows 3 tabs instead of 5", async ({ page }) => {
-    await signIn(page);
-    await page.goto("/templates");
-    await page.waitForLoadState("networkidle");
-
-    // Click the first template "Open" button
-    const openBtn = page.locator('button:has-text("Open"), a:has-text("Open")').first();
-    if (await openBtn.isVisible().catch(() => false)) {
-      await openBtn.click();
-      await page.waitForLoadState("domcontentloaded");
-      await page.waitForTimeout(1500);
-
-      // Should have Overview, Code, Changes tabs
-      await expect(page.locator('[role="tab"]:has-text("Overview")')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[role="tab"]:has-text("Code")')).toBeVisible();
-      await expect(page.locator('[role="tab"]:has-text("Changes")')).toBeVisible();
-
-      // Should NOT have Versions or Activity tabs
-      await expect(page.locator('[role="tab"]:has-text("Versions")')).toHaveCount(0);
-      await expect(page.locator('[role="tab"]:has-text("Activity")')).toHaveCount(0);
-    }
-  });
-
   test("navigating to /template-agent redirects or returns 404", async ({ page }) => {
     await signIn(page);
     const response = await page.goto("/template-agent");

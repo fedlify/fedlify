@@ -122,7 +122,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Creating a study of their own (/studies/manage) stays open to them.
     const startingOwnStudy = pathname.startsWith("/studies/manage");
-    if (mode === "site-only" && !startingOwnStudy && (pathname.startsWith("/studies") || pathname.startsWith("/templates"))) {
+    if (mode === "site-only" && !startingOwnStudy && pathname.startsWith("/studies")) {
       router.replace("/my-site");
     }
   }, [mode, pathname, router]);

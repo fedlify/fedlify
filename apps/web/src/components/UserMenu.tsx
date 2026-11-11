@@ -1,10 +1,8 @@
 "use client";
 
 import {
-  BookOutlined,
   LogoutOutlined,
   QuestionCircleOutlined,
-  SafetyCertificateOutlined,
   SettingOutlined,
   UserOutlined
 } from "@ant-design/icons";
@@ -86,17 +84,16 @@ export function UserMenu() {
 
       <div className="fedlify-user-menu-divider" />
 
-      <button type="button" className="fedlify-user-menu-item">
-        <SafetyCertificateOutlined />
-        <span>Policies</span>
-      </button>
-      <button type="button" className="fedlify-user-menu-item">
+      <button
+        type="button"
+        className="fedlify-user-menu-item"
+        onClick={() => {
+          setOpen(false);
+          router.push("/get-ready");
+        }}
+      >
         <QuestionCircleOutlined />
         <span>Help</span>
-      </button>
-      <button type="button" className="fedlify-user-menu-item">
-        <BookOutlined />
-        <span>Documentation</span>
       </button>
 
       <div className="fedlify-user-menu-divider" />

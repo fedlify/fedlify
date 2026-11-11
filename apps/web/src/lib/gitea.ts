@@ -53,7 +53,6 @@ export type GiteaPipelineProposal = {
   pullRequestUrl: string;
 };
 
-export type GiteaTemplateProposal = GiteaPipelineProposal;
 
 export class GiteaApiError extends Error {
   constructor(
@@ -413,108 +412,6 @@ export async function createGiteaPipelineProposal(input: {
   } catch {
     // The proposal branch and PR are the source of truth. If main is protected or stale,
     // do not fail an otherwise valid generated pipeline.
-  }
-
-  return {
-    owner: repo.owner,
-    repo: repo.repo,
-    repoUrl: repo.repoUrl,
-    branchName: input.branchName,
-    branchUrl,
-    baseBranch: repo.defaultBranch,
-    commitSha,
-    pullRequestNumber: pull.number,
-    pullRequestUrl
-  };
-}
-
-function templateIndexReadme(input: {
-  repoName: string;
-  templateName: string;
-  branchName: string;
-  branchUrl: string;
-  pullRequestUrl: string;
-  commitSha: string;
-}) {
-  return [
-    `# ${input.templateName}`,
-    "",
-    "Fedlify reusable NVFLARE template repository.",
-    "",
-    "Template changes are kept on review branches until a human publishes an immutable template version in Fedlify.",
-    "",
-    "## Active proposal",
-    `- Branch: [${input.branchName}](${input.branchUrl})`,
-    `- Pull request: [review in Gitea](${input.pullRequestUrl})`,
-    `- Commit: \`${input.commitSha}\``,
-    "",
-    "Open the pull request to inspect the NVFLARE job folder, agent instructions, and template manifest.",
-    ""
-  ].join("\n");
-}
-
-export async function createGiteaTemplateProposal(input: {
-  repoName: string;
-  templateName: string;
-  description: string;
-  branchName: string;
-  files: Array<{ path: string; content: string }>;
-  pullRequestBody: string;
-  owner?: string;
-}): Promise<GiteaTemplateProposal> {
-  const repo = await ensureGiteaRepository({
-    repoName: input.repoName,
-    description: input.description,
-    defaultBranch: "main",
-    owner: input.owner
-  });
-  await ensureGiteaBranch({ owner: repo.owner, repo: repo.repo, baseBranch: repo.defaultBranch, branchName: input.branchName });
-  const branchUrl = giteaBranchTreeUrl(repo.repoUrl, input.branchName);
-
-  for (const file of input.files) {
-    await upsertGiteaFile({
-      owner: repo.owner,
-      repo: repo.repo,
-      branchName: input.branchName,
-      path: file.path,
-      content: file.content,
-      message: `Fedlify template proposal: ${input.templateName}`
-    });
-  }
-
-  const branch = await giteaRequest<GiteaBranchResponse>(
-    `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/branches/${encodeURIComponent(input.branchName)}`
-  );
-  const pull = await createGiteaPullRequest({
-    owner: repo.owner,
-    repo: repo.repo,
-    baseBranch: repo.defaultBranch,
-    branchName: input.branchName,
-    title: `Fedlify template proposal: ${input.templateName}`,
-    body: input.pullRequestBody
-  });
-  const commitSha = pull.head?.sha ?? branch.commit?.id ?? branch.commit?.sha;
-  if (!commitSha) throw new GiteaApiError("Gitea did not return a template branch head commit SHA.", 502);
-  const pullRequestUrl = pull.html_url ?? pull.url ?? `${repo.repoUrl}/pulls/${pull.number}`;
-
-  try {
-    await upsertGiteaFile({
-      owner: repo.owner,
-      repo: repo.repo,
-      branchName: repo.defaultBranch,
-      path: "README.md",
-      content: templateIndexReadme({
-        repoName: repo.repo,
-        templateName: input.templateName,
-        branchName: input.branchName,
-        branchUrl,
-        pullRequestUrl,
-        commitSha
-      }),
-      message: `Fedlify template index: ${input.templateName}`
-    });
-  } catch {
-    // Proposal branch and PR remain the source of truth.
   }
 
   return {

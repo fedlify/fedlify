@@ -1,6 +1,5 @@
 import type { PipelineTemplate } from "@prisma/client";
-import { GiteaApiError, getGiteaBranch, giteaBranchTreeUrl, readGiteaRepositoryFiles } from "@/lib/gitea";
-import { buildTemplateRepositoryFiles, templateSpecToTemplateIntake } from "@/lib/pipeline-template-code";
+import { GiteaApiError, giteaBranchTreeUrl, readGiteaRepositoryFiles } from "@/lib/gitea";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { isLegacyTemplateCommit, parseSourceRef, toReviewSourceFiles, type ReviewSourceFile } from "@/lib/source-review";
@@ -59,7 +58,6 @@ export async function loadTemplateSourceForReview(input: {
   let gitRef: string | null | undefined;
   let commit: string | null | undefined;
   let branchName: string | null | undefined;
-  let pullRequestUrl: string | null | undefined;
 
   if (sourceRef.kind === "current") {
     const version = template.currentApprovedVersion;
@@ -81,44 +79,9 @@ export async function loadTemplateSourceForReview(input: {
     branchName = version.gitBranch;
   }
 
-  if (sourceRef.kind === "proposal") {
-    const proposal = await prisma.templateProposal.findFirst({
-      where: { id: sourceRef.id, templateId: input.templateId }
-    });
-    if (!proposal) throw new TemplateSourceNotFoundError("Template proposal not found.");
-    ref = `proposal:${proposal.id}`;
-    gitRef = proposal.branchName;
-    commit = proposal.giteaHeadCommit;
-    branchName = proposal.branchName;
-    pullRequestUrl = proposal.giteaPullRequestUrl;
-  }
-
+  // A template without its own source repository (an old seed) has nothing to read.
   if (!template.giteaOwner || !template.giteaRepo || !template.giteaRepoUrl || !gitRef || isLegacyTemplateCommit(gitRef)) {
-    const files = await buildTemplateRepositoryFiles({
-      name: template.name,
-      templateKey: template.templateKey,
-      description: template.description,
-      prompt: template.description ?? `Review ${template.name}.`,
-      intake: templateSpecToTemplateIntake(template.spec),
-      useAi: false
-    });
-
-    return {
-      template,
-      ref,
-      gitRef: gitRef ?? "generated-template-source",
-      commit: isLegacyTemplateCommit(gitRef) ? null : commit ?? null,
-      branchName: branchName ?? null,
-      repoUrl: template.giteaRepoUrl ?? "",
-      branchUrl: null,
-      pullRequestUrl: pullRequestUrl ?? null,
-      files: toReviewSourceFiles(files)
-    };
-  }
-
-  if (sourceRef.kind === "proposal" && branchName) {
-    const branch = await getGiteaBranch({ owner: template.giteaOwner, repo: template.giteaRepo, branchName });
-    commit = branch.commit?.id ?? branch.commit?.sha ?? commit;
+    throw new LegacyTemplateSourceError();
   }
 
   const files = await readGiteaRepositoryFiles({ owner: template.giteaOwner, repo: template.giteaRepo, ref: gitRef });
@@ -130,18 +93,7 @@ export async function loadTemplateSourceForReview(input: {
     branchName: branchName ?? null,
     repoUrl: template.giteaRepoUrl,
     branchUrl: branchName ? giteaBranchTreeUrl(template.giteaRepoUrl, branchName) : null,
-    pullRequestUrl: pullRequestUrl ?? null,
+    pullRequestUrl: null,
     files: toReviewSourceFiles(files)
   };
-}
-
-export function applyReviewChangesToFiles(
-  files: Array<{ path: string; content: string }>,
-  changedFiles: Array<{ path: string; proposedContent: string }>
-) {
-  const byPath = new Map(files.map((file) => [file.path, { path: file.path, content: file.content }]));
-  for (const change of changedFiles) {
-    byPath.set(change.path, { path: change.path, content: change.proposedContent });
-  }
-  return [...byPath.values()].sort((first, second) => first.path.localeCompare(second.path));
 }

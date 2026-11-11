@@ -12,13 +12,15 @@ const nextConfig = {
       bodySizeLimit: "4mb"
     }
   },
-  // Legacy study sections that were folded into other pages. Redirect only; the legacy code is still in the page.
+  // Legacy study sections that were folded into other pages. Redirect only; the old section code has been removed from the page.
   async redirects() {
     return [
       { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "(pipeline|run)" }], destination: "/studies/:studyId/projects", permanent: false },
       { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "audit" }], destination: "/studies/:studyId/audit", permanent: false },
-      // The Results list moved to /runs. A legacy record view (?detail=...) is left alone so nothing becomes unreachable.
-      { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "results" }], missing: [{ type: "query", key: "detail" }], destination: "/studies/:studyId/runs", permanent: false }
+      // The Results list moved to /runs.
+      // The template catalog pages were removed.
+      { source: "/templates/:path*", destination: "/studies", permanent: false },
+      { source: "/studies/:studyId", has: [{ type: "query", key: "section", value: "results" }], destination: "/studies/:studyId/runs", permanent: false }
     ];
   },
   turbopack: {

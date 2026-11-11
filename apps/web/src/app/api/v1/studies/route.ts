@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     include: {
       organization: true,
       ethics: { orderBy: { createdAt: "desc" }, take: 1 },
-      _count: { select: { members: true, documents: true, agentRuns: true, releases: true, sites: true } }
+      _count: { select: { members: true, documents: true, sites: true } }
     },
     orderBy: { updatedAt: "desc" }
   });

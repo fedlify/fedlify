@@ -252,7 +252,6 @@ export default function ManageStudiesPage() {
             <div className="fedlify-intake-shell">
               <IntakeSteps
                 steps={[
-                  { title: "Method", description: "Manual entry", state: "complete" },
                   { title: "Definition", description: "Study details", state: "current" },
                   { title: "Governance", description: "Confirm boundary" }
                 ]}
@@ -463,7 +462,6 @@ export default function ManageStudiesPage() {
                       <span>{study.organization?.name}</span>
                       <span>Ethics: {displayEnum(study.ethics?.[0]?.status, "Pending")}</span>
                       <span>{study._count?.sites ?? 0} sites</span>
-                      <span>{study._count?.releases ?? 0} releases</span>
                     </div>
                   </article>
                 ))}

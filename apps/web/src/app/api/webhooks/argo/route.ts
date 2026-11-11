@@ -8,28 +8,12 @@ import { prisma } from "@/lib/prisma";
 import { readablePublishSummary } from "@/lib/workflow-health";
 
 const argoPayloadSchema = z.object({
-  agentRunId: z.string().optional(),
-  computeRunId: z.string().optional(),
   pipelineVersionId: z.string().optional(),
   ciRunId: z.string().optional(),
   workflowId: z.string(),
   phase: z.enum(["Pending", "Running", "Succeeded", "Failed", "Error"]),
   logsStorageKey: z.string().optional(),
-  validationSummary: z.string().optional(),
-  artifacts: z
-    .array(
-      z.object({
-        releaseId: z.string().optional(),
-        kind: z.enum(["SERVER_KIT", "SITE_KIT", "ADMIN_KIT", "HELM_CHART", "SOURCE_BUNDLE", "CHECKSUM_MANIFEST", "SIGNATURE", "LOG_BUNDLE"]),
-        siteId: z.string().optional(),
-        filename: z.string(),
-        contentType: z.string(),
-        storageKey: z.string(),
-        checksum: z.string(),
-        sizeBytes: z.number().int().min(0)
-      })
-    )
-    .optional()
+  validationSummary: z.string().optional()
 });
 
 // Callbacks from deploy/k8s/publish-workflow-template.yaml.
@@ -107,13 +91,6 @@ async function handleStudyPublish(rawPayload: z.infer<typeof studyPublishSchema>
   return json({ ok: true });
 }
 
-function agentStatusForPhase(phase: string) {
-  if (phase === "Running") return "RUNNING";
-  if (phase === "Succeeded") return "VALIDATED";
-  if (phase === "Failed" || phase === "Error") return "FAILED";
-  return "QUEUED";
-}
-
 function ciStatusForPhase(phase: string) {
   if (phase === "Running") return "RUNNING";
   if (phase === "Succeeded") return "PASSED";
@@ -148,43 +125,6 @@ export async function POST(request: NextRequest) {
 
   let studyId: string | null = null;
   let orgId: string | null = null;
-
-  if (parsed.data.agentRunId) {
-    const updated = await prisma.agentRun.update({
-      where: { id: parsed.data.agentRunId },
-      data: {
-        workflowId: parsed.data.workflowId,
-        status: agentStatusForPhase(parsed.data.phase),
-        logsStorageKey: parsed.data.logsStorageKey,
-        validationSummary: parsed.data.validationSummary
-      },
-      include: { study: true }
-    });
-    studyId = updated.studyId;
-    orgId = updated.study.orgId;
-  }
-
-  if (parsed.data.computeRunId) {
-    const status =
-      parsed.data.phase === "Succeeded"
-        ? "SUCCEEDED"
-        : parsed.data.phase === "Failed" || parsed.data.phase === "Error"
-          ? "FAILED"
-          : parsed.data.phase === "Running"
-            ? "RUNNING"
-            : "QUEUED";
-    const updated = await prisma.computeRun.update({
-      where: { id: parsed.data.computeRunId },
-      data: {
-        workflowId: parsed.data.workflowId,
-        status,
-        completedAt: status === "SUCCEEDED" || status === "FAILED" ? new Date() : null
-      },
-      include: { study: true }
-    });
-    studyId = updated.studyId;
-    orgId = updated.study.orgId;
-  }
 
   if (parsed.data.ciRunId || parsed.data.pipelineVersionId) {
     const status = ciStatusForPhase(parsed.data.phase);
@@ -222,24 +162,6 @@ export async function POST(request: NextRequest) {
       });
       studyId = pipelineVersion.project.studyId;
       orgId = pipelineVersion.project.study.orgId;
-    }
-  }
-
-  if (parsed.data.artifacts?.length) {
-    for (const artifact of parsed.data.artifacts) {
-      if (!artifact.releaseId) continue;
-      await prisma.kitArtifact.create({
-        data: {
-          releaseId: artifact.releaseId,
-          kind: artifact.kind,
-          siteId: artifact.siteId,
-          filename: artifact.filename,
-          contentType: artifact.contentType,
-          storageKey: artifact.storageKey,
-          checksum: artifact.checksum,
-          sizeBytes: BigInt(artifact.sizeBytes)
-        }
-      });
     }
   }
 

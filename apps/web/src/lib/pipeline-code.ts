@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { PipelineTemplate, Study, StudySite } from "@prisma/client";
 import { nvflarePython, openAiCodeAgentConfig, runtimeRoot } from "@/lib/runtime-config";
-import { generateExecutorCode } from "@/lib/template-agent";
+import { generateExecutorCode } from "@/lib/executor-code";
 import { isProhibitedDataPath } from "@/lib/data-paths";
 import { slugify } from "@/lib/slug";
 
