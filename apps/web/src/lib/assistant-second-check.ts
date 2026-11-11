@@ -44,7 +44,7 @@ function updateStatus(kind: "plan" | "proposal", id: string, expected: string | 
 function buildProposalForChecker(subject: Subject) {
   if (subject.kind === "plan") {
     const steps = Array.isArray(subject.row.steps) ? (subject.row.steps as PlanStep[]) : [];
-    const claims = steps.slice(0, 50).map((step) => ({ statement: `${step.action} ${step.paths.join(", ")}: ${step.title}. ${step.rationale}`.slice(0, 1500), evidenceIds: [] as string[] }));
+    const claims = steps.slice(0, 50).map((step) => ({ statement: `${step.action} ${step.paths.join(", ")}: ${step.title}. ${step.rationale}`.slice(0, 1500), evidenceIds: [REQUEST_EVIDENCE] }));
     return {
       disposition: "PROPOSE" as const,
       summary: subject.row.summary.slice(0, 4000),
@@ -64,11 +64,37 @@ function buildProposalForChecker(subject: Subject) {
   return {
     disposition: "PROPOSE" as const,
     summary: `${subject.row.title ?? "Proposed change"}. ${subject.row.rationale ?? ""}`.slice(0, 4000),
-    claims: files.slice(0, 100).map((file) => ({ statement: `${file.action} ${file.path} (+${file.added} -${file.removed})`, evidenceIds: [] as string[] })),
+    claims: files.slice(0, 100).map((file) => ({ statement: `${file.action} ${file.path} (+${file.added} -${file.removed})`, evidenceIds: [fileEvidenceId(file.path), ...(subject.plan ? [PLAN_EVIDENCE] : [])] })),
     artifact: { kind: "code_change", files: shown, approvedPlan: subject.plan },
     unresolved: [] as string[],
     requestedActions: [] as string[]
   };
+}
+
+const REQUEST_EVIDENCE = "request";
+const PLAN_EVIDENCE = "approved-plan";
+const fileEvidenceId = (path: string) => `file:${path}`;
+const CHECKER_TASK =
+  "Judge only two things: does the proposal contradict the request, and does it go beyond what the request asks. " +
+  "The evidence items hold the request, the approved plan if there is one, and the full content of each changed file. " +
+  "A plan has no file contents yet; that is expected and is not missing evidence.";
+
+/**
+ * What the checker may rely on: the person's request, the approved plan, and each changed file. Without these the
+ * checker can only answer "insufficient evidence", whatever the proposal says.
+ */
+function buildEvidenceForChecker(subject: Subject): Array<{ id: string; contentHash: string; content: unknown }> {
+  const item = (id: string, content: unknown) => ({ id, contentHash: contentHash(content), content });
+  const evidence = [item(REQUEST_EVIDENCE, requestFor(subject))];
+  if (subject.kind === "plan") return evidence;
+  if (subject.plan) evidence.push(item(PLAN_EVIDENCE, subject.plan));
+  let budget = TOTAL_CONTENT_CAP;
+  for (const file of readStoredFiles(subject.row.files as Prisma.JsonValue).slice(0, 40)) {
+    const content = file.content === null ? null : file.content.slice(0, Math.min(FILE_CONTENT_CAP, Math.max(0, budget)));
+    budget -= content?.length ?? 0;
+    evidence.push(item(fileEvidenceId(file.path), { path: file.path, action: file.action, added: file.added, removed: file.removed, content }));
+  }
+  return evidence;
 }
 
 /** What the person asked for: the confirmed specification the checker compares against. */
@@ -76,17 +102,20 @@ function requestFor(subject: Subject): string {
   return (subject.kind === "plan" ? subject.request : subject.row.prompt).slice(0, 8000);
 }
 
-/** Maps the checker's answer to the status and findings stored on the row. Findings are advice; none of this blocks. */
+/**
+ * Maps the checker's answer to the status and findings stored on the row. Findings are advice; none of this blocks.
+ * Only a contradiction or going beyond the request is a concern that asks the person for a reason. Anything else the
+ * checker raises (for example "not enough evidence to judge") is kept as a note on a passed check.
+ */
 export function interpretVerification(output: { disposition: string; findings: Array<{ severity: string; message: string }> }): { status: "PASSED" | "CONCERNS"; findings: SecondCheckFinding[] } {
-  const kind = output.disposition === "CONTRADICTED" ? "contradiction" : output.disposition === "SCOPE_DRIFT" ? "beyond_request" : "other";
-  const raised = output.findings.filter((finding) => finding.severity !== "INFO").map((finding) => ({ kind: kind as SecondCheckFinding["kind"], text: finding.message }));
-  const concerning = output.disposition === "CONTRADICTED" || output.disposition === "SCOPE_DRIFT" || raised.length > 0;
-  if (!concerning) return { status: "PASSED", findings: [] };
-  const findings = capFindings(raised);
+  const concerning = output.disposition === "CONTRADICTED" || output.disposition === "SCOPE_DRIFT";
+  const kind: SecondCheckFinding["kind"] = output.disposition === "CONTRADICTED" ? "contradiction" : output.disposition === "SCOPE_DRIFT" ? "beyond_request" : "other";
+  const findings = capFindings(output.findings.filter((finding) => finding.severity !== "INFO").map((finding) => ({ kind, text: finding.message })));
+  if (!concerning) return { status: "PASSED", findings };
   if (findings.length === 0) {
     findings.push({
       kind,
-      text: output.disposition === "CONTRADICTED" ? "The check reported a contradiction with the request but gave no detail." : output.disposition === "SCOPE_DRIFT" ? "The check reported that this goes beyond what was asked but gave no detail." : "The check reported a concern but gave no detail."
+      text: output.disposition === "CONTRADICTED" ? "The check reported a contradiction with the request but gave no detail." : "The check reported that this goes beyond the request but gave no detail."
     });
   }
   return { status: "CONCERNS", findings };
@@ -150,11 +179,12 @@ export async function runSecondCheck(input: { studyId: string; userId: string; s
     runId = run.id;
     const spec = contractSpec("assistant.verify.v1");
     const contract = await ensureContract(studyId, userId, "assistant.verify.v1");
-    const specification = { request: requestFor(subject), subject: subject.kind };
+    const specification = { request: requestFor(subject), subject: subject.kind, task: CHECKER_TASK };
+    const evidence = buildEvidenceForChecker(subject);
     const inputHash = contentHash(specification);
     // The orchestrator checks the signature over exactly this payload. The work item is not stored: the second check
     // is advice and moves no state, so a signed one-shot contract is all the checker needs.
-    const signedPayload = buildWorkItemSignedPayload({ studyId, requestedById: userId, contract, purpose: spec.purpose, inputHash, evidenceIds: [], allowedTools: [], tokenBudget: spec.tokenBudget, timeBudgetSeconds: spec.timeBudgetSeconds, expiresAt: null });
+    const signedPayload = buildWorkItemSignedPayload({ studyId, requestedById: userId, contract, purpose: spec.purpose, inputHash, evidenceIds: evidence.map((entry) => entry.id), allowedTools: [], tokenBudget: spec.tokenBudget, timeBudgetSeconds: spec.timeBudgetSeconds, expiresAt: null });
     const signature = signControlPayload(signedPayload);
     const response = await verifyThroughOrchestrator(
       {
@@ -166,7 +196,7 @@ export async function runSecondCheck(input: { studyId: string; userId: string; s
           purpose: spec.purpose,
           input: specification,
           inputHash,
-          evidence: [],
+          evidence,
           allowedTools: [],
           tokenBudget: spec.tokenBudget,
           timeBudgetSeconds: spec.timeBudgetSeconds,

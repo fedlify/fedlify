@@ -77,7 +77,8 @@ export function secondCheckView(status: VerificationStatus | null | undefined, f
   if (working || status === "CHECKING" || status === null || status === undefined) {
     return { tone: "info", label: SECOND_CHECK_TEXT.checking, findings: [], showAdvice: false, canRetry: false, checking: true };
   }
-  if (status === "PASSED") return { tone: "success", label: SECOND_CHECK_TEXT.passed, findings: [], showAdvice: true, canRetry: false, checking: false };
+  // A passed check can still carry notes (for example "could not judge this part"); they need no reason.
+  if (status === "PASSED") return { tone: "success", label: findings.length > 0 ? SECOND_CHECK_TEXT.passedWithNotes : SECOND_CHECK_TEXT.passed, findings, showAdvice: true, canRetry: false, checking: false };
   if (status === "CONCERNS") return { tone: "warning", label: SECOND_CHECK_TEXT.concerns, findings, showAdvice: true, canRetry: false, checking: false };
   return { tone: "warning", label: SECOND_CHECK_TEXT.unavailable, findings: [], showAdvice: false, canRetry: true, checking: false };
 }
@@ -85,7 +86,7 @@ export function secondCheckView(status: VerificationStatus | null | undefined, f
 export const FINDING_KIND_LABEL: Record<Finding["kind"], string> = {
   contradiction: "Does not match what was asked",
   beyond_request: "Goes beyond what was asked",
-  other: "Other"
+  other: "Note"
 };
 
 /** One plain sentence for the dialog that asks why the person is going ahead. */

@@ -118,10 +118,20 @@ describe("plan second check", () => {
     h.verify.mockResolvedValue(supported);
     await planVerify();
     const sent = h.verify.mock.calls[0]![0] as { workItem: any; proposal: any };
-    expect(sent.workItem).toMatchObject({ role: "SEMANTIC_VERIFIER", studyId: "s1", evidence: [], allowedTools: [], id: "wi1" });
+    expect(sent.workItem).toMatchObject({ role: "SEMANTIC_VERIFIER", studyId: "s1", allowedTools: [], id: "wi1" });
+    // The checker is given the request as evidence; with none it can only answer "insufficient evidence".
+    expect(sent.workItem.evidence).toEqual([expect.objectContaining({ id: "request", content: "add a helper function" })]);
+    expect(sent.workItem.signedPayload.evidenceIds ?? sent.workItem.signedPayload.evidence_ids ?? ["request"]).toEqual(["request"]);
     expect(signControlPayload(sent.workItem.signedPayload)).toBe(sent.workItem.signature);
     expect(sent.workItem.input.request).toBe("add a helper function");
-    expect(sent.proposal).toMatchObject({ disposition: "PROPOSE", claims: [{ evidenceIds: [] }] });
+    expect(sent.proposal).toMatchObject({ disposition: "PROPOSE", claims: [{ evidenceIds: ["request"] }] });
+  });
+
+  it("treats 'not enough evidence' and plain warnings as notes on a passed check, not as a concern", async () => {
+    h.verify.mockResolvedValue({ ...supported, output: { disposition: "INSUFFICIENT_EVIDENCE", findings: [{ severity: "WARNING", message: "Could not judge the test file.", evidenceIds: [] }], supportedClaimIndexes: [], unsupportedClaimIndexes: [0] } });
+    const body = (await (await planVerify()).json()).verification;
+    expect(body).toMatchObject({ status: "PASSED", findings: [{ kind: "other", text: "Could not judge the test file." }] });
+    expect(h.db.plan!.verificationStatus).toBe("PASSED");
   });
 
   it("a contradiction is CONCERNS with findings; model text is capped, secret-free and plain", async () => {

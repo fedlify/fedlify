@@ -58,8 +58,9 @@ spec:
               value: "shadow"
             # Studies that enforce the control plane while the global mode is shadow: comma-separated study ids, or "*" for
             # all. Empty means none.
+            # Enforcement is per study. Listed: the "Enforcement test study" only.
             - name: ASSISTANT_CONTROL_ENFORCE_STUDIES
-              value: ""
+              value: "cmwbfgjmx000nvi01v72csq7q"
             - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
               value: fedlify-study-pipeline-ci
             - name: GITEA_BASE_URL

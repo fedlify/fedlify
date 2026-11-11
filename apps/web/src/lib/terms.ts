@@ -458,6 +458,7 @@ export function isWithheldNote(content: string): boolean {
 export const SECOND_CHECK_TEXT = {
   checking: "Checking…",
   passed: "Second check passed",
+  passedWithNotes: "Second check passed, with notes",
   concerns: "Second check found things to look at",
   unavailable: "Could not check: needs your decision",
   advice: "This is advice from an AI check. It can be wrong. You decide.",
