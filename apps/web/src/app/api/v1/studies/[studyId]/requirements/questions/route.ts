@@ -1,5 +1,6 @@
 /**
  * POST {}: the next open study questions (up to 4), as plain questions with 2 to 4 options where sensible.
+ * POST { requirementId: "R05" }: the same for that one open question (409 when it already has an answer).
  * Open means UNKNOWN, CONFLICT or no answer yet; disagreements come first. The shape is the one PlanQuestionsCard
  * already shows. Each question id is the requirement id (R05), so the screen saves the chosen option or the typed text
  * as the person's own answer with PATCH .../requirements.
@@ -15,7 +16,8 @@ import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { assistantModelConfig } from "@/lib/runtime-config";
-import { isPersonAnswer, nextOpenItems } from "@/lib/study-questions";
+import { REQUIREMENT_ORDER, type RequirementId } from "@/lib/requirements-catalog";
+import { isPersonAnswer, isRequirementId, nextOpenItems } from "@/lib/study-questions";
 import {
   buildQuestionsInput,
   callStructuredModel,
@@ -43,10 +45,18 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   if (!study) return problem(404, "Study not found.", "not_found");
 
   const rows = await loadQuestionRows(studyId);
-  const openIds = nextOpenItems(rows);
+  const allOpen = nextOpenItems(rows, REQUIREMENT_ORDER.length);
+  // { requirementId: "R05" } asks about that one question only (the question view's "Suggest answers to pick from").
+  const body = (await request.json().catch(() => null)) as { requirementId?: unknown } | null;
+  const wanted = typeof body?.requirementId === "string" ? body.requirementId : null;
+  if (wanted !== null && !isRequirementId(wanted)) return problem(400, "Unknown study question.", "invalid_requirement");
+  if (wanted !== null && !allOpen.includes(wanted as RequirementId)) {
+    return problem(409, "This question already has an answer. Edit the answer instead.", "not_open");
+  }
+  const openIds = wanted ? [wanted as RequirementId] : nextOpenItems(rows);
   if (openIds.length === 0) return json({ questions: [], source: "none", openCount: 0 });
 
-  const openCount = nextOpenItems(rows, 29).length;
+  const openCount = allOpen.length;
   const fallback = (reason?: string) => json({ questions: openIds.map(fallbackQuestion), source: "catalog", openCount, ...(reason ? { notice: reason } : {}) });
 
   const config = assistantModelConfig();

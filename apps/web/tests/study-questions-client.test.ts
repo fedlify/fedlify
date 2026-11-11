@@ -6,7 +6,10 @@ import {
   confirmState,
   confirmedLine,
   draftResultLine,
+  filterCounts,
   filterItems,
+  nextNeedingId,
+  questionsStage,
   groupByCategory,
   isDone,
   progressLine,
@@ -89,5 +92,29 @@ describe("study questions client helpers", () => {
     expect(confirmState({ total: 29, answered: 27, assumed: 2 }, true)).toEqual({ enabled: true, reason: null });
     expect(confirmState({ total: 29, answered: 29, assumed: 0 }, false).enabled).toBe(false);
     expect(confirmedLine("Dana Lee", "2026-11-14T10:00:00Z")).toMatch(/^Confirmed by Dana Lee on /);
+  });
+});
+
+describe("study questions navigation", () => {
+  const items = [item("R01", "ANSWERED"), item("R02", "MISSING"), item("R03", "SUGGESTED"), item("R04", "CONFLICT", "C2"), item("R05", "ASSUMED", "C2")];
+
+  it("filters suggestions to check and counts each filter", () => {
+    expect(filterItems(items, "check").map((i) => i.id)).toEqual(["R03"]);
+    expect(filterCounts(items)).toEqual({ all: 5, needs: 3, check: 1, answered: 2 });
+  });
+
+  it("goes to a disagreement first, then a suggestion, then an open question", () => {
+    expect(nextNeedingId(items)).toBe("R04");
+    const noConflict = items.map((i) => (i.id === "R04" ? item("R04", "ANSWERED", "C2") : i));
+    expect(nextNeedingId(noConflict)).toBe("R03");
+    expect(nextNeedingId(noConflict, "R03")).toBe("R02");
+    expect(nextNeedingId([item("R01", "ANSWERED")])).toBeNull();
+  });
+
+  it("names the part of the work that comes next", () => {
+    expect(questionsStage({ total: 29, answered: 0, assumed: 0, suggested: 0 }, false)).toBe("describe");
+    expect(questionsStage({ total: 29, answered: 3, assumed: 0, suggested: 4 }, false)).toBe("check");
+    expect(questionsStage({ total: 29, answered: 27, assumed: 2, suggested: 0 }, false)).toBe("confirm");
+    expect(questionsStage({ total: 29, answered: 29, assumed: 0, suggested: 0 }, true)).toBe("done");
   });
 });

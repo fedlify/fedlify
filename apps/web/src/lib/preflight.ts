@@ -103,7 +103,11 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
   const items: PreflightItem[] = [];
   const ethicsHref = `/studies/${studyId}?section=protocol&tab=ethics`;
   const questionsHref = `/studies/${studyId}?section=protocol&tab=requirements`;
+  // Each item opens the Code & run stage where it is fixed (?stage=), not just the page.
   const codeHref = `/studies/${studyId}/projects`;
+  const publishHref = `/studies/${studyId}/projects?stage=publish`;
+  const runHref = `/studies/${studyId}/projects?stage=run`;
+  const siteStageHref = `/studies/${studyId}/projects?stage=sites`;
   const sitesHref = `/studies/${studyId}?section=sites`;
 
   // Ethics
@@ -184,7 +188,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
         text: snapshot.publishInProgress ? "Wait for the current publish to finish" : "No other publish is in progress",
         ...(snapshot.publishInProgress ? { detail: "A publish is already in progress for this pipeline." } : {}),
         owner: "system",
-        fixHref: codeHref
+        fixHref: publishHref
       });
     }
     if (snapshot.runInProgress != null) {
@@ -194,7 +198,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
         text: snapshot.runInProgress ? "Wait for the current run to finish, or stop it" : "No run is in progress",
         ...(snapshot.runInProgress ? { detail: "Publishing restarts the study server, so it cannot happen during a run." } : {}),
         owner: "study",
-        fixHref: codeHref
+        fixHref: runHref
       });
     }
     // Shown only when it applies; there is no tick for a rule that does not touch this version.
@@ -227,7 +231,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
               : "The pipeline version has not passed its checks yet."
         }),
     owner: "study",
-    fixHref: codeHref
+    fixHref: publishHref
   });
 
   const server = snapshot.studyServer ?? { running: false, servesPipeline: false };
@@ -240,7 +244,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
       ? {}
       : { detail: server.running ? "The study server is running a different pipeline version. Publish this one first." : "The study server is not running. Publishing the pipeline starts it." }),
     owner: server.running ? "study" : "system",
-    fixHref: codeHref
+    fixHref: publishHref
   });
 
   if (snapshot.publishInProgress != null) {
@@ -250,7 +254,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
       text: snapshot.publishInProgress ? "Wait for the current publish to finish" : "No publish is in progress",
       ...(snapshot.publishInProgress ? { detail: "Publishing restarts the study server, so a run cannot start until it finishes." } : {}),
       owner: "system",
-      fixHref: codeHref
+      fixHref: publishHref
     });
   }
   if (snapshot.runInProgress != null) {
@@ -260,7 +264,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
       text: snapshot.runInProgress ? "Wait for the current run to finish, or stop it" : "No run is in progress",
       ...(snapshot.runInProgress ? { detail: "A run is already in progress on the study server." } : {}),
       owner: "study",
-      fixHref: codeHref
+      fixHref: runHref
     });
   }
 
@@ -320,7 +324,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
       text: "Check which sites are connected",
       detail: "The study server could not be reached just now. Try again in a minute.",
       owner: "system",
-      fixHref: codeHref
+      fixHref: siteStageHref
     });
   } else if (snapshot.sites.length > 0 && snapshot.sites.every((site) => site.connected != null)) {
     const connected = snapshot.sites.filter((site) => site.connected).length;
@@ -332,7 +336,7 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
       text: enough ? "Enough sites are connected" : "Connect more sites",
       detail: `${connected} of ${snapshot.sites.length} ${snapshot.sites.length === 1 ? "site" : "sites"} ${connected === 1 ? "is" : "are"} connected${enough ? "" : `; at least ${needed} ${needed === 1 ? "is" : "are"} needed`}.`,
       owner: "site",
-      fixHref: codeHref
+      fixHref: siteStageHref
     });
   }
 

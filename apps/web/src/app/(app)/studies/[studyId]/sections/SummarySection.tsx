@@ -9,22 +9,7 @@ import { InlineLoadError } from "@/components/LoadStates";
 import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { PreflightChecklist } from "@/components/PreflightChecklist";
 import { toneIcon } from "@/components/PipelineRail";
-import { visibleBlockers, type Step, type StepKey, type StepsResult } from "@/lib/next-step";
-
-/** Where "Open" goes for a step when it has no action of its own (done steps, or a person without permission). */
-function stepOpenHref(studyId: string, key: StepKey) {
-  switch (key) {
-    case "authorize":
-    case "prepare":
-      return `/studies/${studyId}?section=protocol`;
-    case "deploy":
-      return `/studies/${studyId}?section=sites`;
-    case "validate":
-      return `/studies/${studyId}/runs`;
-    default:
-      return `/studies/${studyId}/projects`;
-  }
-}
+import { visibleBlockers, type Step, type StepsResult } from "@/lib/next-step";
 
 function Blockers({ step }: { step: Step }) {
   const failing = visibleBlockers(step);
@@ -151,7 +136,7 @@ export function SummarySection({ studyId }: { studyId: string }) {
                   </span>
                 </div>
                 <div className="fedlify-ws-stage-action">
-                  <Link href={step.action?.href ?? stepOpenHref(studyId, step.key)} aria-label={`Open ${step.title}`}>Open</Link>
+                  <Link href={step.href} aria-label={`Open ${step.title}`}>Open</Link>
                 </div>
               </div>
             ))}

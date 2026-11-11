@@ -356,6 +356,18 @@ describe("POST requirements/questions", () => {
     expect(await (await call(questionsPost, {})).json()).toMatchObject({ questions: [], source: "none" });
   });
 
+  it("asks about one open question when the screen names it, and refuses one that is answered", async () => {
+    delete process.env.OPENAI_API_KEY;
+    h.rows = [person("R01", "Done")];
+    const one = await (await call(questionsPost, { requirementId: "R09" })).json();
+    expect(one.questions.map((q: Row) => q.id)).toEqual(["R09"]);
+    expect(one.openCount).toBe(28);
+    const answered = await call(questionsPost, { requirementId: "R01" });
+    expect(answered.status).toBe(409);
+    expect((await answered.json()).error.code).toBe("not_open");
+    expect((await call(questionsPost, { requirementId: "R99" })).status).toBe(400);
+  });
+
   it("falls back, with a notice, when the model call fails", async () => {
     h.fetch.mockRejectedValue(new Error("down"));
     const body = await (await call(questionsPost, {})).json();

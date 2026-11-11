@@ -35,7 +35,9 @@ export function RunCodeView({ view, onSelect }: { view: CodeView; onSelect: (pat
         {view.commitUrl ? <a href={view.commitUrl} target="_blank" rel="noreferrer">Open repository</a> : null}
         <span>{view.parent ? `Compared with pipeline version ${view.parent.version}` : "No earlier version to compare with"}</span>
       </Space>
+      {/* On the Code tab the commit and digests are what the person came to see: shown open, in place. */}
       <Details
+        inline
         defaultOpen
         items={[
           { label: "Commit", value: <code style={mono}>{view.commit}</code>, copyText: view.commit },

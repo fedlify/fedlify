@@ -72,7 +72,9 @@ describe("resolveStudySteps", () => {
     const deploy = result.steps[3];
     expect(deploy.status).toBe("1 of 2 sites connected");
     expect(deploy.blockers.map((b) => b.code)).toEqual(expect.arrayContaining(["site_signed_off:ss-B", "site_connected:ss-B"]));
-    expect(deploy.action?.href).toBe("/sites/ss-B");
+    // "Open the sites" opens the Sites stage of Code & run; each site's own line in the checklist opens that site.
+    expect(deploy.action?.href).toBe("/studies/s1/projects?stage=sites");
+    expect(deploy.href).toBe("/studies/s1/projects?stage=sites");
     expect(result.steps[2].tone).toBe("ok");
   });
 
@@ -236,5 +238,23 @@ describe("resolveStudySteps follow-up fixes", () => {
     expect(open.every((b) => b.fixHref?.startsWith("/sites/"))).toBe(true);
     const noEthics = resolveStudySteps({ ...fresh(), ethics: null, questions: { answered: 3, total: 29 } }, {}).steps[1];
     expect(noEthics.blockers.every((b) => b.fixHref === undefined || b.owner !== "study")).toBe(true);
+  });
+
+  it("gives every step an Open link to the exact tab or stage it talks about", () => {
+    const snap = published({ sites: [site("A"), site("B", { connected: false })] });
+    const hrefs = Object.fromEntries(resolveStudySteps(snap, ALL).steps.map((s) => [s.key, s.href]));
+    expect(hrefs).toEqual({
+      authorize: "/studies/s1?section=protocol&tab=ethics",
+      prepare: "/studies/s1?section=protocol&tab=requirements",
+      approve: "/studies/s1/projects",
+      deploy: "/studies/s1/projects?stage=sites",
+      execute: "/studies/s1/projects?stage=run",
+      validate: "/studies/s1/runs"
+    });
+    // Without sites the Sites step opens the study's site list, where a site is added.
+    expect(resolveStudySteps(published({ sites: [] }), ALL).steps[3].href).toBe("/studies/s1?section=sites");
+    // An unpublished pipeline opens the Publish stage.
+    const unpublished = { ...fresh(), ethics: { status: "APPROVED" }, questions: { answered: 29, total: 29 }, hasProject: true };
+    expect(step(unpublished, "approve")).toMatchObject({ href: "/studies/s1/projects?stage=publish", action: { href: "/studies/s1/projects?stage=publish" } });
   });
 });

@@ -49,6 +49,22 @@ export async function ensureUserDefaults(prisma: PrismaClient, userId: string): 
       select: { id: true }
     });
 
+    // Someone who was invited (to a study or a site) works in that study: no empty study of their own, which would
+    // only sit in their study selector next to the real one. They can still create a study from Study management.
+    if (!existingDefaultStudy) {
+      const [membership, siteMembership, invitation] = await Promise.all([
+        tx.studyMember.findFirst({ where: { userId: user.id }, select: { id: true } }),
+        tx.siteMember.findFirst({ where: { userId: user.id }, select: { id: true } }),
+        user.email
+          ? tx.invitation.findFirst({
+              where: { email: { equals: user.email, mode: "insensitive" }, status: { in: ["PENDING", "ACCEPTED"] } },
+              select: { id: true }
+            })
+          : null
+      ]);
+      if (membership || siteMembership || invitation) return;
+    }
+
     if (existingDefaultStudy) {
       await tx.ethicsApproval.deleteMany({
         where: {

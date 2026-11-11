@@ -5,9 +5,9 @@
 import type { PlanQuestion } from "@/lib/agent-thread-types";
 import type { ChecklistItem, ChecklistStatus } from "@/lib/study-questions";
 
-export type QuestionFilter = "all" | "needs" | "answered";
+export type QuestionFilter = "all" | "needs" | "check" | "answered";
 
-export const FILTER_LABELS: Record<QuestionFilter, string> = { all: "All", needs: "Needs you", answered: "Answered" };
+export const FILTER_LABELS: Record<QuestionFilter, string> = { all: "All", needs: "Needs you", check: "To check", answered: "Answered" };
 
 /** Words for the status tag. `tag` is a StatusTag value that picks the colour. */
 export const QUESTION_STATUS_VIEW: Record<ChecklistStatus, { label: string; tag: string; hint: string }> = {
@@ -26,8 +26,43 @@ export function isDone(status: ChecklistStatus): boolean {
 
 export function filterItems<T extends Pick<ChecklistItem, "status">>(items: T[], filter: QuestionFilter): T[] {
   if (filter === "needs") return items.filter((item) => !isDone(item.status));
+  if (filter === "check") return items.filter((item) => item.status === "SUGGESTED");
   if (filter === "answered") return items.filter((item) => isDone(item.status));
   return items;
+}
+
+/** How many questions each filter shows, for the counts on the filter buttons. */
+export function filterCounts<T extends Pick<ChecklistItem, "status">>(items: T[]): Record<QuestionFilter, number> {
+  return {
+    all: items.length,
+    needs: filterItems(items, "needs").length,
+    check: filterItems(items, "check").length,
+    answered: filterItems(items, "answered").length
+  };
+}
+
+/**
+ * The next question that still needs the person, after `afterId` in the list order (wrapping round), or the first one.
+ * Disagreements come first, then suggestions to check, then the rest. Null when nothing needs them.
+ */
+export function nextNeedingId<T extends { id: string; status: ChecklistStatus }>(items: T[], afterId: string | null = null): string | null {
+  const start = afterId ? items.findIndex((item) => item.id === afterId) + 1 : 0;
+  const ordered = [...items.slice(start), ...items.slice(0, start)].filter((item) => item.id !== afterId);
+  const rank = (status: ChecklistStatus) => (status === "CONFLICT" ? 0 : status === "SUGGESTED" ? 1 : 2);
+  const open = ordered.filter((item) => !isDone(item.status));
+  if (open.length === 0) return null;
+  const best = Math.min(...open.map((item) => rank(item.status)));
+  return open.find((item) => rank(item.status) === best)!.id;
+}
+
+/** The three parts of the work, and which one is current: describe the study, check the answers, confirm. */
+export type QuestionsStage = "describe" | "check" | "confirm" | "done";
+export function questionsStage(counts: { total: number; answered: number; assumed: number; suggested: number }, confirmed: boolean): QuestionsStage {
+  const done = counts.answered + counts.assumed;
+  if (confirmed) return "done";
+  if (done >= counts.total) return "confirm";
+  if (done === 0 && counts.suggested === 0) return "describe";
+  return "check";
 }
 
 export function groupByCategory<T extends Pick<ChecklistItem, "category" | "categoryName">>(items: T[]): Array<{ category: string; name: string; items: T[] }> {

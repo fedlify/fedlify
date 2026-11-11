@@ -18,6 +18,32 @@ export type StudySummary = {
   };
 };
 
+/**
+ * A second line for studies whose titles are the same, so the selector never shows two identical rows: the
+ * workspace the study belongs to, then its status, then the start of its id. Null for a title nobody else uses.
+ */
+export function studyNameHints(studies: Array<Pick<StudySummary, "id" | "title" | "status" | "organization">>): Map<string, string | null> {
+  const key = (title: string) => title.trim().toLowerCase();
+  const byTitle = new Map<string, typeof studies>();
+  for (const study of studies) byTitle.set(key(study.title), [...(byTitle.get(key(study.title)) ?? []), study]);
+  const hints = new Map<string, string | null>();
+  for (const group of byTitle.values()) {
+    if (group.length === 1) {
+      hints.set(group[0].id, null);
+      continue;
+    }
+    const status = (study: (typeof group)[number]) => (study.status === "ACTIVE" ? "Active" : study.status === "DRAFT" ? "Draft" : study.status.charAt(0) + study.status.slice(1).toLowerCase());
+    const candidates = [
+      (study: (typeof group)[number]) => study.organization?.name ?? "",
+      (study: (typeof group)[number]) => [study.organization?.name, status(study)].filter(Boolean).join(" · "),
+      (study: (typeof group)[number]) => [study.organization?.name, status(study), study.id.slice(-6)].filter(Boolean).join(" · ")
+    ];
+    const pick = candidates.find((make) => new Set(group.map(make)).size === group.length && group.every((study) => make(study))) ?? candidates[2];
+    for (const study of group) hints.set(study.id, pick(study));
+  }
+  return hints;
+}
+
 export function isArchivedStudy(study: Pick<StudySummary, "status">): boolean {
   return study.status === "ARCHIVED";
 }

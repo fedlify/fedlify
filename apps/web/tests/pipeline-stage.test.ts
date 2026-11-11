@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeStages, type StageInput } from "@/lib/pipeline-stage";
+import { codeRunHref, parseStageParam } from "@/lib/pipeline-stage";
 
 const base: StageInput = {
   hasProject: true,
@@ -81,5 +82,16 @@ describe("computeStages source loading", () => {
     expect(err.tone).toBe("error");
     const empty = computeStages({ ...base, sourceCommit: null, sourceStatus: "ready" }).stages.find((s) => s.key === "publish")!;
     expect(empty.action?.disabledReason).toBe("There is no saved code to publish yet.");
+  });
+});
+
+describe("stage links", () => {
+  it("reads ?stage= and builds Code & run links", () => {
+    expect(parseStageParam("sites")).toBe("sites");
+    expect(parseStageParam("run")).toBe("run");
+    expect(parseStageParam("nonsense")).toBe("code");
+    expect(parseStageParam(null)).toBe("code");
+    expect(codeRunHref("s1")).toBe("/studies/s1/projects");
+    expect(codeRunHref("s1", "publish")).toBe("/studies/s1/projects?stage=publish");
   });
 });

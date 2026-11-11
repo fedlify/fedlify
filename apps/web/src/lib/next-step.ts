@@ -7,7 +7,7 @@
  * Client-safe: no prisma or other server-only imports (the loader is in next-step-data.ts).
  */
 import { ethicsExpired } from "@/lib/governance";
-import { computeStages, type StageInput } from "@/lib/pipeline-stage";
+import { codeRunHref, computeStages, type StageInput } from "@/lib/pipeline-stage";
 import { evaluatePreflight, PREFLIGHT_SITE_PREFIXES, type PreflightItem, type PreflightSite, type PreflightSnapshot } from "@/lib/preflight";
 import type { SiteImageState } from "@/lib/site-image";
 import type { StudyAction } from "@/lib/rbac";
@@ -29,6 +29,8 @@ export type Step = {
   blockers: PreflightItem[];
   /** What to do next. Absent when the step is done or the person may not do it. */
   action?: StepAction;
+  /** Where this step's "Open" link goes: the exact tab or stage the step describes. */
+  href: string;
 };
 
 export type StepsResult = { current: StepKey | null; steps: Step[] };
@@ -83,7 +85,10 @@ export function visibleBlockers(step: Step): PreflightItem[] {
 
 export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions): StepsResult {
   const { studyId, aggregator, sites, jobs, versions } = snapshot;
-  const projectsHref = `/studies/${studyId}/projects`;
+  const projectsHref = codeRunHref(studyId);
+  const publishHref = codeRunHref(studyId, "publish");
+  const siteStageHref = codeRunHref(studyId, "sites");
+  const runHref = codeRunHref(studyId, "run");
   const resultsHref = `/studies/${studyId}/runs`;
 
   const live = versions.find((version) => version.id === aggregator?.pipelineVersionId) ?? null;
@@ -142,8 +147,25 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
   // A person who can change nothing for the study team is not sent to the places where the team fixes things.
   const studyTeam = Boolean(can.manage || can.manageEthics || can.approvePipeline || can.manageSites || can.submitJob);
   const forPerson = (entry: PreflightItem): PreflightItem => (entry.owner === "study" && !studyTeam ? { ...entry, fixHref: undefined } : entry);
+  // Where each step's "Open" goes: the tab or stage the step talks about.
+  const stepHref = (key: StepKey, done: boolean): string => {
+    switch (key) {
+      case "authorize":
+        return `/studies/${studyId}?section=protocol&tab=ethics`;
+      case "prepare":
+        return `/studies/${studyId}?section=protocol&tab=requirements`;
+      case "approve":
+        return done || !snapshot.hasProject ? projectsHref : publishHref;
+      case "deploy":
+        return sites.length === 0 ? `/studies/${studyId}?section=sites` : siteStageHref;
+      case "execute":
+        return runHref;
+      case "validate":
+        return resultsHref;
+    }
+  };
   const push = (
-    step: Omit<Step, "blockers"> & {
+    step: Omit<Step, "blockers" | "href"> & {
       blockers?: PreflightItem[];
       ask?: string;
       act?: Omit<StepAction, "permission"> & { permission: StudyAction };
@@ -162,7 +184,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
         action = instead.action;
       } else if (ask) detail = ask;
     }
-    steps.push({ ...rest, detail, blockers: done ? [] : (blockers ?? []).map(forPerson), ...(action ? { action } : {}) });
+    steps.push({ ...rest, detail, href: stepHref(rest.key, done), blockers: done ? [] : (blockers ?? []).map(forPerson), ...(action ? { action } : {}) });
   };
 
   // 1. Authorize
@@ -219,7 +241,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
       tone: "error",
       detail: "The last publish did not finish. Publish again from the pipeline page.",
       blockers: approveBlockers,
-      act: { label: "Publish again", href: projectsHref, permission: "approvePipeline" },
+      act: { label: "Publish again", href: publishHref, permission: "approvePipeline" },
       ask: "Ask a study lead to publish the pipeline again."
     });
   } else {
@@ -230,7 +252,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
       tone: live ? "warn" : "idle",
       detail: "Review the code, then publish it so the sites can use it.",
       blockers: approveBlockers,
-      act: { label: "Review and publish", href: projectsHref, permission: "approvePipeline" },
+      act: { label: "Review and publish", href: publishHref, permission: "approvePipeline" },
       ask: "Ask a study lead to review and publish the pipeline."
     });
   }
@@ -254,7 +276,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
         tone: failed ? "error" : "warn",
         detail: failed ? "The study server did not start. Publish the pipeline again, or ask for help." : "The study server is not running. Publish the pipeline again to start it.",
         blockers: siteBlockers,
-        act: { label: "Publish again", href: projectsHref, permission: "approvePipeline" },
+        act: { label: "Publish again", href: publishHref, permission: "approvePipeline" },
         ask: failed ? "Ask a study lead to publish the pipeline again, or to ask for help." : "Ask a study lead to publish the pipeline again."
       });
     } else {
@@ -281,6 +303,8 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
   } else {
     const allConnected = connectedCount === sites.length;
     const firstOpen = deployBlockers.find((entry) => entry.fixHref?.startsWith("/sites/"));
+    // "Open the sites" opens the Sites stage of Code & run, which lists every site's runner and code version.
+    // A single site's page is linked from its own line in the checklist.
     const needing = new Set(deployBlockers.map((entry) => entry.code.split(":")[1]).filter(Boolean));
     const mine = snapshot.mySiteIds ?? [];
     const myHome = mine.find((id) => needing.has(id)) ?? mine[0];
@@ -295,7 +319,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
       tone: "warn",
       detail: firstOpen?.detail ?? siteStage.detail ?? (allConnected ? "Each site must sign off before a run." : "Each site installs the runner from its site kit."),
       blockers: deployBlockers,
-      act: { label: "Open the sites", href: firstOpen?.fixHref ?? projectsHref, permission: "manageSites" },
+      act: { label: "Open the sites", href: siteStageHref, permission: "manageSites" },
       ask: "Ask a study lead to follow up with the sites that are not ready.",
       instead: myHome ? { detail: "Open your site page to install the runner and sign off.", action: { label: "Open your site page", href: `/sites/${myHome}` } } : null
     });
@@ -317,7 +341,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
       tone: earlier > 0 ? "warn" : "error",
       detail: `${earlier > 0 ? `${plural(earlier, "earlier run", "earlier runs")} finished, but the latest one failed. ` : ""}${runReady ? "Open the run to see what happened, then start it again." : "Get the sites ready, then start the run again."}`,
       blockers: runBlockers,
-      ...(runReady ? { act: { label: "Start the run again", href: projectsHref, permission: "submitJob" as const } } : {}),
+      ...(runReady ? { act: { label: "Start the run again", href: runHref, permission: "submitJob" as const } } : {}),
       ask: "Ask a study lead to start the run again."
     });
   } else {
@@ -328,7 +352,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
       tone: "idle",
       detail: runReady ? "Everything is in place. Start the run when you are ready." : "A run can start once the study server is running and the sites are ready.",
       blockers: runBlockers,
-      ...(runReady ? { act: { label: "Start run", href: projectsHref, permission: "submitJob" as const } } : {}),
+      ...(runReady ? { act: { label: "Start run", href: runHref, permission: "submitJob" as const } } : {}),
       ask: "Ask a study lead to start the run."
     });
   }
@@ -368,7 +392,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
   const settled = ran
     ? steps.map((step) =>
         (step.key === "approve" || step.key === "deploy") && step.tone === "idle"
-          ? { ...step, status: "Done", tone: "ok" as const, detail: "A run has already finished.", blockers: [], action: undefined }
+          ? { ...step, status: "Done", tone: "ok" as const, detail: "A run has already finished.", blockers: [], action: undefined, href: step.key === "approve" ? projectsHref : step.href }
           : step
       )
     : steps;

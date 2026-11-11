@@ -11,7 +11,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/LoadStates";
 import { normalizeStudyWorkspaceSection, studySectionHref } from "@/lib/study-workspace";
-import { chooseSelectedStudy, SELECTED_STUDY_EVENT, SELECTED_STUDY_STORAGE_KEY, type StudySummary } from "@/lib/studies";
+import { chooseSelectedStudy, SELECTED_STUDY_EVENT, SELECTED_STUDY_STORAGE_KEY, studyNameHints, type StudySummary } from "@/lib/studies";
 
 type StudyQuickMenuProps = {
   disabled?: boolean;
@@ -63,6 +63,8 @@ export function StudyQuickMenu({ disabled }: StudyQuickMenuProps) {
   }, [pathname]);
 
   const selectedStudy = useMemo(() => chooseSelectedStudy(studies, selectedStudyId), [selectedStudyId, studies]);
+  // Studies with the same title get a second line (their workspace, then status) so they can be told apart.
+  const hints = useMemo(() => studyNameHints(studies), [studies]);
 
   function selectStudy(study: StudySummary) {
     setSelectedStudyId(study.id);
@@ -92,9 +94,12 @@ export function StudyQuickMenu({ disabled }: StudyQuickMenuProps) {
               className={`fedlify-study-menu-item${study.id === selectedStudy?.id ? " is-selected" : ""}`}
               onClick={() => selectStudy(study)}
             >
-              <Space>
+              <Space align="start">
                 <ExperimentOutlined />
-                <span>{study.title}</span>
+                <span className="fedlify-study-menu-name">
+                  <span>{study.title}</span>
+                  {hints.get(study.id) ? <span className="fedlify-study-menu-hint">{hints.get(study.id)}</span> : null}
+                </span>
               </Space>
               {study.id === selectedStudy?.id ? <CheckOutlined /> : null}
             </button>
@@ -128,7 +133,9 @@ export function StudyQuickMenu({ disabled }: StudyQuickMenuProps) {
       disabled={disabled}
     >
       <Button className="fedlify-study-switcher" icon={<ExperimentOutlined />}>
-        <span className="fedlify-study-switcher-title">{selectedStudy?.title ?? "Select study"}</span>
+        <span className="fedlify-study-switcher-title" title={selectedStudy && hints.get(selectedStudy.id) ? `${selectedStudy.title} (${hints.get(selectedStudy.id)})` : undefined}>
+          {selectedStudy?.title ?? "Select study"}
+        </span>
         <DownOutlined />
       </Button>
     </Dropdown>

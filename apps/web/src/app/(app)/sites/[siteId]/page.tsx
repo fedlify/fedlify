@@ -88,6 +88,8 @@ export default function SiteOnboardingPage() {
   const [dashboard, setDashboard] = useState<SiteDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** The server refused this site for this person: not an error to retry, a site that is not theirs. */
+  const [denied, setDenied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [enrollmentToken, setEnrollmentToken] = useState<string | null>(null);
@@ -110,11 +112,13 @@ export default function SiteOnboardingPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+    setDenied(false);
     try {
       const response = await fetch(`/api/v1/sites/${siteId}`, { cache: "no-store" });
       const body = await response.json().catch(() => null);
       if (response.status === 403 || response.status === 404) {
-        throw new Error("You do not have access to this site. Open My site from the menu to see the sites you can use.");
+        setDenied(true);
+        throw new Error("You do not have access to this site.");
       }
       if (!response.ok) throw new Error(body?.error?.message ?? "This site could not be loaded.");
       setDashboard(body);
@@ -355,6 +359,24 @@ export default function SiteOnboardingPage() {
     return (
       <AppPage>
         <CardGridSkeleton count={6} />
+      </AppPage>
+    );
+  }
+
+  if (denied && !dashboard) {
+    return (
+      <AppPage>
+        <EmptyState
+          title="This is not one of your sites"
+          description={
+            <Space direction="vertical" size={12} align="center">
+              <span>You can only open the sites you were invited to. If you followed a link from someone else, ask them to invite you to this site.</span>
+              <Button type="primary" onClick={() => router.push("/my-site")}>
+                Open my sites
+              </Button>
+            </Space>
+          }
+        />
       </AppPage>
     );
   }
@@ -632,10 +654,11 @@ export default function SiteOnboardingPage() {
                         <>
                           <Typography.Text>This site runs pipeline version {live.version}.</Typography.Text>
                           {bundleSource && can.downloadPipelineBundle ? (
-                            <Details
-                              title="Pipeline files"
-                              items={[{ label: "Download", value: <Button size="small" icon={<CloudDownloadOutlined />} onClick={bundleSource}>Download pipeline files</Button> }]}
-                            />
+                            <div>
+                              <Button size="small" icon={<CloudDownloadOutlined />} onClick={bundleSource}>
+                                Download pipeline files
+                              </Button>
+                            </div>
                           ) : null}
                         </>
                       ) : null}

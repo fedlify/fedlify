@@ -6,6 +6,18 @@ import { statusLabel, TERMS } from "@/lib/terms";
  */
 
 export type StageKey = "code" | "publish" | "sites" | "run";
+
+const STAGE_KEYS: readonly StageKey[] = ["code", "publish", "sites", "run"];
+
+/** The stage named in a link (?stage=), or Code when it names none. */
+export function parseStageParam(value: string | null | undefined): StageKey {
+  return STAGE_KEYS.includes(value as StageKey) ? (value as StageKey) : "code";
+}
+
+/** The Code & run page opened at one stage. */
+export function codeRunHref(studyId: string, stage: StageKey = "code"): string {
+  return stage === "code" ? `/studies/${studyId}/projects` : `/studies/${studyId}/projects?stage=${stage}`;
+}
 export type StageTone = "idle" | "active" | "ok" | "warn" | "error";
 export type StageActionKey = "new_project" | "save" | "publish" | "release_kit" | "setup_run" | "start_run" | "save_model";
 

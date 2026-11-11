@@ -23,7 +23,7 @@ import { withThreadParam } from "@/lib/agent-thread-client";
 import { publishRefusalText } from "@/lib/assistant-control-client";
 import type { StartPath } from "@/lib/pipeline-start";
 import { PreflightChecklist, PreflightApiError, failingCount, postWithChecklist, thingsToFix, usePreflight } from "@/components/PreflightChecklist";
-import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
+import { computeStages, parseStageParam, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
 import { statusLabel, TERMS } from "@/lib/terms";
 import { useStudyPermissions } from "@/lib/use-permissions";
 import { ApiError, apiCall } from "@/lib/web-api";
@@ -136,7 +136,8 @@ export default function StudyProjectsPage() {
   const [progress, setProgress] = useState<{ jobId: string; nvflareStatus: string | null; rounds: RoundRow[] } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollGeneration = useRef(0);
-  const [activeStage, setActiveStage] = useState<StageKey>("code");
+  // A link can open a stage directly (?stage=publish|sites|run), for example from the Summary page.
+  const [activeStage, setActiveStage] = useState<StageKey>(() => parseStageParam(searchParams.get("stage")));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [repoPaths, setRepoPaths] = useState<string[]>([]);
   const [sourceStatus, setSourceStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -778,6 +779,7 @@ export default function StudyProjectsPage() {
             title: TERMS.details,
             render: (_, row) => (
               <Details
+                modalTitle={`Pipeline version ${row.version}`}
                 items={[
                   { label: "Commit", value: <code>{short(row.gitCommit, 8)}</code>, copyText: row.gitCommit ?? undefined },
                   { label: "Image digest", value: <code>{digestLabel(row.imageDigest)}</code>, copyText: row.imageDigest ?? undefined },
