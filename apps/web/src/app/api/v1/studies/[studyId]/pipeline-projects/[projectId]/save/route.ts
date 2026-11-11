@@ -14,6 +14,8 @@ import { json, problem } from "@/lib/json";
 import { isProhibitedDataPath } from "@/lib/pipeline-code";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { invalidateStalePlanApprovals } from "@/lib/assistant-artifacts";
+import { effectiveControlMode } from "@/lib/runtime-config";
 
 const MAX_FILE_BYTES = 512 * 1024;
 
@@ -110,6 +112,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       },
       request
     });
+  }
+
+  // Enforced studies only: approved plans written against the old head no longer stand behind their approval.
+  if (saved.changed > 0 && effectiveControlMode(studyId) === "enforce") {
+    await invalidateStalePlanApprovals({ studyId, projectId: project.id, head: saved.commitSha });
   }
 
   return json({ commitSha: saved.commitSha, changed: saved.changed, branch: project.defaultBranch });

@@ -1,3 +1,6 @@
+import type { ControlView } from "@/lib/agent-thread-types";
+import type { StopPayload } from "@/lib/terms";
+
 /** Browser-side calls for workspace assistant proposals. Every commit still needs an explicit human click. */
 
 /** Shown wherever a person reviews a proposal. The server-side scan is advisory, never a security boundary. */
@@ -30,9 +33,9 @@ export type ProposalSummary = {
   acceptedPaths?: string[] | null;
   createdAt: string;
   files: ProposalFileSummary[];
-};
+} & Partial<ControlView>;
 
-export type ProposalFailure = { ok: false; status: number; code: string; message: string; details: string[]; stale: boolean };
+export type ProposalFailure = { ok: false; status: number; code: string; message: string; details: string[]; stale: boolean; /** The control plane paused the assistant (code assistant_stopped). */ stop?: StopPayload; /** Whether the person's message was stored (as a withheld note) in the thread. */ userTurnStored?: boolean };
 export type ProposalResult<T> = ({ ok: true } & T) | ProposalFailure;
 
 function base(studyId: string, projectId: string) {
@@ -56,7 +59,8 @@ async function call<T>(url: string, init?: RequestInit, signal?: AbortSignal): P
         code,
         message: typeof body?.error?.message === "string" ? body.error.message : `Request failed (${response.status}).`,
         details: Array.isArray(body?.error?.details) ? body.error.details.filter((item: unknown): item is string => typeof item === "string") : [],
-        stale: code === "proposal_stale"
+        stale: code === "proposal_stale",
+        ...(code === "assistant_stopped" && body?.stop ? { stop: body.stop as StopPayload, userTurnStored: Boolean(body.userTurn) } : {})
       };
     }
     return { ok: true, ...(body as T) };
@@ -65,7 +69,7 @@ async function call<T>(url: string, init?: RequestInit, signal?: AbortSignal): P
   }
 }
 
-export const listProposals = (studyId: string, projectId: string) => call<{ proposals: ProposalSummary[] }>(base(studyId, projectId));
+export const listProposals = (studyId: string, projectId: string) => call<{ proposals: ProposalSummary[]; controlMode?: "enforce" }>(base(studyId, projectId));
 export const getProposal = (studyId: string, projectId: string, id: string) => call<{ proposal: ProposalSummary }>(`${base(studyId, projectId)}/${id}`);
 export const createProposal = (
   studyId: string,
@@ -73,8 +77,14 @@ export const createProposal = (
   body: { message: string; history: Array<{ role: "user" | "assistant"; content: string }>; filePath?: string; selection?: string; diagnostics?: boolean; threadId?: string; planId?: string },
   signal?: AbortSignal
 ) => call<{ proposal: ProposalSummary }>(base(studyId, projectId), { method: "POST", body: JSON.stringify(body) }, signal);
-export const acceptProposal = (studyId: string, projectId: string, id: string, paths?: string[]) =>
-  call<{ commitSha: string; changed: number }>(`${base(studyId, projectId)}/${id}/accept`, { method: "POST", body: JSON.stringify(paths ? { paths } : {}) });
+export const acceptProposal = (studyId: string, projectId: string, id: string, paths?: string[], proceedReason?: string) =>
+  call<{ commitSha: string; changed: number; approval?: { bindingId: string; selfApproved: boolean } | null; approvalWarning?: string }>(`${base(studyId, projectId)}/${id}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ ...(paths ? { paths } : {}), ...(proceedReason ? { proceedReason } : {}) })
+  });
+/** The AI second check for a proposal. Idempotent on the server; `retry` runs it again. */
+export const verifyProposal = (studyId: string, projectId: string, id: string, retry = false) =>
+  call<{ verification?: unknown }>(`${base(studyId, projectId)}/${id}/verify${retry ? "?retry=1" : ""}`, { method: "POST", body: "{}" });
 export const rejectProposal = (studyId: string, projectId: string, id: string) =>
   call<{ proposal: { id: string; status: ProposalStatus } }>(`${base(studyId, projectId)}/${id}/reject`, { method: "POST", body: "{}" });
 

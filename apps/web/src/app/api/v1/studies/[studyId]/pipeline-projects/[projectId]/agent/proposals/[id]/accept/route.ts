@@ -5,6 +5,11 @@
  * as one Gitea commit authored by the accepting user, with the agent named as co-author. A proposal written
  * against an older commit is marked STALE and answered with 409 so the client can offer to regenerate.
  * The assistant itself has no route that commits; this is the only one, and it needs a signed-in user with runAgent.
+ *
+ * Enforced studies only (ASSISTANT_CONTROL_ENFORCE_STUDIES): when the AI second check is CONCERNS, UNAVAILABLE or never
+ * ran, the body must carry proceedReason (10 to 500 characters) or the answer is 409 second_check_reason_required (checked
+ * before anything is claimed or committed). After the commit the decision and an approval binding to the exact
+ * proposal revision are recorded (selfApproved when the accepting person asked for the change). A person may accept their own change.
  */
 
 import { z } from "zod";
@@ -18,8 +23,12 @@ import { json, problem } from "@/lib/json";
 import { loadProjectRepo } from "@/lib/project-repo";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { bindAssistantApproval, ensureProposalArtifact, invalidateApprovalBinding, invalidateStalePlanApprovals, loadControlDecorations, secondCheckGate } from "@/lib/assistant-artifacts";
+import { effectiveControlMode } from "@/lib/runtime-config";
+import { contentHash } from "@/lib/control-plane";
+import { sha256 } from "@/lib/crypto";
 
-const acceptSchema = z.object({ paths: z.array(repoPathSchema).min(1).max(200).optional() });
+const acceptSchema = z.object({ paths: z.array(repoPathSchema).min(1).max(200).optional(), proceedReason: z.string().max(2000).optional() });
 
 type Params = { params: Promise<{ studyId: string; projectId: string; id: string }> };
 
@@ -81,6 +90,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   if (!row.baseCommit || row.baseCommit !== repo.commit) {
     await markStale(row.id);
+    await invalidateApprovalBinding({ studyId, approvalBindingId: row.approvalBindingId, reason: "The saved code moved on after this change was written.", source: { type: "Commit", id: repo.commit ?? "none", hash: repo.commit ?? "none" } });
     await refused("stale", { baseCommit: row.baseCommit, head: repo.commit });
     return problem(409, STALE_MESSAGE, "proposal_stale");
   }
@@ -100,6 +110,19 @@ export async function POST(request: NextRequest, { params }: Params) {
       { error: { code: "proposal_invalid", message: "These changes break a repository rule, so nothing was committed.", details: validation.errors.slice(0, 20) } },
       { status: 422 }
     );
+  }
+
+  // Enforced studies only: a clean second check lets the person through; anything else needs their reason, before anything is claimed.
+  const enforced = effectiveControlMode(studyId) === "enforce";
+  let proceedReason: string | null = null;
+  if (enforced) {
+    const gate = secondCheckGate(row.verificationStatus, parsed.data.proceedReason);
+    if (!gate.ok) {
+      const view = (await loadControlDecorations(studyId, [row]).catch(() => new Map())).get(row.id);
+      await refused("second_check_reason_required", { verificationStatus: row.verificationStatus ?? null });
+      return json({ error: { code: gate.code, message: gate.message, details: { verificationStatus: view?.verificationStatus ?? row.verificationStatus ?? null, findings: view?.findings ?? [] } } }, { status: 409 });
+    }
+    proceedReason = gate.reason;
   }
 
   // Claim the proposal so two accepts cannot commit it twice. It is released again if the commit fails.
@@ -154,7 +177,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     branch: project.defaultBranch,
     model: row.model,
     paths: validation.files.map((file) => file.path),
-    partial: validation.files.length < stored.length
+    partial: validation.files.length < stored.length,
+    // Enforced studies: the second-check result and the person's reason are kept here too, so a failed ledger write below loses neither.
+    ...(enforced
+      ? {
+          secondCheck: row.verificationStatus ?? "NOT_RUN",
+          selfApproved: authResult.userId === row.requestedById,
+          ...(proceedReason ? { proceedReason, proceedReasonSha: contentHash(proceedReason), proceedReasonChars: proceedReason.length } : {})
+        }
+      : {})
   };
   const recorded = await settle("record commit", () => prisma.agentProposal.update({ where: { id }, data: { acceptedCommit: saved.commitSha } }));
   const audited = await settle("audit", () =>
@@ -169,7 +200,43 @@ export async function POST(request: NextRequest, { params }: Params) {
       request
     }).then(() => true)
   );
-  if (recorded === null || audited === null) console.error(`agent accept: proposal ${row.id} committed ${saved.commitSha} but bookkeeping is incomplete (recorded=${recorded !== null}, audited=${audited !== null})`);
+  // Enforced studies only: the human decision and the approval binding, written after the commit like the rest of the bookkeeping.
+  const approval = enforced
+    ? await settle("approval binding", async () => {
+        const artifact = await ensureProposalArtifact(row, { studyId, userId: authResult.userId });
+        const planRow = row.planId ? await prisma.agentPlan.findUnique({ where: { id: row.planId }, select: { artifactRevisionId: true } }) : null;
+        const planArtifact = planRow?.artifactRevisionId ? await prisma.artifactRevision.findFirst({ where: { id: planRow.artifactRevisionId, studyId }, select: { id: true, contentHash: true } }) : null;
+        return bindAssistantApproval({
+          kind: "proposal",
+          studyId,
+          rowId: row.id,
+          artifact,
+          approverId: authResult.userId,
+          requesterId: row.requestedById,
+          verificationStatus: row.verificationStatus,
+          proceedReason,
+          commitSha: saved.commitSha,
+          planArtifact,
+          details: { partial: validation.files.length < stored.length, pathCount: validation.files.length },
+          // The binding is to the whole proposal revision; this says exactly which files (and which content) were accepted.
+          scope: { kind: "paths", items: validation.files.map((file) => file.path).sort(), hash: contentHash(validation.files.map((file) => ({ path: file.path, sha: file.content === null ? null : sha256(file.content) })).sort((a, b) => a.path.localeCompare(b.path))) }
+        });
+      })
+    : null;
+  // The saved code moved: approved plans written against the old head lose their approval.
+  if (enforced) await invalidateStalePlanApprovals({ studyId, projectId, head: saved.commitSha });
+  if (recorded === null || audited === null || (enforced && approval === null)) console.error(`agent accept: proposal ${row.id} committed ${saved.commitSha} but bookkeeping is incomplete (recorded=${recorded !== null}, audited=${audited !== null}, approval=${approval !== null})`);
 
-  return json({ commitSha: saved.commitSha, changed: saved.changed, branch: project.defaultBranch, proposal: { id: row.id, status: "ACCEPTED" } });
+  return json({
+    commitSha: saved.commitSha,
+    changed: saved.changed,
+    branch: project.defaultBranch,
+    proposal: { id: row.id, status: "ACCEPTED" },
+    ...(enforced
+      ? {
+          approval: approval ? { bindingId: approval.bindingId, selfApproved: approval.selfApproved } : null,
+          ...(approval ? {} : { approvalWarning: "The change was saved, but its approval record could not be written. Tell an administrator; your reason was kept in the audit log." })
+        }
+      : {})
+  });
 }

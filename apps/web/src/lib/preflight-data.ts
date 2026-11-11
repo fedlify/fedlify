@@ -5,6 +5,9 @@
 import { latestEthicsStatus, latestEthicsValidUntil, requirementsGate } from "@/lib/governance";
 import { getGiteaBranch } from "@/lib/gitea";
 import { prisma } from "@/lib/prisma";
+import { canAccessStudy } from "@/lib/rbac";
+import { effectiveControlMode } from "@/lib/runtime-config";
+import { evaluateSecondApprover } from "@/lib/publish-approval";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
 import { checkSiteImages } from "@/lib/site-image";
 import { isSitePresent } from "@/lib/site-presence";
@@ -161,7 +164,7 @@ export function runPreflightSnapshot(
 export async function loadPreflight(
   studyId: string,
   kind: PreflightKind,
-  options: { projectId?: string | null; studySiteIds?: string[]; pipelineVersionId?: string | null; minClients?: number | null; commit?: string | null } = {}
+  options: { projectId?: string | null; studySiteIds?: string[]; pipelineVersionId?: string | null; minClients?: number | null; commit?: string | null; /** The person who would publish. Enforced studies add the second-approver item for them. */ publisherId?: string | null } = {}
 ): Promise<PreflightResult> {
   if (kind === "run") {
     const ctx = await loadRunContext(studyId, { pipelineVersionId: options.pipelineVersionId, studySiteIds: options.studySiteIds });
@@ -192,6 +195,12 @@ export async function loadPreflight(
   const busy = validProject ? await loadPublishBusyState(studyId, validProject.id) : null;
   // A commit the caller names (the publish route accepts one) counts as saved code, as it does for the route.
   const saved = validProject ? (options.commit ? options.commit : await findSavedCommit(validProject)) : null;
+  // Enforced studies only: will the person publishing need a second approver? Left out for anyone who may not publish.
+  let secondApprover: PreflightSnapshot["secondApprover"] = null;
+  if (validProject && options.publisherId && effectiveControlMode(studyId) === "enforce" && (await canAccessStudy(options.publisherId, studyId, "approvePipeline"))) {
+    const check = await evaluateSecondApprover({ studyId, projectId: validProject.id, publisherId: options.publisherId });
+    secondApprover = { required: check.required, names: check.others.map((other) => other.name) };
+  }
   return evaluatePreflight("publish", {
     studyId,
     ethics: ethicsSnapshot(study?.ethics),
@@ -200,6 +209,7 @@ export async function loadPreflight(
     savedCode: saved !== "unchecked" && Boolean(saved),
     ...(saved === "unchecked" ? { savedCodeUnchecked: true } : {}),
     publishInProgress: busy?.publishInProgress ?? false,
-    runInProgress: busy?.runInProgress ?? false
+    runInProgress: busy?.runInProgress ?? false,
+    ...(secondApprover ? { secondApprover } : {})
   });
 }

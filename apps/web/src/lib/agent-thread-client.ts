@@ -5,6 +5,8 @@
  */
 import type { CommitDiff } from "@/lib/agent-timeline";
 import type { AssistantEvent } from "@/lib/assistant-stream";
+import { isWithheldNote, stopFromPayload } from "@/lib/assistant-control-client";
+import type { StopPayload } from "@/lib/terms";
 import {
   THREAD_ERROR_CODES,
   type AnswersBody,
@@ -93,6 +95,9 @@ export const submitAnswers = (studyId: string, projectId: string, threadId: stri
   call<Record<string, unknown>>(`${base(studyId, projectId)}/threads/${threadId}/answers`, { method: "POST", body: JSON.stringify(body) });
 export const decidePlan = (studyId: string, projectId: string, threadId: string, planId: string, body: PlanDecisionBody) =>
   call<Record<string, unknown>>(`${base(studyId, projectId)}/threads/${threadId}/plans/${planId}/decision`, { method: "POST", body: JSON.stringify(body) });
+/** The AI second check for a plan. Idempotent on the server; `retry` runs it again. */
+export const verifyPlan = (studyId: string, projectId: string, threadId: string, planId: string, retry = false) =>
+  call<{ verification?: unknown }>(`${base(studyId, projectId)}/threads/${threadId}/plans/${planId}/verify${retry ? "?retry=1" : ""}`, { method: "POST", body: "{}" });
 export const codeFromPlan = (studyId: string, projectId: string, threadId: string, planId: string, signal?: AbortSignal) =>
   call<Record<string, unknown>>(`${base(studyId, projectId)}/threads/${threadId}/plans/${planId}/code`, { method: "POST", body: "{}" }, signal);
 export const turnsUrl = (studyId: string, projectId: string, threadId: string) => `${base(studyId, projectId)}/threads/${threadId}/turns`;
@@ -140,6 +145,8 @@ export type ThreadView = {
   proposals: ThreadProposalDto[];
   phase: ThreadPhase;
   hasMore: boolean;
+  /** "enforce" when the study enforces the control plane; absent otherwise. */
+  controlMode?: "enforce";
 };
 
 export function toThreadView(body: Partial<ThreadDetailDto> & Partial<ThreadMetadataDto> & { thread: ThreadSummaryDto }): ThreadView {
@@ -155,7 +162,8 @@ export function toThreadView(body: Partial<ThreadDetailDto> & Partial<ThreadMeta
     plans: metadataOnly ? [] : body.plans ?? [],
     proposals: metadataOnly ? [] : body.proposals ?? [],
     phase: body.phase ?? "CHATTING",
-    hasMore: Boolean(body.hasMore)
+    hasMore: Boolean(body.hasMore),
+    ...(body.controlMode === "enforce" ? { controlMode: "enforce" as const } : {})
   };
 }
 
@@ -178,7 +186,8 @@ export function storedUserTurn(view: { turns: TurnDto[] } | null, text: string, 
 // ---------- chat items (hydration) ----------
 
 export type ChatItem =
-  | { type: "message"; key: string; role: "user" | "assistant"; content: string; status: TurnDto["status"]; isNotice: boolean; turnId: string }
+  | { type: "message"; key: string; role: "user" | "assistant"; content: string; status: TurnDto["status"]; isNotice: boolean; turnId: string; /** The message was withheld by the safety check; only a short note is stored. */ withheld?: true }
+  | { type: "stop"; key: string; turnId: string; stop: StopPayload }
   | { type: "questions"; key: string; turnId: string; payload: QuestionsPayload; answered: AnswersPayload | null }
   | { type: "plan"; key: string; planId: string; turnId: string }
   | { type: "proposal"; key: string; proposalId: string; turnId: string }
@@ -212,9 +221,18 @@ export function buildChatItems(turns: TurnDto[], plans: PlanDto[]): ChatItem[] {
     const role = turn.role === "USER" ? "user" : "assistant";
     switch (turn.kind) {
       case "MESSAGE":
-      case "NOTICE":
-        items.push({ type: "message", key: turn.id, role, content: turn.content, status: turn.status, isNotice: turn.kind === "NOTICE", turnId: turn.id });
+      case "NOTICE": {
+        const stop = turn.kind === "NOTICE" ? stopFromPayload(turn.payload) : null;
+        if (stop) {
+          items.push({ type: "stop", key: turn.id, turnId: turn.id, stop });
+          break;
+        }
+        items.push({
+          type: "message", key: turn.id, role, content: turn.content, status: turn.status, isNotice: turn.kind === "NOTICE", turnId: turn.id,
+          ...(role === "user" && isWithheldNote(turn.content) ? { withheld: true as const } : {})
+        });
         break;
+      }
       case "QUESTIONS":
         if (Array.isArray(payloadOf(turn).questions)) items.push({ type: "questions", key: turn.id, turnId: turn.id, payload: turn.payload as unknown as QuestionsPayload, answered: answers.get(turn.id) ?? null });
         break;
@@ -246,6 +264,8 @@ export function buildChatItems(turns: TurnDto[], plans: PlanDto[]): ChatItem[] {
 // ---------- streaming reducer ----------
 
 export type StreamState = {
+  /** Set when the control plane paused the assistant. */
+  stop?: StopPayload;
   content: string;
   status: "streaming" | "done" | "error" | "stopped";
   error?: string;
@@ -270,6 +290,8 @@ export function reduceStream(state: StreamState, event: AssistantEvent): StreamS
       return state.status === "streaming" ? { ...state, status: "done" } : state;
     case "turn":
       return { ...state, assistantTurnId: event.data.assistantTurnId, userTurnId: event.data.userTurnId };
+    case "stop":
+      return { ...state, stop: event.data.stop, content: state.content || event.data.stop.title, assistantTurnId: event.data.turnId, userTurnId: event.data.userTurnId ?? state.userTurnId, status: "done" };
     case "questions":
     case "plan":
       return { ...state, structured: true };

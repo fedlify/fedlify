@@ -3,7 +3,7 @@
  * Pure functions so the SSE handling can be unit tested without a browser.
  */
 
-import { THREAD_SSE_EVENTS, type PlanEventData, type QuestionsEventData, type TurnEventData } from "@/lib/agent-thread-types";
+import { THREAD_SSE_EVENTS, type PlanEventData, type QuestionsEventData, type StopEventData, type TurnEventData } from "@/lib/agent-thread-types";
 
 export type AssistantEvent =
   | { kind: "context"; hash: string; commit: string | null; truncated: string[]; answered: number; total: number }
@@ -14,6 +14,7 @@ export type AssistantEvent =
   | { kind: "turn"; data: TurnEventData }
   | { kind: "questions"; data: QuestionsEventData }
   | { kind: "plan"; data: PlanEventData }
+  | { kind: "stop"; data: StopEventData }
   | { kind: "ignore" };
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -70,6 +71,13 @@ export function interpretEvent(payload: unknown): AssistantEvent {
     case THREAD_SSE_EVENTS.plan: {
       const data = threadEventData(event);
       return data && asRecord(data.plan) ? { kind: "plan", data: data as unknown as PlanEventData } : { kind: "ignore" };
+    }
+    case THREAD_SSE_EVENTS.stop: {
+      const data = threadEventData(event);
+      const stop = asRecord(data?.stop);
+      return data && stop && typeof stop.code === "string" && typeof stop.title === "string"
+        ? { kind: "stop", data: data as unknown as StopEventData }
+        : { kind: "ignore" };
     }
     default:
       return { kind: "ignore" };

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
+import { ACCEPT_EXPLAIN, ProceedReasonModal } from "@/components/AssistantControlParts";
 import { AssistantPanel, type AskRequest, type ProposalActionResult, type ProposalSync } from "@/components/AssistantPanel";
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { CodeReviewPanel, type ProposalReviewState, type SourceFile } from "@/components/CodeReviewPanel";
@@ -18,6 +19,7 @@ import { StatusTag } from "@/components/StatusTag";
 import { StartPipeline, type CreatedPipeline } from "@/components/StartPipeline";
 import { acceptProposal, appliedPaths, getProposal, rejectProposal } from "@/lib/agent-proposal-client";
 import { withThreadParam } from "@/lib/agent-thread-client";
+import { publishRefusalText } from "@/lib/assistant-control-client";
 import type { StartPath } from "@/lib/pipeline-start";
 import { PreflightChecklist, PreflightApiError, failingCount, postWithChecklist, thingsToFix, usePreflight } from "@/components/PreflightChecklist";
 import { computeStages, type StageKey, type StageSummary } from "@/lib/pipeline-stage";
@@ -149,6 +151,8 @@ export default function StudyProjectsPage() {
   const [conflict, setConflict] = useState<{ file: SourceFile; content: string } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [review, setReview] = useState<ProposalReviewState | null>(null);
+  /** Set when the server wants a reason before saving a change the second check did not pass (enforced studies). */
+  const [reviewReason, setReviewReason] = useState<{ id: string; paths: string[]; note: string } | null>(null);
   const [proposalSync, setProposalSync] = useState<ProposalSync | null>(null);
   /** Open assistant chat, kept in the URL (?thread=) so a reload or a shared link returns to it. Read once; the panel restores the last chat otherwise. */
   const initialThreadId = useRef(searchParams.get("thread")).current;
@@ -387,21 +391,26 @@ export default function StudyProjectsPage() {
     setProposalSync({ id, status, commit, paths, nonce: syncCounter.current });
   }
 
-  async function decideProposalAccept(id: string, paths?: string[]): Promise<ProposalActionResult> {
+  async function decideProposalAccept(id: string, paths?: string[], proceedReason?: string): Promise<ProposalActionResult> {
     if (!projectId) return { ok: false, status: 0, code: "no_project", message: "No pipeline is open.", details: [], stale: false };
     if (dirtyPath) {
       const result: ProposalActionResult = { ok: false, status: 0, code: "unsaved_edit", message: `Save or discard your edit to ${dirtyPath} first; accepting reloads the files.`, details: [], stale: false };
       message.warning(result.message);
       return result;
     }
-    const result = await acceptProposal(studyId, projectId, id, paths);
+    const result = await acceptProposal(studyId, projectId, id, paths, proceedReason);
     if (result.ok) {
       message.success(`Saved ${result.changed} file(s). Nothing was published or run.`);
+      if (result.approvalWarning) message.warning(result.approvalWarning);
       announceProposal(id, "ACCEPTED", result.commitSha, paths ?? null);
       setReview(null);
       setReloadKey((key) => key + 1);
       void load();
       return { ok: true, commitSha: result.commitSha };
+    }
+    if (result.code === "second_check_reason_required") {
+      // The caller asks the person why they are going ahead and sends the request again; no error toast.
+      return result;
     }
     if (result.stale) {
       message.warning(result.message);
@@ -450,7 +459,8 @@ export default function StudyProjectsPage() {
     } catch (error) {
       if (error instanceof PreflightApiError && error.items.length) {
         publishCheck.showItems(error.items);
-        message.warning("Not published yet. Fix the items in the checklist first.");
+        // The two-person rule explains itself in plain words: say who else can publish instead of the generic line.
+        message.warning(publishRefusalText(error.code, error.message) ?? "Not published yet. Fix the items in the checklist first.", publishRefusalText(error.code, error.message) ? 8 : undefined);
       } else {
         message.error(error instanceof Error ? error.message : "Publish failed.");
         publishCheck.refresh();
@@ -1138,6 +1148,7 @@ export default function StudyProjectsPage() {
                     setReview((current) => (current ? { ...current, busy: true } : current));
                     void decideProposalAccept(id, paths).then((result) => {
                       if (!result.ok) setReview((current) => (current?.id === id ? { ...current, busy: false } : current));
+                      if (!result.ok && result.code === "second_check_reason_required") setReviewReason({ id, paths, note: result.message });
                     });
                   }}
                   onProposalReject={() => {
@@ -1223,7 +1234,24 @@ export default function StudyProjectsPage() {
           discards your edit.
         </Typography.Paragraph>
       </Modal>
-
+      <ProceedReasonModal
+        open={reviewReason !== null}
+        title="Save this change?"
+        explain={ACCEPT_EXPLAIN}
+        note={reviewReason?.note}
+        okText="Accept"
+        onCancel={() => setReviewReason(null)}
+        onConfirm={(reason) => {
+          const ask = reviewReason;
+          setReviewReason(null);
+          if (!ask) return;
+          setReview((current) => (current?.id === ask.id ? { ...current, busy: true } : current));
+          void decideProposalAccept(ask.id, ask.paths, reason).then((result) => {
+            if (!result.ok) setReview((current) => (current?.id === ask.id ? { ...current, busy: false } : current));
+            if (!result.ok && result.code === "second_check_reason_required") setReviewReason({ id: ask.id, paths: ask.paths, note: result.message });
+          });
+        }}
+      />
     </AppPage>
   );
 }

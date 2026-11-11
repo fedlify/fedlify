@@ -5,6 +5,7 @@
  * POST: create an empty thread. Needs read + runAgent. 404 threads_disabled when AGENT_THREADS_ENABLED is off.
  */
 
+import { effectiveControlMode } from "@/lib/runtime-config";
 import { z } from "zod";
 import type { NextRequest } from "next/server";
 import { requireUser } from "@/lib/api";
@@ -58,7 +59,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   const parsed = createSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return problem(400, parsed.error.issues[0]?.message ?? "Invalid thread request.");
 
-  const created = await createThread({ projectId, studyId, createdById: authResult.userId, firstMessage: parsed.data.message, mode: parsed.data.mode });
+  // Enforced studies: the title is never taken from the first message, because the safety check has not looked at it yet.
+  // The first stored message names the thread instead (appendTurn), which is the withheld note when the message was stopped.
+  const created = await createThread({ projectId, studyId, createdById: authResult.userId, firstMessage: effectiveControlMode(studyId) === "enforce" ? undefined : parsed.data.message, mode: parsed.data.mode });
   await auditThread({
     request,
     userId: authResult.userId,

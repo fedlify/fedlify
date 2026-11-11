@@ -56,6 +56,11 @@ export type PreflightSnapshot = {
   savedCodeUnchecked?: boolean;
   publishInProgress?: boolean | null;
   runInProgress?: boolean | null;
+  /**
+   * Enforced studies only. Whether the person publishing made changes in this version while another approver exists, and
+   * who else can publish. null/undefined = not checked (or not enforced), so the item is left out.
+   */
+  secondApprover?: { required: boolean; names: string[] } | null;
 
   // Run
   pipeline?: { exists: boolean; approved: boolean; checksPassed: boolean };
@@ -67,6 +72,12 @@ export type PreflightSnapshot = {
 };
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** "Dr. Lee", "Dr. Lee or Sam Park", "Dr. Lee, Sam Park or Ana Diaz". */
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "another approver";
+  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+}
 
 export const PREFLIGHT_SITE_PREFIXES = {
   signedOff: "site_signed_off:",
@@ -157,6 +168,16 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
         ...(snapshot.runInProgress ? { detail: "Publishing restarts the study server, so it cannot happen during a run." } : {}),
         owner: "study",
         fixHref: codeHref
+      });
+    }
+    // Shown only when it applies; there is no tick for a rule that does not touch this version.
+    if (snapshot.secondApprover?.required) {
+      items.push({
+        code: "second_approver",
+        ok: false,
+        text: "A second approver publishes this version",
+        detail: `You made changes in this version, so another approver has to publish it. ${joinNames(snapshot.secondApprover.names)} can publish it.`,
+        owner: "study"
       });
     }
     return { ok: items.every((item) => item.ok), items };

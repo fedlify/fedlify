@@ -39,7 +39,10 @@ import {
   type TurnMode
 } from "@/lib/agent-thread-types";
 import { sha256 } from "@/lib/crypto";
-import { openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
+import { randomUUID } from "node:crypto";
+import { guardAssistantTurn, openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
+import { invalidateApprovalBinding, recordPlanControl } from "@/lib/assistant-artifacts";
+import { storeStop, stopStream, type StoredStop } from "@/lib/assistant-stop";
 
 export const AGENT_PLAN_INVALID_ACTION = "pipeline_project.agent_plan_invalid";
 
@@ -121,6 +124,28 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
     if (!loaded.ok) return bail(loaded.response);
     const { repo, context } = loaded;
 
+    // Enforced studies only (a no-op otherwise): the safety check finishes BEFORE the message is stored or any model is called.
+    const gate = await guardAssistantTurn({
+      studyId,
+      projectId,
+      threadId: thread.id,
+      userId,
+      mode: "ask",
+      clientTurnId: input.clientTurnId ?? randomUUID(),
+      userText: input.message,
+      selection: input.selection?.text ?? null
+    });
+    if (gate.enforced && gate.blocked) {
+      try {
+        const stored = await storeStop({ gate, request, userId, orgId: repo.project.study.orgId, studyId, projectId, threadId: thread.id, userTurn: { clientTurnId: input.clientTurnId ?? null }, contextHash: context.hash, baseCommit: repo.commit });
+        release();
+        return stopStream(stored);
+      } catch (error) {
+        console.error("agent thread: could not store the stop notice", error instanceof Error ? error.message : "unknown error");
+        return bail(problem(503, gate.stop.why, "assistant_stopped"));
+      }
+    }
+
     let userTurn: Awaited<ReturnType<typeof appendTurn>>["turn"];
     let assistantTurn: Awaited<ReturnType<typeof appendTurn>>["turn"];
     try {
@@ -133,7 +158,10 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
         filePath: input.filePath ?? null,
         selection: input.selection ?? null
       });
-      if (appended.duplicate) return bail(json({ duplicate: true, turn: turnDto(appended.turn) }));
+      if (appended.duplicate) {
+        if (gate.enforced) void gate.handle.done("stopped");
+        return bail(json({ duplicate: true, turn: turnDto(appended.turn) }));
+      }
       userTurn = appended.turn;
       assistantTurn = (
         await appendTurn({
@@ -149,21 +177,26 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
       ).turn;
     } catch (error) {
       console.error("agent thread: could not store the turn", error instanceof Error ? error.message : "unknown error");
+      if (gate.enforced) void gate.handle.done("error");
       return bail(problem(500, "The message could not be saved, so the assistant was not called.", "persist_failed"));
     }
 
-    // Control plane, shadow only: evaluated and recorded beside the turn, never awaited here, never changes the reply.
-    const control = openAssistantTurn({
-      studyId,
-      projectId,
-      threadId: thread.id,
-      userId,
-      mode: "ask",
-      clientTurnId: input.clientTurnId ?? userTurn.id,
-      userText: input.message,
-      selection: input.selection?.text ?? null,
-      turnIds: [userTurn.id, assistantTurn.id]
-    });
+    // Shadow: evaluated and recorded beside the turn, never awaited here, never changes the reply.
+    // Enforced: the check already ran above; this only links the stored turns and finishes the work item.
+    if (gate.enforced) await gate.link([userTurn.id, assistantTurn.id]);
+    const control = gate.enforced
+      ? gate.handle
+      : openAssistantTurn({
+          studyId,
+          projectId,
+          threadId: thread.id,
+          userId,
+          mode: "ask",
+          clientTurnId: input.clientTurnId ?? userTurn.id,
+          userText: input.message,
+          selection: input.selection?.text ?? null,
+          turnIds: [userTurn.id, assistantTurn.id]
+        });
 
     let history: Awaited<ReturnType<typeof loadHistory>>;
     try {
@@ -333,17 +366,26 @@ export type PlanTurnInput = {
 };
 
 type PlanTurnResult = {
-  userTurn: TurnDto;
+  /** Null only when the turn was paused and the message was not stored. */
+  userTurn: TurnDto | null;
   assistantTurn: TurnDto;
   questions?: QuestionsEventData;
   plan?: PlanEventData;
   refused?: boolean;
+  /** Set when the control plane paused the turn (enforced studies only). */
+  stopped?: true;
+  stop?: StoredStop["stop"];
 };
 
 function planResponse(result: PlanTurnResult, wantsSse: boolean, status = 200): Response {
   if (!wantsSse) return json(result, { status });
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      if (!result.userTurn) {
+        controller.enqueue(sse({ type: "fedlify.done", turnId: result.assistantTurn.id }));
+        controller.close();
+        return;
+      }
       const turn: TurnEventData = {
         threadId: result.userTurn.threadId,
         userTurnId: result.userTurn.id,
@@ -403,6 +445,31 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
     const baseCommit = repo.commit;
     const orgId = repo.project.study.orgId;
 
+    // Enforced studies only (a no-op otherwise): the safety check finishes BEFORE anything is stored or any model is called.
+    const gate = await guardAssistantTurn({
+      studyId,
+      projectId,
+      threadId: thread.id,
+      userId,
+      mode: trigger.kind === "answers" ? "answers" : "plan",
+      clientTurnId: clientTurnId ?? randomUUID(),
+      userText: trigger.kind === "message" ? trigger.message : "",
+      selection: trigger.kind === "message" ? (trigger.selection?.text ?? null) : null,
+      answers: trigger.kind === "answers" ? trigger.answers : null
+    });
+    if (gate.enforced && gate.blocked) {
+      try {
+        // Answers are not stored as a turn, so the questions stay open and can be answered again.
+        const stored = await storeStop({ gate, request, userId, orgId, studyId, projectId, threadId: thread.id, userTurn: trigger.kind === "message" ? { clientTurnId } : null, contextHash: context.hash, baseCommit });
+        if (!input.wantsSse) return json({ userTurn: stored.userTurn, assistantTurn: stored.noticeTurn, stopped: true, stop: stored.stop } satisfies PlanTurnResult);
+        return stopStream(stored);
+      } catch (error) {
+        console.error("agent thread: could not store the stop notice", error instanceof Error ? error.message : "unknown error");
+        return problem(503, gate.stop.why, "assistant_stopped");
+      }
+    }
+    if (gate.enforced) control = gate.handle;
+
     // Store what the person sent before calling the model.
     let userTurn: Awaited<ReturnType<typeof appendTurn>>["turn"];
     try {
@@ -433,19 +500,22 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
     }
     if (thread.mode === "ask") await setThreadMode(thread.id, "plan").catch(() => undefined);
 
-    // Control plane, shadow only (see runAskTurn). The safety net in `finally` records "error" if no path below did.
-    control = openAssistantTurn({
-      studyId,
-      projectId,
-      threadId: thread.id,
-      userId,
-      mode: trigger.kind === "answers" ? "answers" : "plan",
-      clientTurnId: clientTurnId ?? userTurn.id,
-      userText: trigger.kind === "message" ? trigger.message : "",
-      selection: trigger.kind === "message" ? (trigger.selection?.text ?? null) : null,
-      answers: trigger.kind === "answers" ? trigger.answers : null,
-      turnIds: [userTurn.id]
-    });
+    // Shadow (see runAskTurn). The safety net in `finally` records "error" if no path below did.
+    if (gate.enforced) await gate.link([userTurn.id]);
+    else {
+      control = openAssistantTurn({
+        studyId,
+        projectId,
+        threadId: thread.id,
+        userId,
+        mode: trigger.kind === "answers" ? "answers" : "plan",
+        clientTurnId: clientTurnId ?? userTurn.id,
+        userText: trigger.kind === "message" ? trigger.message : "",
+        selection: trigger.kind === "message" ? (trigger.selection?.text ?? null) : null,
+        answers: trigger.kind === "answers" ? trigger.answers : null,
+        turnIds: [userTurn.id]
+      });
+    }
     const finishControl = (outcome: AssistantOutcome, assistantTurnId?: string) => void control.done(outcome, { model: config.model, turnIds: assistantTurnId ? [assistantTurnId] : [] });
 
     const state = questionState(await loadQaTurns(thread.id));
@@ -527,6 +597,15 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
       return planResponse({ userTurn: userDto, assistantTurn: turnDto(assistant.turn), refused: true }, input.wantsSse);
     }
 
+    // Enforced studies only: an approved plan that this one replaces no longer stands behind its approval.
+    let replaced: Array<{ id: string; approvalBindingId: string | null }> = [];
+    if (gate.enforced) {
+      try {
+        replaced = await prisma.agentPlan.findMany({ where: { threadId: thread.id, status: "APPROVED", approvalBindingId: { not: null } }, select: { id: true, approvalBindingId: true } });
+      } catch {
+        replaced = [];
+      }
+    }
     const plan = await createPlan({
       threadId: thread.id,
       summary: result.plan.summary || result.rationale.slice(0, 500) || "Plan",
@@ -546,6 +625,11 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
       return problem(500, "The plan could not be saved.", "persist_failed");
     }
     await linkTurn(assistant.turn.id, { planId: plan.id }).catch(() => undefined);
+    // Enforced studies only: the plan's artifact revision and its rule-based verification run.
+    if (gate.enforced) {
+      await recordPlanControl(plan, { studyId, userId, workItemId: gate.workItemId });
+      for (const old of replaced) await invalidateApprovalBinding({ studyId, approvalBindingId: old.approvalBindingId, reason: "A newer plan replaced the approved one.", source: { type: "AgentPlan", id: plan.id, hash: plan.id } });
+    }
     await audit({
       actorUserId: userId,
       orgId,

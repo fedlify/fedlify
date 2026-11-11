@@ -53,9 +53,13 @@ spec:
             - name: AGENT_THREADS_ENABLED
               value: "true"
             # Control plane over assistant turns: off | shadow | enforce. shadow evaluates and records every turn and never
-            # blocks; enforce behaves like shadow until the enforcement phase ships.
+            # blocks; enforce makes the control plane stop and gate for every study.
             - name: ASSISTANT_CONTROL_MODE
               value: "shadow"
+            # Studies that enforce the control plane while the global mode is shadow: comma-separated study ids, or "*" for
+            # all. Empty means none.
+            - name: ASSISTANT_CONTROL_ENFORCE_STUDIES
+              value: ""
             - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
               value: fedlify-study-pipeline-ci
             - name: GITEA_BASE_URL

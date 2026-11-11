@@ -273,6 +273,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "pipeline_project.agent_plan": "Assistant proposed a plan",
   "pipeline_project.agent_plan_approve": "Approved the assistant's plan",
   "pipeline_project.agent_plan_invalid": "Assistant plan could not be used",
+  "pipeline_project.agent_stopped": "The assistant was paused for a safety reason",
   "pipeline_project.agent_plan_questions": "Assistant asked questions",
   "pipeline_project.agent_plan_reject": "Rejected the assistant's plan",
   "pipeline_project.agent_plan_stale": "Assistant plan became out of date",
@@ -347,3 +348,118 @@ export function auditActionLabel(action?: string | null): string {
   const tail = parts.slice(-2).join(" ");
   return sentenceCase(tail);
 }
+
+// ---------- Assistant stops (control plane enforcement) ----------
+
+export type StopCode =
+  | "SENSITIVE_CONTENT"
+  | "RAW_CLINICAL_DATA"
+  | "ACTIVE_CONTENT"
+  | "PROMPT_INJECTION"
+  | "MODEL_UPDATE_ARTIFACT"
+  | "POLICY_REFUSED"
+  | "CHECK_UNAVAILABLE";
+
+/** What a paused assistant turn carries (AgentTurn.payload.stop). Plain text for people; `code` is the technical key. */
+export type StopPayload = {
+  code: StopCode;
+  title: string;
+  why: string;
+  whoDecides: string;
+  nextAction: string;
+  /** Every technical reason code that applied, for the Details section. */
+  codes?: string[];
+};
+
+type StopText = Omit<StopPayload, "code" | "codes"> & {
+  /** Short reason used in the note that replaces a withheld message. Empty when the message is not withheld. */
+  reason: string;
+};
+
+/** One plain-language text per reason a message is paused. Used by the server to build the stop and by screens to show it. */
+export const STOP_TEXT: Record<StopCode, StopText> = {
+  SENSITIVE_CONTENT: {
+    title: "The message looked like it held a secret",
+    why: "It looked like it contained a password, key or other secret. Secrets are not sent to the assistant and are not kept in the chat.",
+    whoDecides: "You decide. Study owners can help if you are unsure.",
+    nextAction: "Remove the secret and send the message again.",
+    reason: "a password, key or other secret"
+  },
+  RAW_CLINICAL_DATA: {
+    title: "The message looked like it held patient data",
+    why: "It looked like it contained rows of patient-level data. Patient data must stay at the sites and is never sent to the assistant.",
+    whoDecides: "You decide. Your site data steward can confirm what may be shared.",
+    nextAction: "Describe the data in words, or remove the rows, and send the message again.",
+    reason: "patient-level data"
+  },
+  ACTIVE_CONTENT: {
+    title: "The message held content that could run",
+    why: "It contained script or other content that can run on its own. The assistant only works with plain text.",
+    whoDecides: "You decide.",
+    nextAction: "Remove the script or paste the part you need as plain text, then send the message again.",
+    reason: "content that could run on its own"
+  },
+  PROMPT_INJECTION: {
+    title: "The message tried to change the assistant's rules",
+    why: "It looked like an instruction to ignore the assistant's safety rules.",
+    whoDecides: "You decide. A study owner can look at it if this was a mistake.",
+    nextAction: "Rephrase the request without instructions about the assistant's rules.",
+    reason: "an instruction to ignore the assistant's rules"
+  },
+  MODEL_UPDATE_ARTIFACT: {
+    title: "The message held model weights",
+    why: "It looked like it contained model weights or training updates. These are only shared through a model release.",
+    whoDecides: "A study owner decides what may be shared.",
+    nextAction: "Remove the weights and describe what you need in words.",
+    reason: "model weights or training updates"
+  },
+  POLICY_REFUSED: {
+    title: "The safety rules do not allow this",
+    why: "The safety rules for this study did not allow the assistant to handle this request.",
+    whoDecides: "A study owner decides.",
+    nextAction: "Ask a study owner to check the safety rules for this study.",
+    reason: ""
+  },
+  CHECK_UNAVAILABLE: {
+    title: "The safety check could not run",
+    why: "The safety check could not be completed, so nothing was sent to the assistant.",
+    whoDecides: "No decision is needed.",
+    nextAction: "Try again in a minute. If it keeps happening, tell a study owner.",
+    reason: ""
+  }
+};
+
+const STOP_CODE_ORDER: StopCode[] = ["SENSITIVE_CONTENT", "RAW_CLINICAL_DATA", "ACTIVE_CONTENT", "PROMPT_INJECTION", "MODEL_UPDATE_ARTIFACT", "POLICY_REFUSED", "CHECK_UNAVAILABLE"];
+
+function isStopCode(code: string): code is StopCode {
+  return (STOP_CODE_ORDER as string[]).includes(code);
+}
+
+/** Turn the reason codes of a stop into the payload shown to people. The most serious known code leads; unknown codes count as a policy stop. */
+export function stopPayloadFor(codes: string[]): StopPayload {
+  const known = STOP_CODE_ORDER.filter((code) => codes.includes(code));
+  const code: StopCode = known[0] ?? "POLICY_REFUSED";
+  const { reason: _reason, ...text } = STOP_TEXT[code];
+  return { code, ...text, codes: [...new Set(codes)] };
+}
+
+/** The short note stored in place of a withheld message. Never includes the message. */
+export function withheldNote(code: StopCode): string {
+  const reason = STOP_TEXT[code].reason;
+  return reason ? `[Message withheld: it looked like it contained ${reason}.]` : "[Message withheld.]";
+}
+
+/** True for the note stored in place of a withheld message. */
+export function isWithheldNote(content: string): boolean {
+  return content.startsWith("[Message withheld");
+}
+
+/** Plain words for the AI second check. */
+export const SECOND_CHECK_TEXT = {
+  checking: "Checking…",
+  passed: "Second check passed",
+  concerns: "Second check found things to look at",
+  unavailable: "Could not check: needs your decision",
+  advice: "This is advice from an AI check. It can be wrong. You decide.",
+  reasonPrompt: "Why are you going ahead?"
+} as const;

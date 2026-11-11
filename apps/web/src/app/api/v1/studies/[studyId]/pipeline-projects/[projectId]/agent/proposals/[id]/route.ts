@@ -7,6 +7,8 @@ import { GiteaApiError, isRuntimeConfigurationError, readGiteaFileAtRef } from "
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { attachBaseContent } from "@/lib/proposal-base";
+import { loadControlDecorations } from "@/lib/assistant-artifacts";
+import { effectiveControlMode } from "@/lib/runtime-config";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 
 type Params = { params: Promise<{ studyId: string; projectId: string; id: string }> };
@@ -36,7 +38,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
       if (!(error instanceof GiteaApiError) && !isRuntimeConfigurationError(error)) throw error;
     }
   }
-  const proposal = proposalDto(row, { withContent: true });
+  // Enforced studies only: the second check and the approval are added to the proposal.
+  const control = effectiveControlMode(studyId) === "enforce" ? (await loadControlDecorations(studyId, [row]).catch(() => new Map())).get(row.id) : undefined;
+  const proposal = { ...proposalDto(row, { withContent: true }), ...(control ?? {}) };
   // Once decided or stale, the saved code no longer matches the base, so the diff needs the content at the base commit.
   const baseCommit = row.baseCommit;
   if (row.status !== "PROPOSED" && baseCommit && project.giteaOwner && project.giteaRepo) {

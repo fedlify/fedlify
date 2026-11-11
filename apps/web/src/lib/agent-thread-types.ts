@@ -4,6 +4,8 @@
  * Audit metadata must never carry message text; AUDIT_ACTIONS lists the actions this feature writes.
  */
 
+import type { StopPayload } from "@/lib/terms";
+
 export const THREAD_MODES = ["ask", "plan", "agent"] as const;
 export type ThreadMode = (typeof THREAD_MODES)[number];
 /** Modes a single turn may be sent in. "agent" is a UI mode that runs plan, waits for approval, then code. */
@@ -75,7 +77,9 @@ export type PlanAssumption = { id: string; text: string; needsAck: boolean };
 export type PlanTurnPayload = { planId: string };
 export type PlanDecisionPayload = { planId: string; decision: PlanDecision; approvedStepIds?: string[] };
 export type ProposalTurnPayload = { proposalId: string };
-export type TurnPayload = QuestionsPayload | AnswersPayload | PlanTurnPayload | PlanDecisionPayload | ProposalTurnPayload | null;
+/** A NOTICE turn written when the control plane paused the assistant (enforced studies only). */
+export type StopTurnPayload = { stop: StopPayload };
+export type TurnPayload = QuestionsPayload | AnswersPayload | PlanTurnPayload | PlanDecisionPayload | ProposalTurnPayload | StopTurnPayload | null;
 
 export type PlanDecision = "approve" | "reject";
 
@@ -137,6 +141,16 @@ export type PlanDto = {
   decidedById: string | null;
   decidedAt: string | null;
   createdAt: string;
+} & Partial<ControlView>;
+
+/** Added to plans and proposals only when the study enforces the control plane. */
+export type ControlView = {
+  /** The AI second check: CHECKING | PASSED | CONCERNS | UNAVAILABLE, or null when it has not run. */
+  verificationStatus: "CHECKING" | "PASSED" | "CONCERNS" | "UNAVAILABLE" | null;
+  findings: { kind: "contradiction" | "beyond_request" | "other"; text: string }[];
+  /** The rule-based check that ran when the item was made. */
+  ruleCheck: "PASSED" | "FAILED" | null;
+  approval: { approvedById: string | null; approvedByName: string | null; selfApproved: boolean; valid: boolean; approvedAt: string | null } | null;
 };
 
 /** Proposal as shown in a thread: no file contents. */
@@ -154,7 +168,7 @@ export type ThreadProposalDto = {
   decidedAt: string | null;
   rejectedById: string | null;
   rejectedAt: string | null;
-};
+} & Partial<ControlView>;
 
 export type ThreadAccessLevel = "author" | "manager" | "auditor";
 
@@ -166,6 +180,8 @@ export type ThreadDetailDto = {
   proposals: ThreadProposalDto[];
   phase: ThreadPhase;
   hasMore: boolean;
+  /** "enforce" when the control plane is enforced for this study; absent otherwise. */
+  controlMode?: "enforce";
 };
 
 /** What the audit role gets: no turns, plans or text. */
@@ -182,7 +198,7 @@ export type SendTurnBody = {
   diagnostics?: boolean;
 };
 export type AnswersBody = { turnId: string; answers: Record<string, string | string[]>; skipped?: boolean };
-export type PlanDecisionBody = { decision: PlanDecision; approvedStepIds?: string[]; ackAssumptions?: string[] };
+export type PlanDecisionBody = { decision: PlanDecision; approvedStepIds?: string[]; ackAssumptions?: string[]; /** Why the person goes ahead when the second check found concerns or could not run. */ proceedReason?: string };
 
 // ---------- error codes ----------
 
@@ -199,12 +215,15 @@ export const THREAD_ERROR_CODES = {
 
 /** Existing events (assistant-stream.ts) stay; these are added. */
 export const THREAD_SSE_EVENTS = {
+  stop: "fedlify.stop",
   turn: "fedlify.turn",
   questions: "fedlify.questions",
   plan: "fedlify.plan"
 } as const;
 export type ThreadSseEventName = (typeof THREAD_SSE_EVENTS)[keyof typeof THREAD_SSE_EVENTS];
 
+/** The assistant was paused. `turnId` is the stored NOTICE turn; userTurnId is null when the message was not stored. */
+export type StopEventData = { threadId: string; turnId: string; seq: number; userTurnId: string | null; stop: StopPayload };
 export type TurnEventData = { threadId: string; userTurnId: string; userSeq: number; assistantTurnId: string; assistantSeq: number };
 export type QuestionsEventData = { threadId: string; turnId: string; seq: number; payload: QuestionsPayload };
 export type PlanEventData = { threadId: string; turnId: string; seq: number; plan: PlanDto };

@@ -23,7 +23,7 @@ import { prisma } from "@/lib/prisma";
 import { acquireSlot, rateLimit } from "@/lib/rate-limit";
 import { isSensitiveFilePath } from "@/lib/repo-checks";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { effectiveControlMode, openAiCodeAgentConfig } from "@/lib/runtime-config";
 import { openThreadRoute, writableThreadOrResponse } from "@/lib/agent-thread-route";
 import { runAskTurn } from "@/lib/agent-thread-runner";
 
@@ -103,6 +103,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       selection: body.selection ? { startLine: 0, endLine: 0, text: body.selection } : null,
       diagnostics: body.diagnostics
     });
+  }
+
+  // Enforced studies: this stateless route has no safety check or ledger record, so it is closed. Chats go through threads.
+  if (effectiveControlMode(studyId) === "enforce") {
+    return problem(409, "Please use a chat thread for this study. Start a new chat and ask again.", "thread_required");
   }
 
   // At most 2 live assistant streams per user in this process.

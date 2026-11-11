@@ -3,6 +3,11 @@
  *
  * Publish = freeze a saved commit as v<N>, build the study image, and bring the study aggregator up at
  * <slug>.fedlify.com:443 (Argo workflow fedlify-study-publish). Progress arrives on /api/webhooks/argo.
+ *
+ * Enforced studies only (ASSISTANT_CONTROL_ENFORCE_STUDIES): the publish is recorded as an ApprovalBinding by the
+ * publisher (approvalStatus is still written), and the two-person rule applies. If the publisher accepted an assistant
+ * change or saved by hand since the previous published version, and the study has two or more people who may publish,
+ * the answer is 409 second_approver_required naming who else can publish (see lib/publish-approval.ts).
  */
 
 import { z } from "zod";
@@ -19,6 +24,8 @@ import { ethicsSnapshot, loadPublishBusyState, loadQuestionProgress, publishSnap
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
+import { effectiveControlMode } from "@/lib/runtime-config";
+import { bindVersionApproval, evaluateSecondApprover, prepareVersionApproval, secondApproverMessage, type SecondApproverCheck } from "@/lib/publish-approval";
 import { clientKitPrefix, nvflareClientName, studyAdapterUrl, studyHostname, studyNamespace, studyRuntimeSlug } from "@/lib/study-runtime";
 
 class PublishBusyError extends Error {}
@@ -153,6 +160,17 @@ export async function POST(request: NextRequest, { params }: Params) {
     where: { projectId, gitCommit: { startsWith: commitSha } }
   });
   const versionTag = existingVersion?.gitTag ?? `v${project.versions.length + 1}`;
+
+  // Enforced studies only: the two-person rule, decided before anything is tagged or recorded.
+  const enforced = effectiveControlMode(studyId) === "enforce";
+  let secondApprover: SecondApproverCheck | null = null;
+  if (enforced) {
+    secondApprover = await evaluateSecondApprover({ studyId, projectId, publisherId: authResult.userId, excludeVersionId: existingVersion?.id ?? null });
+    if (secondApprover.required) {
+      const items = evaluatePreflight("publish", { ...snapshot, savedCode: true, secondApprover: { required: true, names: secondApprover.others.map((other) => other.name) } }).items;
+      return problemWithItems(409, secondApproverMessage(secondApprover), "second_approver_required", items);
+    }
+  }
   try {
     await ensureGiteaTag({
       owner: project.giteaOwner,
@@ -223,6 +241,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     version: Awaited<ReturnType<typeof prisma.pipelineVersion.update>>;
     ciRun: Awaited<ReturnType<typeof prisma.cIValidationRun.create>>;
   };
+  // Enforced studies only: the record of this approval is prepared before the transaction and bound inside it.
+  const approvalRecord = enforced && secondApprover ? await prepareVersionApproval({ studyId, publisherId: authResult.userId, projectId, gitCommit: existingVersion?.gitCommit ?? commitSha, versionTag, check: secondApprover }) : null;
   try {
     created = await prisma.$transaction(async (tx) => {
       // Check again inside the transaction: a second publish that started after the check above must not run beside this one.
@@ -256,6 +276,9 @@ export async function POST(request: NextRequest, { params }: Params) {
               immutable: true
             }
           });
+      if (approvalRecord && secondApprover) {
+        await bindVersionApproval(tx, { studyId, publisherId: authResult.userId, gitCommit: version.gitCommit ?? commitSha, versionTag, check: secondApprover, prepared: approvalRecord });
+      }
       const ciRun = await tx.cIValidationRun.create({
         data: {
           pipelineVersionId: version.id,

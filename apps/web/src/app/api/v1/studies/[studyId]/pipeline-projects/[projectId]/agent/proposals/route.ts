@@ -13,6 +13,8 @@ import { requireUser } from "@/lib/api";
 import { PROPOSAL_LIMITS, repoPathSchema } from "@/lib/agent-proposal";
 import { runProposal } from "@/lib/agent-proposal-run";
 import { branchHead, proposalDto, refreshStaleProposals } from "@/lib/agent-proposal-store";
+import { loadControlDecorations } from "@/lib/assistant-artifacts";
+import { effectiveControlMode } from "@/lib/runtime-config";
 import { isRuntimeConfigurationError, GiteaApiError } from "@/lib/gitea";
 import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
@@ -60,7 +62,12 @@ export async function GET(_request: NextRequest, { params }: Params) {
     orderBy: { createdAt: "desc" },
     take: 30
   });
-  return json({ proposals: rows.filter((row) => row.files !== null).map((row) => proposalDto(row)) });
+  const visible = rows.filter((row) => row.files !== null);
+  if (effectiveControlMode(studyId) === "enforce") {
+    const views = await loadControlDecorations(studyId, visible).catch(() => new Map());
+    return json({ proposals: visible.map((row) => ({ ...proposalDto(row), ...(views.get(row.id) ?? {}) })), controlMode: "enforce" });
+  }
+  return json({ proposals: visible.map((row) => proposalDto(row)) });
 }
 
 export async function POST(request: NextRequest, { params }: Params) {

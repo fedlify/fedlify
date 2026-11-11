@@ -3,6 +3,7 @@
 import { ClearOutlined, CloseCircleFilled, CloseOutlined, FullscreenExitOutlined, FullscreenOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
 import { Alert, Button, Input, Modal, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
 import { AgentHistoryPopover } from "@/components/AgentHistoryPopover";
+import { ACCEPT_EXPLAIN, PLAN_APPROVE_EXPLAIN, ApprovalLine, ProceedReasonModal, SecondCheckBanner, StopNoticeCard } from "@/components/AssistantControlParts";
 import { ChangesTimeline } from "@/components/ChangesTimeline";
 import { PlanQuestionsCard } from "@/components/PlanQuestionsCard";
 import { PlanStepsCard } from "@/components/PlanStepsCard";
@@ -14,6 +15,7 @@ import {
   effectiveStatus,
   getProposal,
   listProposals,
+  verifyProposal,
   type ProposalFailure,
   type ProposalStatus,
   type ProposalSummary
@@ -37,6 +39,7 @@ import {
   listThreads,
   reduceStream,
   submitAnswers,
+  verifyPlan,
   threadModeFor,
   toThreadView,
   turnModeFor,
@@ -47,6 +50,8 @@ import {
   lastSeq,
   storedUserTurn
 } from "@/lib/agent-thread-client";
+import { VERIFY_POLL_MAX, VERIFY_POLL_MS, isEnforced, readVerification, reasonNote, reasonRequired, shouldRequestVerify, type Finding, type VerificationStatus } from "@/lib/assistant-control-client";
+import { withheldNote, type StopPayload } from "@/lib/terms";
 import type { AssistantEvent } from "@/lib/assistant-stream";
 import { MAX_MESSAGE_CHARS, MAX_SELECTION_CHARS, buildHistory, createSseParser, splitFences } from "@/lib/assistant-stream";
 
@@ -63,7 +68,13 @@ type ChatMessage = {
   details?: string[];
   /** A proposal card rendered under this message. */
   proposalId?: string;
+  /** The assistant was paused by the safety check (enforced studies). */
+  stop?: StopPayload;
 };
+
+/** Second-check result held by the screen after asking the server. */
+type CheckState = { status: VerificationStatus; findings: Finding[]; ruleCheck: "PASSED" | "FAILED" | null };
+type ReasonDialog = { kind: "plan"; id: string; steps: string[]; acked: string[]; note?: string } | { kind: "proposal"; id: string; note?: string };
 
 /** Page-owned actions: only a click on Accept commits anything, and the page reloads the source afterwards. */
 export type ProposalActionResult = { ok: true; commitSha: string } | ProposalFailure;
@@ -85,7 +96,7 @@ type AssistantPanelProps = {
   onReviewProposal: (id: string) => void;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
-  onAcceptProposal: (id: string, paths?: string[]) => Promise<ProposalActionResult>;
+  onAcceptProposal: (id: string, paths?: string[], proceedReason?: string) => Promise<ProposalActionResult>;
   onRejectProposal: (id: string) => Promise<{ ok: true } | ProposalFailure>;
   /** Set by the page when a proposal is decided from the diff view, so the card here follows. */
   proposalSync: ProposalSync | null;
@@ -133,8 +144,14 @@ function ProposalCard({
   onReview,
   onAccept,
   onReject,
-  onRegenerate
+  onRegenerate,
+  controlMode,
+  verifying = false,
+  onRetryCheck
 }: {
+  controlMode?: "enforce";
+  verifying?: boolean;
+  onRetryCheck?: () => void;
   proposal: ProposalSummary;
   head: string | null;
   busy: boolean;
@@ -145,6 +162,8 @@ function ProposalCard({
   onRegenerate: () => void;
 }) {
   const status = effectiveStatus(proposal, head);
+  const enforced = isEnforced(proposal, controlMode);
+  const needsReason = reasonRequired(enforced, proposal.verificationStatus);
   const added = proposal.files.reduce((sum, file) => sum + file.added, 0);
   const removed = proposal.files.reduce((sum, file) => sum + file.removed, 0);
   const applied = appliedPaths({ ...proposal, status });
@@ -177,6 +196,8 @@ function ProposalCard({
       <Typography.Text className="fedlify-muted">{status === "ACCEPTED"
           ? `${appliedFiles.length} of ${proposal.files.length} file(s) saved, +${appliedAdded} -${appliedRemoved}.`
           : `${proposal.files.length} file(s), +${added} -${removed}. Nothing is saved until you accept.`}</Typography.Text>
+      {enforced && status === "PROPOSED" ? <SecondCheckBanner status={proposal.verificationStatus} findings={proposal.findings ?? []} working={verifying} onRetry={() => onRetryCheck?.()} /> : null}
+      {enforced && status === "ACCEPTED" ? <ApprovalLine approval={proposal.approval} /> : null}
       {status === "STALE" ? (
         <Alert type="warning" showIcon message="The saved code changed after this was written." description="Regenerate it against the latest saved code." />
       ) : null}
@@ -185,14 +206,18 @@ function ProposalCard({
         {status === "PROPOSED" ? (
           <>
             <Button size="small" onClick={onReview} disabled={busy}>Review diff</Button>
-            <Popconfirm
-              title={`Save ${proposal.files.length} file(s) to the pipeline?`}
-              description="This saves the change under your name. It does not publish or run anything."
-              okText="Accept all"
-              onConfirm={onAccept}
-            >
-              <Button size="small" type="primary" loading={busy}>Accept all</Button>
-            </Popconfirm>
+            {needsReason ? (
+              <Button size="small" type="primary" loading={busy} onClick={onAccept}>Accept all</Button>
+            ) : (
+              <Popconfirm
+                title={`Save ${proposal.files.length} file(s) to the pipeline?`}
+                description="This saves the change under your name. It does not publish or run anything."
+                okText="Accept all"
+                onConfirm={onAccept}
+              >
+                <Button size="small" type="primary" loading={busy}>Accept all</Button>
+              </Popconfirm>
+            )}
             <Button size="small" danger onClick={onReject} disabled={busy}>Reject</Button>
           </>
         ) : null}
@@ -321,6 +346,13 @@ export function AssistantPanel({
   const [proposals, setProposals] = useState<Record<string, ProposalSummary>>({});
   const [busyProposal, setBusyProposal] = useState<string | null>(null);
   const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+  /** Enforced studies: second-check results fetched on this screen, and which items are waiting for one. */
+  const [checks, setChecks] = useState<Record<string, CheckState>>({});
+  const [verifying, setVerifying] = useState<Record<string, boolean>>({});
+  const verifyAsked = useRef<Set<string>>(new Set());
+  const aliveRef = useRef(true);
+  const [listControlMode, setListControlMode] = useState<"enforce" | undefined>(undefined);
+  const [reasonDialog, setReasonDialog] = useState<ReasonDialog | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [context, setContext] = useState<ContextInfo | null>(null);
@@ -429,6 +461,69 @@ export function AssistantPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studyId, projectId]);
 
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  /** Ask the server for the AI second check and wait for the answer (it is advice only). Waits and asks again while it still says CHECKING. */
+  const runVerify = useCallback(
+    async (kind: "plan" | "proposal", id: string, retry = false) => {
+      const threadIdNow = viewRef.current?.thread.id;
+      if (kind === "plan" && !threadIdNow) return;
+      setVerifying((current) => ({ ...current, [id]: true }));
+      try {
+        for (let attempt = 0; attempt < VERIFY_POLL_MAX; attempt += 1) {
+          const again = retry && attempt === 0;
+          const result = kind === "plan" ? await verifyPlan(studyId, projectId, threadIdNow as string, id, again) : await verifyProposal(studyId, projectId, id, again);
+          if (!aliveRef.current) return;
+          let next: CheckState | null = null;
+          if (result.ok) {
+            next = readVerification(result) ?? { status: "UNAVAILABLE", findings: [], ruleCheck: null };
+          } else if (result.status === 0 || result.status >= 500) {
+            next = { status: "UNAVAILABLE", findings: [], ruleCheck: null };
+          } else {
+            return; // not allowed, not open, or not enforced: leave the card as it is
+          }
+          if (next.status === "CHECKING" && attempt < VERIFY_POLL_MAX - 1) {
+            await new Promise((resolve) => setTimeout(resolve, VERIFY_POLL_MS));
+            if (!aliveRef.current) return;
+            continue;
+          }
+          setChecks((current) => ({ ...current, [id]: next as CheckState }));
+          return;
+        }
+      } finally {
+        if (aliveRef.current) setVerifying((current) => ({ ...current, [id]: false }));
+      }
+    },
+    [studyId, projectId]
+  );
+
+  // Enforced studies only: on first display of an open plan or change, ask for the second check once.
+  useEffect(() => {
+    if (view?.metadataOnly || view?.readOnly) return;
+    for (const plan of view?.plans ?? []) {
+      if (plan.status !== "DRAFT" || (commit && plan.baseCommit && plan.baseCommit !== commit)) continue;
+      if (verifyAsked.current.has(plan.id)) continue;
+      if (shouldRequestVerify(isEnforced(plan, view?.controlMode), plan.verificationStatus, true)) {
+        verifyAsked.current.add(plan.id);
+        void runVerify("plan", plan.id);
+      }
+    }
+    const ids = new Set([...(view?.proposals ?? []).map((item) => item.id), ...messages.flatMap((message) => (message.proposalId ? [message.proposalId] : []))]);
+    for (const id of ids) {
+      const item = proposals[id];
+      if (!item || item.status !== "PROPOSED" || (commit && item.baseCommit && item.baseCommit !== commit) || verifyAsked.current.has(id)) continue;
+      if (shouldRequestVerify(isEnforced(item, view?.controlMode ?? listControlMode), item.verificationStatus, true)) {
+        verifyAsked.current.add(id);
+        void runVerify("proposal", id);
+      }
+    }
+  }, [view, proposals, messages, commit, listControlMode, runVerify]);
+
   // A reload mid-stream shows a turn that is still "streaming" on the server; follow it until it settles.
   useEffect(() => {
     if (!view || !hydratedStreaming || streaming) return;
@@ -458,6 +553,7 @@ export function AssistantPanel({
     let cancelled = false;
     void listProposals(studyId, projectId).then((result) => {
       if (cancelled || !result.ok) return;
+      if (result.controlMode === "enforce") setListControlMode("enforce");
       setProposals((current) => ({ ...Object.fromEntries(result.proposals.map((item) => [item.id, item])), ...current }));
     });
     return () => {
@@ -551,7 +647,12 @@ export function AssistantPanel({
       const apply = (event: AssistantEvent) => {
         if (event.kind === "context") setContext({ hash: event.hash, commit: event.commit, truncated: event.truncated, answered: event.answered, total: event.total });
         stream = reduceStream(stream, event);
-        patch({ content: stream.content, notice: stream.notice, ...(stream.status !== "streaming" ? { status: stream.status, error: stream.error } : {}) });
+        if (event.kind === "stop") {
+          // A flagged message is not kept: show only the short note in its place, and give back the text when nothing was stored.
+          if (event.data.userTurnId) update((current) => current.map((message) => (message.id === userId ? { ...message, content: withheldNote(event.data.stop.code) } : message)));
+          else setInput((typed) => typed || text);
+        }
+        patch({ content: stream.content, ...(stream.stop ? { stop: stream.stop } : {}), notice: stream.notice, ...(stream.status !== "streaming" ? { status: stream.status, error: stream.error } : {}) });
       };
       let threadIdNow: string | null = null;
       let seqBefore = 0;
@@ -595,8 +696,11 @@ export function AssistantPanel({
           parser.flush().forEach(apply);
           if (stream.status === "streaming") patch({ status: "error", error: "The reply ended unexpectedly. What arrived is shown above." });
         } else {
-          // Plan turns may answer with plain JSON once the structured result is ready.
-          await response.text().catch(() => "");
+          // Plan turns may answer with plain JSON once the structured result is ready (or a pause, for enforced studies).
+          const jsonBody = (await response.json().catch(() => null)) as { stopped?: boolean; stop?: StopPayload; userTurn?: { id: string } | null; assistantTurn?: { id: string; seq: number } } | null;
+          if (jsonBody?.stopped && jsonBody.stop) {
+            apply({ kind: "stop", data: { threadId: ensured.id, turnId: jsonBody.assistantTurn?.id ?? "", seq: jsonBody.assistantTurn?.seq ?? 0, userTurnId: jsonBody.userTurn?.id ?? null, stop: jsonBody.stop } });
+          }
           patch({ status: "done" });
         }
       } catch (sendError) {
@@ -736,6 +840,14 @@ export function AssistantPanel({
         proposalContextRef.current[result.proposal.id] = sent;
         setProposals((current) => ({ ...current, [result.proposal.id]: result.proposal }));
         patch({ status: "done", content: "I wrote a proposal. Review the diff below; nothing is saved until you accept it.", proposalId: result.proposal.id });
+      } else if (result.code === "assistant_stopped" && result.stop) {
+        // Paused by the safety check. With a chat, the stored notice card replaces these bubbles; without one the card is shown here.
+        if (editThreadId) {
+          update((current) => current.filter((message) => message.id !== assistantId && message.id !== userId));
+          if (!result.userTurnStored) setInput((typed) => typed || text);
+        } else {
+          patch({ status: "done", content: result.stop.title, stop: result.stop });
+        }
       } else if (result.code === "ai_not_configured") {
         patch({ status: "error", error: errorFromResponse(result.status, { error: { code: result.code, message: result.message } }) });
       } else if (result.code === "no_changes") {
@@ -775,13 +887,34 @@ export function AssistantPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startPromptId, threadsOn]);
 
-  async function acceptCard(id: string) {
+  /** The second check as shown now: what this screen fetched, else what the server sent. */
+  function checkOf<T extends { id: string; verificationStatus?: VerificationStatus | null; findings?: Finding[] }>(item: T): T {
+    const fetched = checks[item.id];
+    return fetched ? { ...item, verificationStatus: fetched.status, findings: fetched.findings } : item;
+  }
+
+  async function acceptCard(id: string, reason?: string) {
+    const known = proposals[id];
+    const enforced = known ? isEnforced(known, viewRef.current?.controlMode ?? listControlMode) : false;
+    const statusNow = checks[id]?.status ?? known?.verificationStatus;
+    if (!reason && reasonRequired(enforced, statusNow)) {
+      setReasonDialog({ kind: "proposal", id, note: reasonNote(statusNow) });
+      return;
+    }
     setBusyProposal(id);
     setCardErrors((current) => ({ ...current, [id]: "" }));
-    const result = await onAcceptProposal(id);
+    const result = await onAcceptProposal(id, undefined, reason);
     setBusyProposal(null);
     if (result.ok) {
       setProposals((current) => (current[id] ? { ...current, [id]: { ...current[id], status: "ACCEPTED", acceptedCommit: result.commitSha, acceptedPaths: null } } : current));
+      // Enforced studies: fetch who approved, so the card can say "Approved by ...".
+      if (enforced) {
+        void getProposal(studyId, projectId, id).then((fresh) => {
+          if (fresh.ok && aliveRef.current) setProposals((current) => (current[id] ? { ...current, [id]: { ...current[id], approval: fresh.proposal.approval } } : current));
+        });
+      }
+    } else if (result.code === "second_check_reason_required") {
+      setReasonDialog({ kind: "proposal", id, note: result.message });
     } else if (result.stale) {
       setProposals((current) => (current[id] ? { ...current, [id]: { ...current[id], status: "STALE" } } : current));
     } else {
@@ -804,7 +937,10 @@ export function AssistantPanel({
     return (
       <ProposalCard
         key={id}
-        proposal={proposal}
+        proposal={checkOf(proposal)}
+        controlMode={view?.controlMode ?? listControlMode}
+        verifying={Boolean(verifying[id])}
+        onRetryCheck={() => void runVerify("proposal", id, true)}
         head={commit}
         busy={busyProposal === id}
         error={cardErrors[id]}
@@ -928,13 +1064,22 @@ export function AssistantPanel({
     setTimelineKey((key) => key + 1);
   }
 
-  async function approvePlan(planId: string, approvedStepIds: string[], ackAssumptions: string[]) {
+  async function approvePlan(planId: string, approvedStepIds: string[], ackAssumptions: string[], reason?: string) {
     const id = viewRef.current?.thread.id;
     if (!id || cardBusy) return;
+    const known = viewRef.current?.plans.find((candidate) => candidate.id === planId);
+    const enforced = known ? isEnforced(known, viewRef.current?.controlMode) : false;
+    const statusNow = checks[planId]?.status ?? known?.verificationStatus;
+    if (!reason && reasonRequired(enforced, statusNow)) {
+      setReasonDialog({ kind: "plan", id: planId, steps: approvedStepIds, acked: ackAssumptions, note: reasonNote(statusNow) });
+      return;
+    }
     setCardBusy(planId);
     failItem(planId, "");
-    const decided = await decidePlan(studyId, projectId, id, planId, { decision: "approve", approvedStepIds, ackAssumptions });
-    if (!decided.ok) {
+    const decided = await decidePlan(studyId, projectId, id, planId, { decision: "approve", approvedStepIds, ackAssumptions, ...(reason ? { proceedReason: reason } : {}) });
+    if (!decided.ok && decided.code === "second_check_reason_required") {
+      setReasonDialog({ kind: "plan", id: planId, steps: approvedStepIds, acked: ackAssumptions, note: decided.message });
+    } else if (!decided.ok) {
       failItem(planId, decided.code === "plan_stale" ? "The saved code changed since this plan was written. Re-plan from the latest saved code." : [decided.message, ...decided.details].join(" "));
       await refreshThread(id);
     } else if (mode === "agent") {
@@ -973,7 +1118,21 @@ export function AssistantPanel({
   function renderItem(item: ChatItem) {
     const current = view;
     switch (item.type) {
+      case "stop":
+        return (
+          <div key={item.key} className="fedlify-ws-msg is-assistant is-system">
+            <StopNoticeCard stop={item.stop} />
+          </div>
+        );
       case "message":
+        if (item.withheld) {
+          return (
+            <div key={item.key} className="fedlify-ws-msg is-user">
+              <span className="fedlify-ws-msg-role">You</span>
+              <Typography.Text className="fedlify-muted" data-testid="withheld-note">{item.content}</Typography.Text>
+            </div>
+          );
+        }
         return (
           <div key={item.key} className={`fedlify-ws-msg is-${item.role}${item.isNotice ? " is-system" : ""}`}>
             <span className="fedlify-ws-msg-role">{item.role === "user" ? "You" : item.isNotice ? "Notice" : "Assistant"}</span>
@@ -1004,12 +1163,15 @@ export function AssistantPanel({
           <div key={item.key} className="fedlify-ws-msg is-assistant">
             <span className="fedlify-ws-msg-role">Assistant</span>
             <PlanStepsCard
-              plan={plan}
+              plan={checkOf(plan)}
               head={commit}
               canDecide={Boolean(current?.canDecidePlan) && !readOnly}
               autoCode={mode === "agent"}
               busy={cardBusy === plan.id}
               error={itemErrors[plan.id]}
+              controlMode={current?.controlMode}
+              verifying={Boolean(verifying[plan.id])}
+              onRetryCheck={() => void runVerify("plan", plan.id, true)}
               onApprove={(steps, acked) => void approvePlan(plan.id, steps, acked)}
               onReject={() => void rejectPlan(plan.id)}
               onRevise={revisePlan}
@@ -1187,7 +1349,7 @@ export function AssistantPanel({
           messages.map((message) => (
             <div key={message.id} className={`fedlify-ws-msg is-${message.role}`}>
               <span className="fedlify-ws-msg-role">{message.role === "user" ? "You" : "Assistant"}</span>
-              <MessageBody message={message} />
+              {message.stop ? <StopNoticeCard stop={message.stop} /> : <MessageBody message={message} />}
               {message.notice ? <Typography.Text type="warning">{message.notice}</Typography.Text> : null}
               {message.status === "stopped" ? <Typography.Text className="fedlify-muted">Stopped.</Typography.Text> : null}
               {message.status === "error" ? (
@@ -1284,6 +1446,21 @@ export function AssistantPanel({
       )}
       </>
       )}
+      <ProceedReasonModal
+        open={reasonDialog !== null}
+        title={reasonDialog?.kind === "plan" ? "Approve this plan?" : "Save this change?"}
+        explain={reasonDialog?.kind === "plan" ? PLAN_APPROVE_EXPLAIN : ACCEPT_EXPLAIN}
+        note={reasonDialog?.note}
+        okText={reasonDialog?.kind === "plan" ? "Approve" : "Accept"}
+        onCancel={() => setReasonDialog(null)}
+        onConfirm={(reason) => {
+          const dialog = reasonDialog;
+          setReasonDialog(null);
+          if (!dialog) return;
+          if (dialog.kind === "plan") void approvePlan(dialog.id, dialog.steps, dialog.acked, reason);
+          else void acceptCard(dialog.id, reason);
+        }}
+      />
     </aside>
   );
 }

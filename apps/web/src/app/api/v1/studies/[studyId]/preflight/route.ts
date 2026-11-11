@@ -33,6 +33,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const minClients = Number(query.get("minClients"));
   const result = await loadPreflight(studyId, kind, {
     projectId: query.get("projectId"),
+    publisherId: authResult.userId,
     pipelineVersionId: query.get("pipelineVersionId"),
     commit: /^[a-f0-9]{7,64}$/i.test(query.get("commit") ?? "") ? query.get("commit") : null,
     studySiteIds: query.get("studySiteIds")?.split(",").filter(Boolean),

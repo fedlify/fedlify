@@ -114,11 +114,30 @@ export function agentThreadsEnabled(): boolean {
 export type AssistantControlMode = "off" | "shadow" | "enforce";
 
 /**
- * How the control plane treats assistant turns: ASSISTANT_CONTROL_MODE = off | shadow | enforce.
- * Unset or any unknown value means off. In this phase "enforce" behaves exactly like "shadow": every turn is
- * evaluated and recorded and nothing is blocked. Enforcement arrives in the next phase.
+ * The global setting for how the control plane treats assistant turns: ASSISTANT_CONTROL_MODE = off | shadow | enforce.
+ * Unset or any unknown value means off. Use effectiveControlMode(studyId) to decide what applies to one study.
  */
 export function assistantControlMode(): AssistantControlMode {
   const value = clean(process.env.ASSISTANT_CONTROL_MODE)?.toLowerCase();
   return value === "shadow" || value === "enforce" ? value : "off";
+}
+
+/** Study ids listed in ASSISTANT_CONTROL_ENFORCE_STUDIES (comma separated). "*" means every study. Empty means none. */
+export function assistantEnforceStudies(): { all: boolean; ids: string[] } {
+  const ids = (clean(process.env.ASSISTANT_CONTROL_ENFORCE_STUDIES) ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+  return { all: ids.includes("*"), ids };
+}
+
+/**
+ * What applies to one study. Enforcement is switched on per study and is off by default:
+ *  - global "off" always wins (nothing is evaluated or recorded);
+ *  - global "enforce", or the study listed in ASSISTANT_CONTROL_ENFORCE_STUDIES (or "*"), gives "enforce";
+ *  - otherwise the global mode ("shadow").
+ */
+export function effectiveControlMode(studyId: string | null | undefined): AssistantControlMode {
+  const global = assistantControlMode();
+  if (global === "off" || global === "enforce") return global;
+  if (!studyId) return global;
+  const listed = assistantEnforceStudies();
+  return listed.all || listed.ids.includes(studyId) ? "enforce" : global;
 }

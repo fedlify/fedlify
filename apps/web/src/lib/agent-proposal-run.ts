@@ -30,8 +30,10 @@ import { loadProjectRepo } from "@/lib/project-repo";
 import { prisma } from "@/lib/prisma";
 import { acquireSlot, rateLimit } from "@/lib/rate-limit";
 import { isSensitiveFilePath } from "@/lib/repo-checks";
-import { agentThreadsEnabled, openAiCodeAgentConfig } from "@/lib/runtime-config";
-import { openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
+import { agentThreadsEnabled, effectiveControlMode, openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { guardAssistantTurn, openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
+import { bindAssistantApproval, ensurePlanArtifact, invalidateApprovalBinding, recordProposalControl } from "@/lib/assistant-artifacts";
+import { storeStop } from "@/lib/assistant-stop";
 
 const MAX_OUTPUT_TOKENS = 24_000;
 const UPSTREAM_TIMEOUT_MS = 150_000;
@@ -121,7 +123,30 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
       const staleness = planStaleness(plan, { head: repo.commit, requirementsHash: requirementsHash(responses) });
       if (staleness) {
         await transitionPlan(plan.id, ["DRAFT", "APPROVED"], "STALE");
+        // Enforced studies only (the id is null otherwise): the approval was for a plan that no longer holds.
+        await invalidateApprovalBinding({ studyId, approvalBindingId: plan.approvalBindingId, reason: `The ${staleness === "requirements_changed" ? "study answers" : "saved code"} changed after the plan was approved.`, source: { type: "Commit", id: repo.commit, hash: repo.commit } });
         return problem(409, "The saved code or the study requirements changed after this plan was written. Plan again.", THREAD_ERROR_CODES.planStale);
+      }
+      // Enforced studies: a plan approved before enforcement was switched on has no approval record. Record it now, honestly
+      // (the person who approved it, marked as recorded late), or stop: code is never written from an unrecorded approval.
+      if (effectiveControlMode(studyId) === "enforce" && !plan.approvalBindingId) {
+        try {
+          const artifact = await ensurePlanArtifact(plan, { studyId, userId });
+          await bindAssistantApproval({
+            kind: "plan",
+            studyId,
+            rowId: plan.id,
+            artifact,
+            approverId: plan.decidedById ?? userId,
+            requesterId: thread?.createdById ?? userId,
+            verificationStatus: plan.verificationStatus,
+            proceedReason: null,
+            details: { recordedLate: true, threadId: plan.threadId, planVersion: plan.version }
+          });
+        } catch (error) {
+          console.error("agent plan: could not record the earlier approval", error instanceof Error ? error.name : "unknown error");
+          return problem(503, "The approval of this plan could not be recorded, so no code was written. Try again.", "control_unavailable");
+        }
       }
       // Claim the plan so two code requests cannot both write against it. It is released again if no proposal results.
       if (!(await transitionPlan(plan.id, ["APPROVED"], "EXECUTED"))) return problem(409, "This plan was already used.", THREAD_ERROR_CODES.planNotApproved);
@@ -154,6 +179,35 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
       message = `${message}\n\n${planCodeSection({ plan: dto, approvedStepIds: dto.approvedStepIds, qa })}`;
     }
 
+    // Enforced studies only (a no-op otherwise): the safety check finishes BEFORE the request is stored or any model is called.
+    const controlTurnKey = input.clientTurnId ?? (plan ? `plan:${plan.id}` : `edit:${randomUUID()}`);
+    const gate = await guardAssistantTurn({
+      studyId,
+      projectId,
+      threadId: thread?.id ?? null,
+      userId,
+      mode: plan ? "agent" : "edit",
+      clientTurnId: controlTurnKey,
+      // Without a thread the client's own history goes to the model, so the check reads it too (enforced studies only).
+      userText: thread ? input.message : [input.message, ...input.history.map((turn) => turn.content)].join("\n"),
+      selection: input.selection ?? null
+    });
+    if (gate.enforced && gate.blocked) {
+      let stored: Awaited<ReturnType<typeof storeStop>> | null = null;
+      if (thread) {
+        try {
+          stored = await storeStop({ gate, request, userId, orgId: repo.project.study.orgId, studyId, projectId, threadId: thread.id, userTurn: plan ? null : { clientTurnId: input.clientTurnId ?? null }, planId: plan?.id ?? null, contextHash: context.hash, baseCommit: repo.commit });
+        } catch (error) {
+          console.error("agent thread: could not store the stop notice", error instanceof Error ? error.message : "unknown error");
+        }
+      }
+      return json(
+        { error: { code: "assistant_stopped", message: gate.stop.why }, stopped: true, stop: gate.stop, ...(stored ? { userTurn: stored.userTurn, turn: stored.noticeTurn } : {}) },
+        { status: 422 }
+      );
+    }
+    if (gate.enforced) control = gate.handle;
+
     // Store the request before the model is called; if that fails the model is not called.
     let userSeq: number | undefined;
     let userTurnId: string | undefined;
@@ -168,18 +222,21 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
         return problem(500, "The request could not be saved, so the assistant was not called.", "persist_failed");
       }
     }
-    control = openAssistantTurn({
-      studyId,
-      projectId,
-      threadId: thread?.id ?? null,
-      userId,
-      mode: plan ? "agent" : "edit",
-      clientTurnId: input.clientTurnId ?? (plan ? `plan:${plan.id}` : `edit:${randomUUID()}`),
-      // What the person typed this turn; the plan section and repository files are not part of it.
-      userText: input.message,
-      selection: input.selection ?? null,
-      turnIds: userTurnId ? [userTurnId] : []
-    });
+    if (gate.enforced) await gate.link(userTurnId ? [userTurnId] : []);
+    else {
+      control = openAssistantTurn({
+        studyId,
+        projectId,
+        threadId: thread?.id ?? null,
+        userId,
+        mode: plan ? "agent" : "edit",
+        clientTurnId: controlTurnKey,
+        // What the person typed this turn; the plan section and repository files are not part of it.
+        userText: input.message,
+        selection: input.selection ?? null,
+        turnIds: userTurnId ? [userTurnId] : []
+      });
+    }
     const history = thread ? boundHistory(await loadHistory(thread.id, userSeq ? { beforeSeq: userSeq } : {})) : boundHistory(input.history);
 
     // Notes in the thread are best effort for failures, but required for a stored proposal (see below).
@@ -282,6 +339,8 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
     succeeded = true;
     outcome = "done";
     controlTurnId = proposalTurn?.id;
+    // Enforced studies only: the proposal's artifact revision and its rule-based verification run.
+    if (gate.enforced) await recordProposalControl(row, { studyId, userId, workItemId: gate.workItemId, outsidePlanPaths: plan ? outside : null });
 
     await audit({
       actorUserId: userId,

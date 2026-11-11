@@ -2,7 +2,9 @@
 
 import { Alert, Button, Checkbox, Popconfirm, Tag, Typography } from "antd";
 import { useState } from "react";
+import { ApprovalLine, SecondCheckBanner } from "@/components/AssistantControlParts";
 import type { PlanDto } from "@/lib/agent-thread-types";
+import { isEnforced, reasonRequired } from "@/lib/assistant-control-client";
 import { PLAN_STATUS_LABEL, assumptionsNeedingAck, canApprovePlan, effectivePlanStatus, initialApprovedSteps, toggleStep } from "@/lib/agent-thread-client";
 
 const STATUS_COLOR: Record<string, string> = { DRAFT: "purple", APPROVED: "blue", EXECUTED: "green", STALE: "orange", REJECTED: "default", SUPERSEDED: "default" };
@@ -19,7 +21,10 @@ export function PlanStepsCard({
   onReject,
   onRevise,
   onWriteCode,
-  onReplan
+  onReplan,
+  controlMode,
+  verifying = false,
+  onRetryCheck
 }: {
   plan: PlanDto;
   head: string | null;
@@ -33,6 +38,11 @@ export function PlanStepsCard({
   onRevise: () => void;
   onWriteCode: () => void;
   onReplan: () => void;
+  /** "enforce" when the study enforces the control plane. Without it (and without control fields on the plan) nothing extra shows. */
+  controlMode?: "enforce";
+  /** The client is waiting for the AI second check. */
+  verifying?: boolean;
+  onRetryCheck?: () => void;
 }) {
   const [selected, setSelected] = useState<string[]>(() => initialApprovedSteps(plan));
   const [acked, setAcked] = useState<string[]>([]);
@@ -40,6 +50,10 @@ export function PlanStepsCard({
   const editable = status === "DRAFT" && canDecide;
   const chosen = status === "DRAFT" ? selected : plan.approvedStepIds ?? selected;
   const missing = assumptionsNeedingAck(plan.assumptions, acked);
+  const enforced = isEnforced(plan, controlMode);
+  // When the second check did not pass the person is asked for a reason, so a plain button opens that dialog instead of a confirm bubble.
+  const needsReason = reasonRequired(enforced, plan.verificationStatus);
+  const showCheck = enforced && (status === "DRAFT" || status === "APPROVED");
   return (
     <div className="fedlify-ws-card" role="group" aria-label={`Plan version ${plan.version}`} data-testid="plan-card">
       <div className="fedlify-ws-card-head">
@@ -76,6 +90,8 @@ export function PlanStepsCard({
           )}
         </div>
       ) : null}
+      {showCheck ? <SecondCheckBanner status={plan.verificationStatus} findings={plan.findings ?? []} working={verifying} onRetry={() => onRetryCheck?.()} /> : null}
+      {enforced && plan.approval && (status === "APPROVED" || status === "EXECUTED") ? <ApprovalLine approval={plan.approval} /> : null}
       {status === "STALE" ? <Alert type="warning" showIcon message="The saved code or the requirements changed after this plan was written." description="Re-plan from the latest commit before approving." /> : null}
       {error ? <Alert type="error" showIcon message={error} /> : null}
       <div className="fedlify-ws-card-actions">
@@ -83,17 +99,23 @@ export function PlanStepsCard({
           <>
             <Button size="small" onClick={onRevise} disabled={busy}>Revise</Button>
             <Button size="small" danger onClick={onReject} disabled={busy}>Reject</Button>
-            <Popconfirm
-              title={autoCode ? "Approve this plan and write the code?" : "Approve this plan?"}
-              description="This records your approval of the plan only. You still review the diff and accept it before anything is saved."
-              okText="Approve"
-              disabled={!canApprovePlan(plan, selected, acked)}
-              onConfirm={() => onApprove(selected, acked)}
-            >
-              <Button size="small" type="primary" loading={busy} disabled={!canApprovePlan(plan, selected, acked)} title={missing.length ? "Confirm the assumptions first" : undefined}>
+            {needsReason ? (
+              <Button size="small" type="primary" loading={busy} disabled={!canApprovePlan(plan, selected, acked)} title={missing.length ? "Confirm the assumptions first" : undefined} onClick={() => onApprove(selected, acked)}>
                 {autoCode ? "Approve and write code" : "Approve plan"}
               </Button>
-            </Popconfirm>
+            ) : (
+              <Popconfirm
+                title={autoCode ? "Approve this plan and write the code?" : "Approve this plan?"}
+                description="This records your approval of the plan only. You still review the diff and accept it before anything is saved."
+                okText="Approve"
+                disabled={!canApprovePlan(plan, selected, acked)}
+                onConfirm={() => onApprove(selected, acked)}
+              >
+                <Button size="small" type="primary" loading={busy} disabled={!canApprovePlan(plan, selected, acked)} title={missing.length ? "Confirm the assumptions first" : undefined}>
+                  {autoCode ? "Approve and write code" : "Approve plan"}
+                </Button>
+              </Popconfirm>
+            )}
           </>
         ) : null}
         {status === "APPROVED" && canDecide ? (

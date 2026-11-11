@@ -3,6 +3,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { readStoredFiles } from "@/lib/agent-proposal-store";
+import { loadControlDecorations } from "@/lib/assistant-artifacts";
+import { effectiveControlMode } from "@/lib/runtime-config";
 import type { ThreadAccess } from "@/lib/agent-thread-access";
 import {
   LIMITS,
@@ -501,7 +503,15 @@ export async function loadThreadDetail(input: { thread: ThreadRow; viewerId: str
   ]);
   const now = new Date();
   const turns = turnRows.map((row) => turnDto(row, now));
-  const plans = planRows.map(planDto);
-  const proposals = proposalRows.map(threadProposalDto);
-  return { thread: summary, access: accessDto, turns, plans, proposals, phase: derivePhase({ turns, plans, proposals }), hasMore };
+  let plans = planRows.map(planDto);
+  let proposals = proposalRows.map(threadProposalDto);
+  const phase = derivePhase({ turns, plans, proposals });
+  // Enforced studies only: the second check, the rule check and the approval are added; nothing changes otherwise.
+  if (effectiveControlMode(input.thread.studyId) === "enforce") {
+    const views = await loadControlDecorations(input.thread.studyId, [...planRows, ...proposalRows]).catch(() => new Map());
+    plans = plans.map((plan) => ({ ...plan, ...(views.get(plan.id) ?? {}) }));
+    proposals = proposals.map((proposal) => ({ ...proposal, ...(views.get(proposal.id) ?? {}) }));
+    return { thread: summary, access: accessDto, turns, plans, proposals, phase, hasMore, controlMode: "enforce" };
+  }
+  return { thread: summary, access: accessDto, turns, plans, proposals, phase, hasMore };
 }
