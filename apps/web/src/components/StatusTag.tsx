@@ -1,10 +1,11 @@
 "use client";
 
-import { Tag } from "antd";
+import { Tag, type TagProps } from "antd";
 import type { ReactNode } from "react";
 import { statusLabel } from "@/lib/terms";
 
-type StatusTone = "success" | "warning" | "danger" | "info" | "neutral" | "muted";
+/** One colour per meaning: success = done, info = in progress, warning = needs attention, danger = problem, neutral = nothing to act on. */
+export type StatusTone = "success" | "info" | "warning" | "danger" | "neutral";
 
 const tones: Record<string, StatusTone> = {
   ACCEPTED: "success",
@@ -24,7 +25,6 @@ const tones: Record<string, StatusTone> = {
   EXPIRED: "warning",
   OUTDATED: "warning",
   NEEDS_ATTENTION: "warning",
-  PENDING: "warning",
   QUEUED: "warning",
   SCHEDULED: "warning",
   WARNING: "warning",
@@ -45,16 +45,16 @@ const tones: Record<string, StatusTone> = {
   RUNNING: "info",
   SUBMITTED: "info",
 
-  ARCHIVED: "muted",
-  OPTIONAL: "muted",
-
   DRAFT: "neutral",
   EVENT: "neutral",
   INTAKE: "neutral",
   INVITED: "neutral",
   NOT_CREATED: "neutral",
   NOT_RELEASED: "neutral",
+  ARCHIVED: "neutral",
   NOT_STARTED: "neutral",
+  OPTIONAL: "neutral",
+  PENDING: "neutral",
   PENDING_CHANGES: "neutral"
 };
 
@@ -62,10 +62,11 @@ function normalizeStatus(value?: string | null) {
   return String(value ?? "UNKNOWN").trim().toUpperCase().replace(/\s+/g, "_");
 }
 
-export function StatusTag({ value, label }: { value?: string | null; label?: ReactNode }) {
+/** The only status tag. Give it a status value, or a tone and a label for a status that is not an enum value. */
+export function StatusTag({ value, label, tone, ...rest }: { value?: string | null; label?: ReactNode; tone?: StatusTone } & Omit<TagProps, "color" | "children">) {
   const normalized = normalizeStatus(value);
   return (
-    <Tag className="fedlify-status-tag" data-status={normalized} data-tone={tones[normalized] ?? "neutral"}>
+    <Tag className="fedlify-status-tag" data-status={normalized} data-tone={tone ?? tones[normalized] ?? "neutral"} {...rest}>
       {label ?? statusLabel(value)}
     </Tag>
   );

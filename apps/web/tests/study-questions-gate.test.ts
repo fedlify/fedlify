@@ -36,7 +36,7 @@ describe("requirementsGate", () => {
 
   it("feeds the activation gate the same way", () => {
     const study = { requirementResponses: rows((id) => (id === "R01" ? "SUGGESTED" : "ANSWERED")) };
-    expect(activationGate(study).missing).toContain("requirements (28/29 answered)");
+    expect(activationGate(study).missing).toContain("Study questions (28 of 29 answered)");
   });
 });
 

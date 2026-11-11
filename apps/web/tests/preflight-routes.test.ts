@@ -88,7 +88,7 @@ describe("GET preflight", () => {
     expect(body.ok).toBe(false);
     const items = Object.fromEntries(body.items.map((i: { code: string }) => [i.code, i]));
     expect(items.ethics.detail).toContain("expired on 1 January 2020");
-    expect(items.study_questions.detail).toBe("3 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Protocol, then Study questions.");
+    expect(items.study_questions.detail).toBe("3 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Study setup, then Questions.");
     expect(items.run_idle.ok).toBe(false);
     expect(items.ethics.fixHref).toBe("/studies/s1?section=protocol&tab=ethics");
   });

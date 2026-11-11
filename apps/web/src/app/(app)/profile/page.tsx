@@ -98,7 +98,7 @@ export default function ProfilePage() {
         <InlineLoadError message={loadError} onRetry={() => void loadProfile()} />
       ) : (
         <>
-          <CardGrid className="fedlify-stat-grid">
+          <CardGrid className="fl-grid is-stat">
             <StatCard label="Account" value={userName} icon={<UserOutlined />} />
             {stats.map((stat) => (
               <StatCard key={stat.label} label={stat.label} value={stat.value} icon={stat.icon} />

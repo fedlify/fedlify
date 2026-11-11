@@ -60,23 +60,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   const gate = activationGate({
     title: study.title,
     goal: study.goal,
-    researchQuestion: study.researchQuestion,
-    studyDesign: study.studyDesign,
-    clinicalUseCase: study.clinicalUseCase,
-    population: study.population,
-    eligibilityCriteria: study.eligibilityCriteria,
-    dataModalities: study.dataModalities,
-    primaryOutcome: study.primaryOutcome,
-    primaryEndpointDetails: study.primaryEndpointDetails,
-    analysisPlan: study.analysisPlan,
-    dataHandlingPlan: study.dataHandlingPlan,
-    intendedUse: study.intendedUse,
     ethics: study.ethics,
     studySites: study.studySites,
     requirementResponses: study.requirementResponses
   });
   if (!gate.allowed) {
-    return problem(409, `NVFLARE deployment provisioning is blocked by missing requirements: ${gate.missing.join(", ")}.`, "activation_gate");
+    return problem(409, `The study server cannot be set up yet. Still needed: ${gate.missing.join(", ")}.`, "activation_gate");
   }
 
   const created = await prisma.nvflareDeployment.create({

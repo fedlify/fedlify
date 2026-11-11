@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowRightOutlined } from "@ant-design/icons";
 import { Typography } from "antd";
 import type { KeyboardEvent, ReactNode } from "react";
 
@@ -56,16 +55,12 @@ type WorkspaceBaseCardProps = {
   ariaLabel?: string;
 };
 
-type WorkspaceReviewCardProps = WorkspaceBaseCardProps & {
-  stateLabel?: ReactNode;
-};
-
-export function CardGrid({ children, className = "fedlify-entity-grid" }: CardGridProps) {
+export function CardGrid({ children, className = "fl-grid" }: CardGridProps) {
   return <div className={className}>{children}</div>;
 }
 
 export function WorkspaceCardGrid({ children, className }: WorkspaceCardGridProps) {
-  return <div className={["fedlify-workspace-card-grid", className].filter(Boolean).join(" ")}>{children}</div>;
+  return <div className={["fl-grid", className].filter(Boolean).join(" ")}>{children}</div>;
 }
 
 function workspaceClickProps(onClick?: () => void, disabled = false, ariaLabel?: string) {
@@ -101,29 +96,6 @@ function WorkspaceCardMain({ icon, title, description }: { icon: ReactNode; titl
   );
 }
 
-export function WorkspaceActionCard({
-  icon,
-  title,
-  description,
-  status,
-  onClick,
-  disabled = false,
-  tone = "default",
-  ariaLabel
-}: WorkspaceBaseCardProps) {
-  return (
-    <article
-      className={workspaceCardClass("fedlify-workspace-action-card", tone, disabled)}
-      {...workspaceClickProps(onClick, disabled, ariaLabel)}
-    >
-      <WorkspaceCardMain icon={icon} title={title} description={description} />
-      <span className="fedlify-workspace-card-meta" aria-hidden={!status}>
-        {status ?? <ArrowRightOutlined />}
-      </span>
-    </article>
-  );
-}
-
 export function WorkspaceRecordCard({
   icon,
   title,
@@ -155,31 +127,6 @@ export function WorkspaceRecordCard({
           ))}
         </span>
       ) : null}
-    </article>
-  );
-}
-
-export function WorkspaceReviewCard({
-  icon,
-  title,
-  description,
-  status,
-  onClick,
-  disabled = false,
-  tone = "default",
-  ariaLabel,
-  stateLabel = "State"
-}: WorkspaceReviewCardProps) {
-  return (
-    <article
-      className={workspaceCardClass("fedlify-workspace-review-card", tone, disabled)}
-      {...workspaceClickProps(onClick, disabled, ariaLabel)}
-    >
-      <WorkspaceCardMain icon={icon} title={title} description={description} />
-      <span className="fedlify-workspace-review-state-row">
-        <span>{stateLabel}</span>
-        {status}
-      </span>
     </article>
   );
 }

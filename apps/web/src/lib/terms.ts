@@ -20,6 +20,8 @@ export const TERMS = {
   siteId: "Site ID",
   siteChecks: "Site checks",
   siteSignOff: "Site sign-off",
+  studySetup: "Study setup",
+  studyDetails: "Study details",
   studyQuestions: "Study questions",
   codeVersion: "Code version",
   codeVersionUpToDate: "Code version: up to date",

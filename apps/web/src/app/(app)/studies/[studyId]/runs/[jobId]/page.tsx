@@ -11,6 +11,7 @@ import { Details } from "@/components/Details";
 import { RoundMetricsChart, type MetricsPayload } from "@/components/RoundMetricsChart";
 import { StatusTag } from "@/components/StatusTag";
 import type { AuditEventDto } from "@/lib/audit-query";
+import { formatDateTime } from "@/lib/format";
 import { auditActionLabel, statusLabel } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
 
@@ -43,7 +44,7 @@ type Detail = {
 };
 
 const NOT_RECORDED = <Typography.Text type="secondary">Not recorded</Typography.Text>;
-const when = (v: string | null) => (v ? new Date(v).toLocaleString() : NOT_RECORDED);
+const when = (v: string | null) => (v ? formatDateTime(v) : NOT_RECORDED);
 
 function errText(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
@@ -182,7 +183,7 @@ function AuditTab({ studyId, d }: { studyId: string; d: Detail }) {
       </Space>
       <RecordTable rowKey="key" dataSource={rows} loading={events === null && !error} emptyText="No activity for this run yet." pagination={{ pageSize: 25, hideOnSinglePage: true }}
         columns={[
-          { title: "Time", dataIndex: "time", render: (v: string) => new Date(v).toLocaleString() },
+          { title: "Time", dataIndex: "time", render: (v: string) => formatDateTime(v) },
           { title: "Source", dataIndex: "source" },
           { title: "Actor", dataIndex: "actor" },
           { title: "What happened", dataIndex: "what" },
@@ -253,7 +254,7 @@ export default function RunDetailPage() {
   const active = items.some((i) => i.key === search.get("tab")) ? (search.get("tab") as string) : "summary";
   return (
     <AppPage>
-      <AppPageHeader title={detail ? `Run from ${new Date(detail.run.createdAt).toLocaleString()}` : "Run"} subtitle={detail ? `Pipeline version ${detail.run.pipeline.version} - ${statusLabel(detail.run.status)}` : undefined} onBack={() => router.push(`/studies/${studyId}/runs`)} backLabel="Results" />
+      <AppPageHeader title={detail ? `Run from ${formatDateTime(detail.run.createdAt)}` : "Run"} subtitle={detail ? `Pipeline version ${detail.run.pipeline.version} - ${statusLabel(detail.run.status)}` : undefined} onBack={() => router.push(`/studies/${studyId}/runs`)} backLabel="Results" />
       {error && !detail ? <Alert type={error.status === 403 || error.status === 404 ? "warning" : "error"} showIcon message="Run could not be loaded" description={error.message} /> : null}
       {error && detail ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Could not refresh this run" description={`${error.message} The values below are from the last successful load.`} /> : null}
       {!detail && !error ? <Spin tip="Loading run..."><div style={{ minHeight: 120 }} /></Spin> : null}
@@ -267,8 +268,8 @@ export default function RunDetailPage() {
             <div>
               {detail.siteLost.sites.map((site) => (
                 <div key={site.code}>
-                  <strong>Site {site.code}</strong>: {site.reason} (since {new Date(site.since).toLocaleTimeString()}).
-                  {site.abortAt ? ` If it stays down, Fedlify ends this run as failed at about ${new Date(site.abortAt).toLocaleTimeString()}.` : " This alone does not end the run."}
+                  <strong>Site {site.code}</strong>: {site.reason} (since {formatDateTime(site.since)}).
+                  {site.abortAt ? ` If it stays down, Fedlify ends this run as failed at about ${formatDateTime(site.abortAt)}.` : " This alone does not end the run."}
                 </div>
               ))}
               <div>Restart the runner on that site with ./fedlify-runner.sh start, or stop the run from the Results page.</div>

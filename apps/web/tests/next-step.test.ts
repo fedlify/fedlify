@@ -7,7 +7,7 @@ const site = (code: string, over: Partial<StepSite> = {}): StepSite => ({
   studySiteId: `ss-${code}`, code, name: `Hospital ${code}`, signedOff: true, kitReleased: true, kitImageDigest: null, connected: true, imageState: "CURRENT", needsNewKit: false, ...over
 });
 const fresh = (): StepsSnapshot => ({
-  studyId: "s1", now: NOW, ethics: null, questions: { answered: 0, total: 29 }, hasProject: false, versions: [], aggregator: null, sites: [site("A", { connected: null }), site("B", { connected: null })], jobs: [], modelReleases: 0
+  studyId: "s1", now: NOW, study: { title: "Sepsis model", goal: "Predict mortality", status: "DRAFT" }, ethics: null, questions: { answered: 0, total: 29 }, hasProject: false, versions: [], aggregator: null, sites: [site("A", { connected: null }), site("B", { connected: null })], jobs: [], modelReleases: 0
 });
 const published = (over: Partial<StepsSnapshot> = {}): StepsSnapshot => ({
   ...fresh(),
@@ -25,7 +25,7 @@ describe("resolveStudySteps", () => {
   it("always has six steps in order with the plain titles", () => {
     const { steps } = resolveStudySteps(fresh(), ALL);
     expect(steps.map((s) => s.key)).toEqual(["authorize", "prepare", "approve", "deploy", "execute", "validate"]);
-    expect(steps.map((s) => s.title)).toEqual(["Ethics decision", "Study questions", "Pipeline", "Sites", "Run", "Results"]);
+    expect(steps.map((s) => s.title)).toEqual(["Ethics decision", "Study details and questions", "Pipeline", "Sites", "Run", "Results"]);
   });
 
   it("points a fresh study at the ethics decision", () => {
@@ -50,7 +50,7 @@ describe("resolveStudySteps", () => {
     const result = resolveStudySteps(snap, ALL);
     expect(result.current).toBe("prepare");
     expect(result.steps[1].status).toBe("3 of 29 answered");
-    expect(result.steps[1].blockers[0].detail).toBe("26 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Protocol, then Study questions.");
+    expect(result.steps[1].blockers[0].detail).toBe("26 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Study setup, then Questions.");
   });
 
   it("points a study with every question answered at the pipeline", () => {
@@ -139,6 +139,51 @@ describe("resolveStudySteps", () => {
     expect(step(failedServer, "deploy")).toMatchObject({ status: "Study server failed", tone: "error" });
     const failedPublish = published({ aggregator: null, versions: [{ id: "v1", version: "v1", gitCommit: "abc", publish: { status: "FAILED" } }] });
     expect(step(failedPublish, "approve")).toMatchObject({ status: "Publish failed", tone: "error", action: { label: "Publish again" } });
+  });
+});
+
+describe("study details and the start button", () => {
+  const withoutObjective = (over: Partial<StepsSnapshot> = {}) => ({ ...fresh(), ...over, study: { title: "Sepsis model", goal: "  ", status: "DRAFT" } });
+
+  it("sends a study without an objective to the details tab first", () => {
+    const snap = withoutObjective({ ethics: { status: "APPROVED" }, questions: { answered: 29, total: 29 } });
+    const prepare = step(snap, "prepare");
+    expect(prepare).toMatchObject({ status: "Objective missing", href: "/studies/s1?section=protocol&tab=details", action: { label: "Write the study objective", href: "/studies/s1?section=protocol&tab=details" } });
+    expect(resolveStudySteps(snap, ALL).current).toBe("prepare");
+  });
+
+  it("says who to ask when the person cannot write the objective", () => {
+    expect(step(withoutObjective(), "prepare", {}).detail).toBe("Ask a study lead to write the study objective.");
+  });
+
+  it("is ready to start only with a title, objective, ethics, a site and all 29 answers", () => {
+    const ready = resolveStudySteps(published({ jobs: [] }), ALL).start;
+    expect(ready).toEqual({ started: false, ready: true, missing: [], canStart: true });
+    expect(resolveStudySteps(published({ ethics: null }), ALL).start.missing).toEqual(["Record the ethics decision"]);
+    expect(resolveStudySteps(published({ questions: { answered: 28, total: 29 } }), ALL).start.missing).toEqual(["Answer the study questions (28 of 29 done)"]);
+    expect(resolveStudySteps(published({ study: { title: "Sepsis model", goal: null, status: "DRAFT" } }), ALL).start.missing).toEqual(["Write the study objective"]);
+  });
+
+  it("asks for the first site when there is none", () => {
+    const start = resolveStudySteps(published({ sites: [] }), ALL).start;
+    expect(start).toMatchObject({ ready: false, missing: ["Add your first site"] });
+  });
+
+  it("lists everything missing on a fresh study, in plain words", () => {
+    const start = resolveStudySteps({ ...fresh(), sites: [] }, ALL).start;
+    expect(start.missing).toEqual(["Record the ethics decision", "Add your first site", "Answer the study questions (0 of 29 done)"]);
+  });
+
+  it("does not let a person who cannot manage the study press the button", () => {
+    expect(resolveStudySteps(published(), {}).start).toMatchObject({ ready: true, canStart: false });
+  });
+
+  it("reports a started study", () => {
+    expect(resolveStudySteps(published({ study: { title: "Sepsis model", goal: "Predict", status: "ACTIVE" } }), ALL).start.started).toBe(true);
+  });
+
+  it("treats an expired ethics decision as not cleared", () => {
+    expect(resolveStudySteps(published({ ethics: { status: "APPROVED", validUntil: "2026-03-05T00:00:00Z" } }), ALL).start.missing).toEqual(["Record the ethics decision"]);
   });
 });
 

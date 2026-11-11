@@ -2,12 +2,12 @@
 
 import { HomeOutlined } from "@ant-design/icons";
 import type { SiteRole } from "@prisma/client";
-import { Tag } from "antd";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { CardGrid, EntityCard } from "@/components/DataCards";
+import { StatusTag, type StatusTone } from "@/components/StatusTag";
 import { EmptyState, InlineLoadError, CardGridSkeleton } from "@/components/LoadStates";
 import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { isSiteContact } from "@/lib/plain-roles";
@@ -16,7 +16,7 @@ import { roleLabel } from "@/lib/terms";
 type MySite = { studySiteId: string; name: string; studyTitle: string; roles: string[] };
 type RunnerLine = { text: string; tone: "ok" | "warn" | "error" | "idle"; next: string | null };
 
-const TONE_COLOR: Record<RunnerLine["tone"], string | undefined> = { ok: "green", warn: "orange", error: "red", idle: undefined };
+const RUNNER_TONE: Record<RunnerLine["tone"], StatusTone> = { ok: "success", warn: "warning", error: "danger", idle: "neutral" };
 
 function roleText(roles: string[]) {
   return isSiteContact(roles as SiteRole[]) ? "Site contact" : roles.map((role) => roleLabel(role)).join(", ");
@@ -94,7 +94,7 @@ export default function MySitePage() {
                 key={site.studySiteId}
                 title={site.name}
                 subtitle={site.studyTitle}
-                status={line ? <Tag color={TONE_COLOR[line.tone]}>{line.text}</Tag> : undefined}
+                status={line ? <StatusTag tone={RUNNER_TONE[line.tone]} label={line.text} /> : undefined}
                 meta={[`Your role: ${roleText(site.roles)}`, ...(line?.next ? [`Next step: ${line.next}`] : [])]}
                 actions={<Link href={`/sites/${site.studySiteId}`}>Open site</Link>}
               />

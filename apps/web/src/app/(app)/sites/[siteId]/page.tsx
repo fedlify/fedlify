@@ -17,8 +17,10 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { Details } from "@/components/Details";
 import { FormError } from "@/components/FormFeedback";
+import { StatusTag } from "@/components/StatusTag";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { toneIcon } from "@/components/PipelineRail";
+import { formatDate as formatDateValue } from "@/lib/format";
 import { isSiteContact } from "@/lib/plain-roles";
 import { studySoftwareLabel, type SiteRuntime } from "@/lib/site-runtime";
 import { auditActionLabel, kitStateLabel, roleLabel, statusLabel, TERMS } from "@/lib/terms";
@@ -52,8 +54,7 @@ function displayEnum(value: unknown, fallback = "Not set") {
 }
 
 function formatDate(value: unknown) {
-  if (!value || typeof value !== "string") return "Not recorded";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+  return formatDateValue(typeof value === "string" ? value : null, "Not recorded");
 }
 
 function shortImage(value: string | null) {
@@ -550,7 +551,7 @@ export default function SiteOnboardingPage() {
                     <section className="fedlify-site-panel">
                       <div className="fedlify-site-panel-head">
                         <strong>1. Download the site kit</strong>
-                        <Tag color={runtime.kitState === "RELEASED" ? "green" : "orange"}>{kitStateLabel(runtime.kitState)}</Tag>
+                        <StatusTag tone={runtime.kitState === "RELEASED" ? "success" : "warning"} label={kitStateLabel(runtime.kitState)} />
                       </div>
                       <Typography.Text type="secondary">
                         {activeJoinPackage
@@ -641,9 +642,7 @@ export default function SiteOnboardingPage() {
                     <section className="fedlify-site-panel">
                       <div className="fedlify-site-panel-head">
                         <strong>3. Update the code version when needed</strong>
-                        <Tag color={runtime.imageFix.length > 0 ? "orange" : runtime.imageState === "CURRENT" ? "green" : undefined}>
-                          {IMAGE_STATE_LABEL[runtime.imageState] ?? "Not reported"}
-                        </Tag>
+                        <StatusTag tone={runtime.imageFix.length > 0 ? "warning" : runtime.imageState === "CURRENT" ? "success" : "neutral"} label={IMAGE_STATE_LABEL[runtime.imageState] ?? "Not reported"} />
                       </div>
                       {runtime.imageFix.length > 0 ? (
                         <ol className="fedlify-site-steps">{runtime.imageFix.map((step) => <li key={step}>{step}</li>)}</ol>

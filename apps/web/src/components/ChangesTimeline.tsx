@@ -1,15 +1,16 @@
 "use client";
 
-import { Button, Empty, Modal, Segmented, Spin, Tag, Typography } from "antd";
+import { Button, Empty, Modal, Segmented, Spin, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import type { CommitDiff } from "@/lib/agent-timeline";
 import { getCommitDiff, getTimeline, relativeTime } from "@/lib/agent-thread-client";
+import { StatusTag, type StatusTone } from "@/components/StatusTag";
 import { statusLabel } from "@/lib/terms";
 import type { TimelineEntryDto, TimelineKind } from "@/lib/agent-thread-types";
 
 type Filter = "all" | "agent" | "manual" | "published";
 const KIND_LABEL: Record<TimelineKind, string> = { agent: "Assistant", manual: "Manual save", published: "Published", rejected: "Rejected", external: "External or unrecorded" };
-const KIND_COLOR: Record<TimelineKind, string> = { agent: "purple", manual: "blue", published: "green", rejected: "default", external: "gold" };
+const KIND_TONE: Record<TimelineKind, StatusTone> = { agent: "info", manual: "info", published: "success", rejected: "neutral", external: "warning" };
 
 /** What changed in this project: agent proposals, manual saves, publishes. Diff opens the proposal review; Open thread jumps to the chat. */
 export function ChangesTimeline({
@@ -67,7 +68,7 @@ export function ChangesTimeline({
         {entries.map((entry) => (
           <li key={entry.id}>
             <div className="fedlify-ws-changes-head">
-              <Tag color={KIND_COLOR[entry.kind]}>{KIND_LABEL[entry.kind]}</Tag>
+              <StatusTag tone={KIND_TONE[entry.kind]} label={KIND_LABEL[entry.kind]} />
               <span className="fedlify-muted">{relativeTime(entry.at)}</span>
               {entry.commit ? <code title="Commit">{entry.commit.slice(0, 7)}</code> : null}
             </div>

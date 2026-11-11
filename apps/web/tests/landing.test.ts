@@ -5,6 +5,11 @@ const defaultStudy = { study: { defaultStudy: true, createdById: "u1", _count: {
 const base = { userId: "u1", platformRole: "USER", siteCount: 1, studyMembers: [], orgMemberships: [] as { role: string; status?: string; organization: { slug: string } }[] };
 
 describe("landingFor", () => {
+  it("sends a new person with no study and no site to the dashboard, which opens Study management", () => {
+    const fresh = { ...base, siteCount: 0, orgMemberships: [{ role: "ORG_ADMIN", organization: { slug: "personal-u1" } }] };
+    expect(landingFor(fresh)).toBe("/dashboard");
+  });
+
   it("sends a site-only person to My site", () => {
     expect(landingFor(base)).toBe("/my-site");
   });

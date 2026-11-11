@@ -9,7 +9,7 @@ import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { EntityDetailView, FieldGrid, FieldRow } from "@/components/EntityDetail";
 import { EmptyState, CardGridSkeleton, InlineLoadError } from "@/components/LoadStates";
 import { StatusTag } from "@/components/StatusTag";
-import { getStudyWorkspaceSection, normalizeStudyWorkspaceSection, type StudyWorkspaceSection } from "@/lib/study-workspace";
+import { getStudyWorkspaceSection, normalizeStudyWorkspaceSection, studySetupTabFromLink, type StudyWorkspaceSection } from "@/lib/study-workspace";
 import { parseStudyDetailParam, serializeStudyDetailParam, type StudyDetailKind, type StudyDetailState } from "@/lib/study-detail";
 import {
   resolveUnavailableStudyTarget,
@@ -17,8 +17,8 @@ import {
   SELECTED_STUDY_STORAGE_KEY,
   type StudySummary
 } from "@/lib/studies";
-import { ProtocolSection, type ProtocolTab } from "./sections/ProtocolSection";
 import { SitesSection } from "./sections/SitesSection";
+import { StudySetupSection } from "./sections/StudySetupSection";
 import { EthicsModal } from "./sections/StudyFormModals";
 import { SummarySection } from "./sections/SummarySection";
 import { TeamSection, type TeamStudy } from "./sections/TeamSection";
@@ -149,7 +149,7 @@ export default function StudyDetailPage() {
         title,
         subtitle: text(record.approvingBody, "Review body not recorded"),
         status: <StatusTag value={status(record.status)} />,
-        backLabel: "Study protocol"
+        backLabel: "Study setup"
       };
     }
 
@@ -158,11 +158,11 @@ export default function StudyDetailPage() {
         title: text(record.filename, "Study document"),
         subtitle: documentKindLabel(record.kind, "Document"),
         status: <StatusTag value={status(record.scanStatus, "PENDING")} />,
-        backLabel: "Study protocol"
+        backLabel: "Study setup"
       };
     }
 
-    return { title: "Record", backLabel: "Study protocol" };
+    return { title: "Record", backLabel: "Study setup" };
   }
 
   function renderEntityDetail(study: StudyDetail, detail: StudyDetailState) {
@@ -228,18 +228,17 @@ export default function StudyDetailPage() {
     if (section === "overview") return <SummarySection studyId={studyId} />;
 
     if (section === "protocol") {
-      // A link can open a protocol tab directly (?section=protocol&tab=ethics or tab=requirements).
-      const initialTab: ProtocolTab = linkedTab === "ethics" || linkedTab === "requirements" ? linkedTab : "review";
+      // A link can open a tab directly (?section=protocol&tab=ethics|requirements|details); old tab names still work.
+      const linked = studySetupTabFromLink(linkedTab);
       return (
-        <ProtocolSection
-          key={`${studyId}:${initialTab}`}
+        <StudySetupSection
+          key={`${studyId}:${linked ?? "first"}`}
           study={currentStudy}
           studyId={studyId}
-          initialTab={initialTab}
+          initialTab={linked}
           onChanged={reload}
           onRecordEthics={(record) => setEthicsForm({ open: true, record: record ?? null })}
           onOpenDetail={(kind, id) => openDetail(kind, id, "protocol")}
-          onOpenSites={() => router.push(sectionUrl("sites"))}
         />
       );
     }

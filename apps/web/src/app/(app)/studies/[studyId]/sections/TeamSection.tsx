@@ -8,6 +8,7 @@ import { SectionHeader } from "@/components/AppPage";
 import { InvitePersonModal } from "@/components/InvitePersonModal";
 import { RecordTable } from "@/components/RecordTable";
 import { StatusTag } from "@/components/StatusTag";
+import { formatDate } from "@/lib/format";
 import { closestPlainRole, describeStudyRoles, PLAIN_ROLES, plainRole, STUDY_ROLE_LABELS, toStudyRoles, type PlainRoleKey } from "@/lib/plain-roles";
 import { groupMembers, invitationSummary, roleDisabledReason, siteContactRows, siteRolesLabel, type InviteChoice, type SiteContactRow, type TeamMember } from "@/lib/team-roles";
 import { clearPermissionsCache, useStudyPermissions } from "@/lib/use-permissions";
@@ -25,12 +26,6 @@ const ADVANCED_ROLES: StudyRole[] = [
   "PRINCIPAL_INVESTIGATOR", "STUDY_COORDINATOR", "CLINICAL_LEAD", "ETHICS_REVIEWER", "DATA_SCIENTIST",
   "PIPELINE_DEVELOPER", "PRIVACY_SECURITY_OFFICER", "RELEASE_APPROVER", "AUDITOR"
 ];
-
-function formatDate(value?: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
 
 type RowData = { key: string; name: string; email: string; member?: TeamMember; site?: SiteContactRow };
 
@@ -175,7 +170,7 @@ export function TeamSection({ studyId, study, onChanged }: { studyId: string; st
               );
             }
           },
-          { title: "Expires", dataIndex: "expiresAt", render: (value?: string) => formatDate(value) },
+          { title: "Expires", dataIndex: "expiresAt", render: (value?: string) => formatDate(value, "-") },
           { title: "Status", dataIndex: "status", render: (value?: string) => <StatusTag value={value ?? "PENDING"} /> },
           {
             title: "",

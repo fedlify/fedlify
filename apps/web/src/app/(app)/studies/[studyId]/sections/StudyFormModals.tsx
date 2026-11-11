@@ -6,25 +6,10 @@ import { Button, Form, Input, Modal, Select, Space, Upload } from "antd";
 import type { UploadFile } from "antd";
 import { useState } from "react";
 import { FormError } from "@/components/FormFeedback";
-import { RichTextEditor } from "@/components/RichTextEditor";
-import {
-  CLINICAL_USE_CASE_OPTIONS,
-  DATA_MODALITY_OPTIONS,
-  INTENDED_USE_OPTIONS,
-  normalizeMultiSelectValue,
-  splitMultiSelectValue,
-} from "@/lib/governance-options";
-import {
-  displayEnum,
-  GovernanceSection,
-  normalizeStudyDesignPayload,
-  REQUIRED_RICH_TEXT_RULE,
-  useStudyRequest,
-  type EntityRecord,
-  type StudyDetail,
-} from "./shared";
+import { normalizeMultiSelectValue } from "@/lib/governance-options";
+import { displayEnum, intendedUseText, plainText, useStudyRequest, type EntityRecord, type StudyDetail } from "./shared";
 
-/** The four forms on the study pages. Each opens in a modal and keeps the API call and validation it always had. */
+/** The forms on the study pages. Each opens in a modal and keeps the API call and validation it always had. */
 
 async function sha256File(file: File): Promise<string> {
   const digest = await crypto.subtle.digest(
@@ -43,328 +28,82 @@ type ModalProps = {
   onSaved: () => void | Promise<void>;
 };
 
-export function StudyDesignModal({
-  open,
-  study,
-  studyId,
-  onClose,
-  onSaved,
-}: ModalProps & { study: StudyDetail }) {
-  const { submitting, error, setError, patch, contextHolder } =
-    useStudyRequest(onSaved);
+/** Study details: a title, a one-line summary and six short fields. One title, one Save button. */
+export function StudyDetailsModal({ open, study, studyId, onClose, onSaved }: ModalProps & { study: StudyDetail }) {
+  const { submitting, error, setError, patch, contextHolder } = useStudyRequest(onSaved);
   function close() {
     setError(null);
     onClose();
   }
+  // Empty text is sent as null so a field can be cleared.
+  const clean = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
   return (
     <>
       {contextHolder}
-      <Modal
-        title="Edit study details"
-        open={open}
-        onCancel={close}
-        footer={null}
-        width={920}
-        destroyOnClose
-        maskClosable={false}
-      >
+      <Modal title="Study details" open={open} onCancel={close} footer={null} width={640} destroyOnClose maskClosable={false}>
         <Form
           layout="vertical"
           className="fedlify-inline-create-form"
           initialValues={{
             title: study.title,
-            description: study.description,
-            goal: study.goal,
-            researchQuestion: study.researchQuestion,
-            hypothesis: study.hypothesis,
-            secondaryObjectives: study.secondaryObjectives,
-            clinicalUseCase: study.clinicalUseCase,
-            studyDesign: study.studyDesign,
-            population: study.population,
-            eligibilityCriteria: study.eligibilityCriteria,
-            dataModalities: splitMultiSelectValue(study.dataModalities),
-            primaryOutcome: study.primaryOutcome,
-            primaryEndpointDetails: study.primaryEndpointDetails,
-            secondaryOutcomes: study.secondaryOutcomes,
-            sampleSizeRationale: study.sampleSizeRationale,
-            analysisPlan: study.analysisPlan,
-            dataHandlingPlan: study.dataHandlingPlan,
-            humanAiWorkflow: study.humanAiWorkflow,
-            fairnessPlan: study.fairnessPlan,
-            disseminationPlan: study.disseminationPlan,
-            riskLevel: study.riskLevel ?? "MODERATE",
-            intendedUse: study.intendedUse,
+            description: plainText(study.description),
+            goal: plainText(study.goal),
+            researchQuestion: plainText(study.researchQuestion),
+            intendedUse: intendedUseText(study),
+            population: plainText(study.population),
+            dataModalities: plainText(study.dataModalities),
+            primaryOutcome: plainText(study.primaryOutcome)
           }}
           onFinish={async (values) => {
             const result = await patch(
               `/api/v1/studies/${studyId}`,
               {
                 action: "updateDetails",
-                ...normalizeStudyDesignPayload(values),
-                dataModalities: normalizeMultiSelectValue(
-                  values.dataModalities,
-                ),
+                title: values.title,
+                description: clean(values.description),
+                goal: clean(values.goal),
+                researchQuestion: clean(values.researchQuestion),
+                intendedUse: clean(values.intendedUse),
+                population: clean(values.population),
+                dataModalities: clean(values.dataModalities),
+                primaryOutcome: clean(values.primaryOutcome)
               },
-              "Study details saved.",
+              "Study details saved."
             );
             if (result) close();
           }}
         >
           <FormError title="Study details were not saved" message={error} />
-          <GovernanceSection title="Overview">
-            <div className="fedlify-intake-field-grid">
-              <Form.Item
-                name="title"
-                label="Study title"
-                rules={[{ required: true, min: 3 }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item name="riskLevel" label="Risk level">
-                <Select
-                  options={[
-                    { value: "LOW", label: "Low" },
-                    { value: "MODERATE", label: "Moderate" },
-                    { value: "HIGH", label: "High" },
-                  ]}
-                />
-              </Form.Item>
-              <Form.Item
-                name="description"
-                label="Study summary"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Summarize the study rationale, context, and scope."
-                />
-              </Form.Item>
-              <Form.Item
-                name="clinicalUseCase"
-                label="Clinical use case"
-                rules={[{ required: true }]}
-              >
-                <Select
-                  showSearch
-                  options={CLINICAL_USE_CASE_OPTIONS}
-                  optionFilterProp="label"
-                  placeholder="Select clinical use case"
-                />
-              </Form.Item>
-              <Form.Item
-                name="intendedUse"
-                label="Intended use"
-                rules={[{ required: true }]}
-              >
-                <Select
-                  showSearch
-                  options={INTENDED_USE_OPTIONS}
-                  optionFilterProp="label"
-                  placeholder="Select intended use"
-                />
-              </Form.Item>
-            </div>
-          </GovernanceSection>
-          <GovernanceSection title="Scientific question">
-            <div className="fedlify-intake-field-grid">
-              <Form.Item
-                name="goal"
-                label="Primary objective"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={3}
-                  placeholder="State the primary scientific or operational objective."
-                />
-              </Form.Item>
-              <Form.Item
-                name="researchQuestion"
-                label="Research question"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={3}
-                  placeholder="State the question this study should answer."
-                />
-              </Form.Item>
-              <Form.Item
-                name="hypothesis"
-                label="Hypothesis"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={3}
-                  placeholder="Optional: state the hypothesis if this study is hypothesis-driven."
-                />
-              </Form.Item>
-              <Form.Item
-                name="secondaryObjectives"
-                label="Secondary objectives"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Optional: add secondary objectives or exploratory questions."
-                />
-              </Form.Item>
-            </div>
-          </GovernanceSection>
-          <GovernanceSection title="Design and population">
-            <div className="fedlify-intake-field-grid">
-              <Form.Item
-                name="studyDesign"
-                label="Type of study"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Describe the type of study, its timing, and how data stays at each site."
-                />
-              </Form.Item>
-              <Form.Item
-                name="population"
-                label="Population"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item
-                name="dataModalities"
-                label="Data modalities"
-                rules={[{ required: true }]}
-              >
-                <Select
-                  mode="tags"
-                  options={DATA_MODALITY_OPTIONS}
-                  optionFilterProp="label"
-                  placeholder="Select modalities"
-                />
-              </Form.Item>
-              <Form.Item
-                name="eligibilityCriteria"
-                label="Eligibility criteria"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Define inclusion, exclusion, site, and cohort criteria."
-                />
-              </Form.Item>
-            </div>
-          </GovernanceSection>
-          <GovernanceSection title="Outcomes and analysis">
-            <div className="fedlify-intake-field-grid">
-              <Form.Item
-                name="primaryOutcome"
-                label="Primary endpoint / outcome"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item
-                name="primaryEndpointDetails"
-                label="Endpoint details"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Describe how the primary endpoint is measured and evaluated."
-                />
-              </Form.Item>
-              <Form.Item
-                name="secondaryOutcomes"
-                label="Secondary outcomes"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Optional: list secondary or exploratory outcomes."
-                />
-              </Form.Item>
-              <Form.Item
-                name="sampleSizeRationale"
-                label="Sample size / rationale"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Optional: explain sample size, site count, or cohort availability rationale."
-                />
-              </Form.Item>
-              <Form.Item
-                name="analysisPlan"
-                label="Analysis plan"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={5}
-                  placeholder="Describe statistical, model-performance, validation, and how results from sites are combined."
-                />
-              </Form.Item>
-            </div>
-          </GovernanceSection>
-          <GovernanceSection title="AI and data sharing">
-            <div className="fedlify-intake-field-grid">
-              <Form.Item
-                name="dataHandlingPlan"
-                label="Data handling plan"
-                className="fedlify-intake-full"
-                rules={[REQUIRED_RICH_TEXT_RULE]}
-              >
-                <RichTextEditor
-                  minRows={5}
-                  placeholder="Describe site-local data handling, privacy boundaries, artifacts, and outputs."
-                />
-              </Form.Item>
-              <Form.Item
-                name="humanAiWorkflow"
-                label="How people and the AI work together"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Optional: describe human review, overrides, and AI-assisted decision points."
-                />
-              </Form.Item>
-              <Form.Item
-                name="fairnessPlan"
-                label="Fairness / subgroup plan"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Optional: describe subgroup checks, fairness risks, and mitigation steps."
-                />
-              </Form.Item>
-              <Form.Item
-                name="disseminationPlan"
-                label="Dissemination plan"
-                className="fedlify-intake-full"
-              >
-                <RichTextEditor
-                  minRows={4}
-                  placeholder="Optional: describe release, reporting, and communication plans."
-                />
-              </Form.Item>
-            </div>
-          </GovernanceSection>
+          <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Summary">
+            <Input placeholder="One line about the study" />
+          </Form.Item>
+          <Form.Item name="goal" label="Objective" rules={[{ required: true, message: "Write the objective in a sentence or two." }]}>
+            <Input.TextArea rows={2} placeholder="What should this study achieve?" />
+          </Form.Item>
+          <Form.Item name="researchQuestion" label="Research question">
+            <Input.TextArea rows={2} placeholder="The question the study answers" />
+          </Form.Item>
+          <Form.Item name="intendedUse" label="Intended use">
+            <Input.TextArea rows={2} placeholder="How the model will be used, for example research only" />
+          </Form.Item>
+          <Form.Item name="population" label="Population">
+            <Input placeholder="Who the data is about" />
+          </Form.Item>
+          <Form.Item name="dataModalities" label="Data types">
+            <Input placeholder="For example: health records, lab results, images" />
+          </Form.Item>
+          <Form.Item name="primaryOutcome" label="Main outcome">
+            <Input placeholder="What the model predicts or measures" />
+          </Form.Item>
           <Space className="fedlify-form-actions">
             <Button onClick={close} disabled={submitting}>
               Cancel
             </Button>
-            <Button
-              type="primary"
-              htmlType="submit"
-              className="fedlify-dark-action"
-              loading={submitting}
-            >
-              Save study design
+            <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={submitting}>
+              Save
             </Button>
           </Space>
         </Form>

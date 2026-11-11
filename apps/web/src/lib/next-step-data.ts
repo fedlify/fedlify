@@ -18,7 +18,7 @@ export async function loadStepPermissions(studyId: string, userId: string): Prom
 
 export async function loadStepsSnapshot(studyId: string, userId?: string): Promise<StepsSnapshot> {
   const [study, questions, overview, readiness, modelReleases] = await Promise.all([
-    prisma.study.findUnique({ where: { id: studyId }, select: { ethics: { orderBy: { createdAt: "desc" }, take: 1 } } }),
+    prisma.study.findUnique({ where: { id: studyId }, select: { title: true, goal: true, status: true, ethics: { orderBy: { createdAt: "desc" }, take: 1 } } }),
     loadQuestionProgress(studyId),
     // Summary only reads: it skips the publish watchdog, which can write. Code & run still runs it.
     loadAggregatorOverview(studyId, { watchdog: false }),
@@ -35,6 +35,7 @@ export async function loadStepsSnapshot(studyId: string, userId?: string): Promi
   const signedOff = new Map(readiness.map((site) => [site.id, siteSignedOff(site.readinessChecks[0])]));
   return {
     studyId,
+    study: { title: study?.title, goal: study?.goal, status: study?.status ?? "DRAFT" },
     ethics: ethicsSnapshot(study?.ethics),
     questions,
     hasProject: overview.projects.length > 0,

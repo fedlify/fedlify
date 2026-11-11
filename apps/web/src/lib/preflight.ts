@@ -8,7 +8,7 @@
 import { ethicsCleared, ethicsExpired, ethicsExpiredMessage, publishRequirementMessage } from "@/lib/governance";
 import type { SiteImageState } from "@/lib/site-image";
 
-const QUESTIONS_DETAIL_TAIL = "Suggested answers count only after you accept them. Open Protocol, then Study questions.";
+const QUESTIONS_DETAIL_TAIL = "Suggested answers count only after you accept them. Open Study setup, then Questions.";
 
 export type PreflightKind = "publish" | "run";
 export type PreflightOwner = "study" | "site" | "system";

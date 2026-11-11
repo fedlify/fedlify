@@ -9,11 +9,11 @@ type CardGridSkeletonProps = {
   className?: string;
 };
 
-export function CardGridSkeleton({ count = 4, className = "fedlify-entity-grid" }: CardGridSkeletonProps) {
+export function CardGridSkeleton({ count = 4, className = "fl-grid" }: CardGridSkeletonProps) {
   return (
     <div className={className} aria-label="Loading cards">
       {Array.from({ length: count }).map((_, index) => (
-        <article key={index} className="fedlify-skeleton-card">
+        <article key={index} className="fedlify-skeleton-card fl-card">
           <Skeleton active paragraph={{ rows: 3 }} title={{ width: "62%" }} />
         </article>
       ))}
@@ -52,11 +52,14 @@ export function EmptyState({
   icon = <FileSearchOutlined />,
   title = "No records",
   description,
+  action,
   compact = false
 }: {
   icon?: ReactNode;
   title?: ReactNode;
   description?: ReactNode;
+  /** One button that fixes the emptiness, for example "Create study". */
+  action?: ReactNode;
   compact?: boolean;
 }) {
   return (
@@ -64,6 +67,7 @@ export function EmptyState({
       <span className="fedlify-empty-state-icon">{icon}</span>
       <Typography.Text className="fedlify-empty-state-title">{title}</Typography.Text>
       {description ? <Typography.Text className="fedlify-empty-state-description">{description}</Typography.Text> : null}
+      {action}
     </div>
   );
 }
@@ -76,8 +80,9 @@ export function CardListState({
   emptyTitle,
   emptyDescription,
   emptyIcon,
+  emptyAction,
   skeletonCount = 3,
-  skeletonClassName = "fedlify-entity-grid",
+  skeletonClassName = "fl-grid",
   children
 }: {
   loading: boolean;
@@ -87,6 +92,7 @@ export function CardListState({
   emptyTitle?: ReactNode;
   emptyDescription?: ReactNode;
   emptyIcon?: ReactNode;
+  emptyAction?: ReactNode;
   skeletonCount?: number;
   skeletonClassName?: string;
   children: ReactNode;
@@ -99,6 +105,7 @@ export function CardListState({
         icon={emptyIcon}
         title={emptyTitle ?? emptyDescription ?? "No records"}
         description={emptyTitle ? emptyDescription : undefined}
+        action={emptyAction}
       />
     );
   }

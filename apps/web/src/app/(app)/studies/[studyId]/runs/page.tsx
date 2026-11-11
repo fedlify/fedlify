@@ -1,12 +1,13 @@
 "use client";
 
-import { Alert, Tag, Tooltip, Typography } from "antd";
+import { Alert, Tooltip, Typography } from "antd";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { RecordTable } from "@/components/RecordTable";
 import { StatusTag } from "@/components/StatusTag";
+import { formatDateTime } from "@/lib/format";
 import { statusLabel } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
 
@@ -69,7 +70,7 @@ export default function StudyRunsPage() {
                 title: "Run",
                 render: (_, run) => (
                   <Link href={`/studies/${studyId}/runs/${run.id}`} title={`Run ID ${run.nvflareJobId ?? run.id}`}>
-                    Run from {new Date(run.createdAt).toLocaleString()}
+                    Run from {formatDateTime(run.createdAt)}
                   </Link>
                 )
               },
@@ -82,7 +83,7 @@ export default function StudyRunsPage() {
                     {run.imageMismatchSites.length ? (
                       <Tooltip title={`When this run started, ${run.imageMismatchSites.join(", ")} reported a different code version from this pipeline version, so the code that trained may not be ${run.pipelineVersion}.`}>
                         {" "}
-                        <Tag color="warning">Code version differs</Tag>
+                        <StatusTag tone="warning" label="Code version differs" />
                       </Tooltip>
                     ) : null}
                   </span>

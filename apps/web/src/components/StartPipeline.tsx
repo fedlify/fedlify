@@ -47,6 +47,8 @@ import {
   type RepoFile,
   type StartPath
 } from "@/lib/pipeline-start";
+import { StatusTag } from "@/components/StatusTag";
+import { formatDate as formatDateValue } from "@/lib/format";
 import { isProhibitedDataPath } from "@/lib/data-paths";
 import { ApiError, apiCall } from "@/lib/web-api";
 
@@ -99,7 +101,7 @@ type CatalogTemplate = {
 };
 
 const STARTER_DESCRIPTION = "Fedlify starter: FedAvg logistic regression on tabular EHR data, binary classification (NVFLARE Client API).";
-const FIT_COLOR = { fits: "green", partial: "gold", different: "default" } as const;
+const FIT_TONE = { fits: "success", partial: "warning", different: "neutral" } as const;
 const GIT_URL = /^https:\/\/[^\s/]+\/[^\s]+$/;
 
 function cardFromCatalog(template: CatalogTemplate): TemplateCard {
@@ -139,9 +141,7 @@ function starterCard(): TemplateCard {
 
 function FitBadge({ report, provisional }: { report: FitReport; provisional?: boolean }) {
   return (
-    <Tag color={FIT_COLOR[report.fit]} data-fit={report.fit} data-testid="fit-badge" style={{ marginInlineEnd: 0 }} title={provisional ? "First guess from the template's name. Select the template to read its source." : undefined}>
-      {FIT_LABELS[report.fit]}
-    </Tag>
+    <StatusTag tone={FIT_TONE[report.fit]} data-fit={report.fit} data-testid="fit-badge" title={provisional ? "First guess from the template's name. Select the template to read its source." : undefined} label={FIT_LABELS[report.fit]} />
   );
 }
 
@@ -169,7 +169,7 @@ function rowSummary(card: TemplateCard) {
 }
 
 function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : null;
+  return value ? formatDateValue(value) : null;
 }
 
 function AlignmentView({ report }: { report: AlignmentReport }) {
@@ -1026,7 +1026,7 @@ export function StartPipeline({ studyId, projects, liveVersionId, jobs, initialP
                     width: 120,
                     render: (_: unknown, row: (typeof featureRows)[number]) => {
                       const cell = row.bySite[site.code];
-                      return cell === "listed" ? <Tag color="green">listed</Tag> : cell === "missing" ? <Tag color="red">missing</Tag> : <Tag icon={<QuestionCircleOutlined />}>unknown</Tag>;
+                      return cell === "listed" ? <StatusTag tone="success" label="listed" /> : cell === "missing" ? <StatusTag tone="danger" label="missing" /> : <StatusTag icon={<QuestionCircleOutlined />} label="unknown" />;
                     }
                   }))
                 ]}

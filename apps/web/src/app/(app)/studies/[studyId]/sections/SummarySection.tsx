@@ -1,20 +1,52 @@
 "use client";
 
 import { CheckCircleFilled } from "@ant-design/icons";
-import { Button, Skeleton } from "antd";
+import { Button, message, Skeleton } from "antd";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { InlineLoadError } from "@/components/LoadStates";
 import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { PreflightChecklist } from "@/components/PreflightChecklist";
 import { toneIcon } from "@/components/PipelineRail";
-import { visibleBlockers, type Step, type StepsResult } from "@/lib/next-step";
+import { visibleBlockers, type Step, type StartInfo, type StepsResult } from "@/lib/next-step";
 
 function Blockers({ step }: { step: Step }) {
   const failing = visibleBlockers(step);
   if (failing.length === 0) return null;
   return <PreflightChecklist title="What is missing" result={{ ok: false, items: failing }} compact />;
+}
+
+/** Start the study: the one button, or the plain list of what is missing before it can be pressed. */
+function StartCard({ start, starting, onStart }: { start: StartInfo; starting: boolean; onStart: () => void }) {
+  if (start.started) return null;
+  if (!start.ready) {
+    return (
+      <article className="fedlify-next-step-card" aria-label="Start the study">
+        <h2 className="fedlify-next-step-title">Before you can start the study</h2>
+        <ul className="fedlify-next-step-attention">
+          {start.missing.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </article>
+    );
+  }
+  return (
+    <article className="fedlify-next-step-card is-complete" aria-label="Start the study">
+      <h2 className="fedlify-next-step-title">Ready to start</h2>
+      <p className="fedlify-next-step-text">
+        {start.canStart ? "Everything the study needs is in place. Start the study when you are ready." : "Ask a study lead to start the study."}
+      </p>
+      {start.canStart ? (
+        <div className="fedlify-next-step-actions">
+          <Button type="primary" size="large" loading={starting} onClick={onStart}>
+            Start the study
+          </Button>
+        </div>
+      ) : null}
+    </article>
+  );
 }
 
 /** The Summary page: the pending invitations, the one next step, and the six phases of the study. */
@@ -23,6 +55,8 @@ export function SummarySection({ studyId }: { studyId: string }) {
   const [result, setResult] = useState<StepsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [messageApi, contextHolder] = message.useMessage();
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) {
@@ -36,7 +70,7 @@ export function SummarySection({ studyId }: { studyId: string }) {
         setError(body?.error?.message ?? "The study steps could not be loaded.");
         return;
       }
-      setResult({ current: body.current ?? null, steps: body.steps });
+      setResult({ current: body.current ?? null, steps: body.steps, start: body.start });
       setError(null);
     } catch {
       setError("The study steps could not be loaded. Check the connection and try again.");
@@ -48,6 +82,28 @@ export function SummarySection({ studyId }: { studyId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function startStudy() {
+    setStarting(true);
+    try {
+      const response = await fetch(`/api/v1/studies/${studyId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "activate" })
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        messageApi.error(body?.error?.message ?? "The study could not be started.");
+        return;
+      }
+      messageApi.success("The study has started.");
+      await load(true);
+    } catch {
+      messageApi.error("The study could not be started. Check the connection and try again.");
+    } finally {
+      setStarting(false);
+    }
+  }
 
   // Keep the page current while something is moving (a publish, a run, sites joining): refresh quietly while it is visible.
   const watching = result?.steps.some((step) => step.tone === "active" || (step.key === "deploy" && step.tone !== "ok")) ?? false;
@@ -66,6 +122,7 @@ export function SummarySection({ studyId }: { studyId: string }) {
 
   return (
     <div className="fedlify-section-stack">
+      {contextHolder}
       <PendingInvitationsCard />
       {loading && !result ? (
         <article className="fedlify-next-step-card" aria-busy="true" aria-label="Loading the next step">
@@ -75,6 +132,7 @@ export function SummarySection({ studyId }: { studyId: string }) {
         <InlineLoadError title="The next step could not be loaded" message={error} onRetry={() => void load()} />
       ) : result ? (
         <>
+          {result.start ? <StartCard start={result.start} starting={starting} onStart={() => void startStudy()} /> : null}
           <article className={`fedlify-next-step-card${current || attention.length ? "" : " is-complete"}`}>
             {current ? (
               <>
@@ -122,23 +180,20 @@ export function SummarySection({ studyId }: { studyId: string }) {
             )}
           </article>
           {error ? <InlineLoadError title="The steps could not be refreshed" message={error} onRetry={() => void load()} /> : null}
-          <nav className="fedlify-next-step-steps" aria-label="Study steps">
+          <nav className="fl-grid" style={{ "--grid-min": "260px" } as CSSProperties} aria-label="Study steps">
             {result.steps.map((step, position) => (
-              <div
+              <Link
                 key={step.key}
-                className={["fedlify-ws-stage", `is-${step.tone}`, position === index ? "is-current" : ""].filter(Boolean).join(" ")}
+                href={step.href}
+                aria-label={`Open ${step.title}`}
+                className={["fl-card", "is-link", "fl-step-tile", `is-${step.tone}`, position === index ? "is-current" : ""].filter(Boolean).join(" ")}
               >
-                <div className="fedlify-ws-stage-main fedlify-next-step-row">
-                  <span className="fedlify-ws-stage-icon" aria-hidden>{toneIcon[step.tone]}</span>
-                  <span className="fedlify-ws-stage-copy">
-                    <strong>{position + 1}. {step.title}</strong>
-                    <span>{step.status}</span>
-                  </span>
-                </div>
-                <div className="fedlify-ws-stage-action">
-                  <Link href={step.href} aria-label={`Open ${step.title}`}>Open</Link>
-                </div>
-              </div>
+                <span className="fl-step-tile-icon" aria-hidden>{toneIcon[step.tone]}</span>
+                <span className="fl-step-tile-copy">
+                  <strong>{position + 1}. {step.title}</strong>
+                  <span>{step.status}</span>
+                </span>
+              </Link>
             ))}
           </nav>
         </>

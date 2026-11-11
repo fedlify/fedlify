@@ -15,7 +15,7 @@ vi.mock("@/lib/aggregator-overview", () => ({
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    study: { findUnique: async () => ({ ethics: [] }) },
+    study: { findUnique: async () => ({ title: "Sepsis model", goal: "Predict mortality", status: "DRAFT", ethics: [] }) },
     requirementResponse: { findMany: async () => [] },
     studySite: { findMany: async () => [] },
     modelRelease: { count: async () => 0 }
@@ -40,6 +40,8 @@ describe("GET next-step", () => {
     expect(body.steps[0].action).toMatchObject({ label: "Record the ethics decision", permission: "manageEthics" });
     expect(body.steps[1].status).toBe("Not started");
     expect(body.steps[1].action).toBeUndefined();
+    expect(body.start).toMatchObject({ started: false, ready: false, canStart: false });
+    expect(body.start.missing).toContain("Add your first site");
   });
 
   it("gives a viewer no action buttons", async () => {

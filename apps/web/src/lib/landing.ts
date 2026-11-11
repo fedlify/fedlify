@@ -15,7 +15,7 @@ export type LandingInput = {
 export const SITE_LANDING = "/my-site";
 export const DEFAULT_LANDING = "/dashboard";
 
-/** True for the study every new account gets, while nothing has been added to it. */
+/** True for the empty study that older accounts were given automatically (new accounts get none), while nothing has been added to it. */
 function isUntouchedDefaultStudy(userId: string, member: LandingInput["studyMembers"][number]): boolean {
   const study = member.study;
   return study.defaultStudy && study.createdById === userId && (study._count?.studySites ?? 0) === 0 && (study._count?.pipelineProjects ?? 0) === 0;
@@ -26,6 +26,8 @@ function isUntouchedDefaultStudy(userId: string, member: LandingInput["studyMemb
  * untouched auto-created default study, no admin rights in a shared organisation); otherwise the usual dashboard.
  */
 export function landingFor(input: LandingInput): string {
+  // No site and no pending site invitation: the dashboard, which opens the person's study, or Study management with
+  // "Create your first study" when there is none.
   if (input.siteCount === 0 && !input.pendingSiteInvite) return DEFAULT_LANDING;
   if (input.platformRole === "PLATFORM_ADMIN" || input.platformRole === "AUDITOR") return DEFAULT_LANDING;
   if (input.studyMembers.some((member) => !isUntouchedDefaultStudy(input.userId, member))) return DEFAULT_LANDING;

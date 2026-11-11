@@ -40,6 +40,8 @@ type StudyActivationInput = ProtocolMetadata & {
   // When provided, every one of the 29 requirements must be answered before activation
   // (requirements are part of protocol definition, so they are gathered before the study goes live).
   requirementResponses?: Array<{ requirementId: string; status?: string | null }>;
+  // Alternative to requirementResponses when only the counts are known (the Summary page).
+  questions?: { answered: number; total?: number };
 };
 
 type PipelineExecutionInput = {
@@ -50,23 +52,14 @@ type PipelineExecutionInput = {
   readinessChecks: SiteReadiness[];
 };
 
-export const REQUIRED_PROTOCOL_FIELDS: Array<keyof ProtocolMetadata> = [
-  "title",
-  "goal",
-  "researchQuestion",
-  "studyDesign",
-  "clinicalUseCase",
-  "population",
-  "eligibilityCriteria",
-  "dataModalities",
-  "primaryOutcome",
-  "primaryEndpointDetails",
-  "analysisPlan",
-  "dataHandlingPlan",
-  "intendedUse"
-];
+/** What a study needs in its own text before it can start: a title and an objective. The other study details are encouraged, not required. */
+export const REQUIRED_PROTOCOL_FIELDS: Array<keyof ProtocolMetadata> = ["title", "goal"];
 
-function meaningfulProtocolText(value: unknown) {
+/** Plain labels for the fields above, used in every message about what is missing. */
+export const REQUIRED_FIELD_LABELS: Record<string, string> = { title: "Study title", goal: "Study objective" };
+
+/** Text of a stored value without markup: older studies saved rich text (HTML) in these fields. */
+export function meaningfulProtocolText(value: unknown) {
   return String(value ?? "")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -114,17 +107,20 @@ export function ethicsCleared(status?: EthicsStatus | null, validUntil?: Date | 
   return !ethicsExpired(validUntil, now);
 }
 
+/**
+ * The one rule for starting a study, used by create, update and the deployment route: a title, an objective, a cleared
+ * ethics decision, at least one site, and all 29 study questions answered or assumed. `missing` holds plain labels.
+ */
 export function activationGate(study: StudyActivationInput): { allowed: boolean; missing: string[]; status: GovernanceStatus } {
-  const missing = missingProtocolFields(study);
-  if (!study.studySites?.length) missing.push("studySites");
+  const missing = missingProtocolFields(study).map((field) => REQUIRED_FIELD_LABELS[field] ?? field);
+  if (!ethicsCleared(latestEthicsStatus(study.ethics), latestEthicsValidUntil(study.ethics))) missing.push("Ethics decision");
+  // Disabled sites do not take part, so they do not count (the same rule as Summary and the run checklist).
+  const takingPart = (study.studySites ?? []).filter((site) => (site as { participationStatus?: string } | null)?.participationStatus !== "DISABLED");
+  if (!takingPart.length) missing.push("At least one site");
 
-  const ethicsStatus = latestEthicsStatus(study.ethics);
-  if (!ethicsCleared(ethicsStatus, latestEthicsValidUntil(study.ethics))) missing.push("ethicsApproval");
-
-  if (study.requirementResponses) {
-    const requirements = requirementsGate(study.requirementResponses);
-    if (!requirements.allowed) missing.push(`requirements (${REQUIREMENT_ORDER.length - requirements.missing.length}/${REQUIREMENT_ORDER.length} answered)`);
-  }
+  const total = REQUIREMENT_ORDER.length;
+  const answered = study.requirementResponses ? total - requirementsGate(study.requirementResponses).missing.length : study.questions?.answered;
+  if (answered !== undefined && answered < total) missing.push(`Study questions (${answered} of ${total} answered)`);
 
   if (missing.length > 0) {
     return { allowed: false, missing, status: "INCOMPLETE" };
@@ -194,7 +190,7 @@ export function describeUnreadySites(sites: SiteReadinessSnapshot[]): UnreadySit
 }
 
 const GATE_EXPLANATIONS: Record<string, string> = {
-  ethicsApproval: "the ethics decision is not recorded as approved, or has expired (record it under the study's Protocol)",
+  ethicsApproval: "the ethics decision is not recorded as approved, or has expired (record it under Study setup)",
   approvedPipelineVersion: "the pipeline version is not approved (an authorised reviewer must approve it)",
   passedPipelineValidation: "the pipeline version has not passed its checks (publish it and wait for the checks to finish)",
   readySites: "no sites are selected (add at least one site and record its site sign-off)"

@@ -6,11 +6,12 @@
  * whether the sites are ready, and the checklist (preflight.ts evaluatePreflight) supplies the blockers.
  * Client-safe: no prisma or other server-only imports (the loader is in next-step-data.ts).
  */
-import { ethicsExpired } from "@/lib/governance";
+import { activationGate, ethicsExpired, missingProtocolFields } from "@/lib/governance";
 import { codeRunHref, computeStages, type StageInput } from "@/lib/pipeline-stage";
 import { evaluatePreflight, PREFLIGHT_SITE_PREFIXES, type PreflightItem, type PreflightSite, type PreflightSnapshot } from "@/lib/preflight";
 import type { SiteImageState } from "@/lib/site-image";
 import type { StudyAction } from "@/lib/rbac";
+import type { EthicsStatus } from "@prisma/client";
 
 export type StepKey = "authorize" | "prepare" | "approve" | "deploy" | "execute" | "validate";
 export type StepTone = "ok" | "active" | "warn" | "idle" | "error";
@@ -18,7 +19,7 @@ export type StepAction = { label: string; href: string; permission?: StudyAction
 
 export type Step = {
   key: StepKey;
-  /** "Ethics decision", "Study questions", "Pipeline", "Sites", "Run", "Results". */
+  /** "Ethics decision", ", "Sites", "Run", "Results". */
   title: string;
   /** Short plain phrase: "Done", "3 of 29 answered", "1 of 2 sites connected", "Not started". */
   status: string;
@@ -33,7 +34,18 @@ export type Step = {
   href: string;
 };
 
-export type StepsResult = { current: StepKey | null; steps: Step[] };
+/** Starting the study: the one button on Summary, and what is still missing before it can be pressed. */
+export type StartInfo = {
+  started: boolean;
+  /** Everything the start rule needs is in place (lib/governance.ts activationGate). */
+  ready: boolean;
+  /** Plain sentences for what is missing, for example "Add your first site". Empty when ready. */
+  missing: string[];
+  /** The person may press the button (they can manage the study). */
+  canStart: boolean;
+};
+
+export type StepsResult = { current: StepKey | null; steps: Step[]; start: StartInfo };
 
 /** Study permissions of the person asking (a missing entry means no). */
 export type StepPermissions = Partial<Record<StudyAction, boolean>>;
@@ -48,6 +60,8 @@ export type StepSite = StageInput["sites"][number] & {
 export type StepsSnapshot = {
   studyId: string;
   now?: Date;
+  /** The study's own text and state: what the start rule reads besides ethics, sites and questions. */
+  study: { title?: string | null; goal?: string | null; status: string };
   ethics: PreflightSnapshot["ethics"];
   questions: { answered: number; total: number };
   /** True when the study has at least one pipeline. */
@@ -144,6 +158,8 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
   const runReady = serverActive && Boolean(live) && !activeJob && startItems.every((entry) => entry.ok);
 
   const steps: Step[] = [];
+  // The objective is the one piece of study text the start rule needs (title and objective); the rest of Study details is optional.
+  const objectiveSet = missingProtocolFields(snapshot.study).length === 0;
   // A person who can change nothing for the study team is not sent to the places where the team fixes things.
   const studyTeam = Boolean(can.manage || can.manageEthics || can.approvePipeline || can.manageSites || can.submitJob);
   const forPerson = (entry: PreflightItem): PreflightItem => (entry.owner === "study" && !studyTeam ? { ...entry, fixHref: undefined } : entry);
@@ -153,7 +169,7 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
       case "authorize":
         return `/studies/${studyId}?section=protocol&tab=ethics`;
       case "prepare":
-        return `/studies/${studyId}?section=protocol&tab=requirements`;
+        return `/studies/${studyId}?section=protocol&tab=${objectiveSet ? "requirements" : "details"}`;
       case "approve":
         return done || !snapshot.hasProject ? projectsHref : publishHref;
       case "deploy":
@@ -201,18 +217,25 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
     ask: expired ? "Ask a study lead to record the renewed ethics decision." : "Ask a study lead to record the ethics decision."
   });
 
-  // 2. Prepare
+  // 2. Study details and questions
   const { answered, total } = snapshot.questions;
   const questionItem = item(publishItems, "study_questions")!;
+  const prepared = questionItem.ok && objectiveSet;
   push({
     key: "prepare",
-    title: "Study questions",
-    status: questionItem.ok ? "Done" : answered === 0 ? "Not started" : `${answered} of ${total} answered`,
-    tone: questionItem.ok ? "ok" : "idle",
-    detail: questionItem.ok ? "All study questions are answered." : "The answers tell the assistant what the pipeline must do.",
+    title: "Study details and questions",
+    status: prepared ? "Done" : !objectiveSet ? "Objective missing" : answered === 0 ? "Not started" : `${answered} of ${total} answered`,
+    tone: prepared ? "ok" : "idle",
+    detail: prepared
+      ? "The study objective is written and all study questions are answered."
+      : !objectiveSet
+        ? "Write the study objective. The answers to the study questions then tell the assistant what the pipeline must do."
+        : "The answers tell the assistant what the pipeline must do.",
     blockers: [questionItem],
-    act: { label: answered === 0 ? "Answer the study questions" : "Continue the study questions", href: questionItem.fixHref ?? `/studies/${studyId}?section=protocol`, permission: "manage" },
-    ask: "Ask a study lead to answer the study questions."
+    act: objectiveSet
+      ? { label: answered === 0 ? "Answer the study questions" : "Continue the study questions", href: questionItem.fixHref ?? `/studies/${studyId}?section=protocol`, permission: "manage" }
+      : { label: "Write the study objective", href: `/studies/${studyId}?section=protocol&tab=details`, permission: "manage" },
+    ask: objectiveSet ? "Ask a study lead to answer the study questions." : "Ask a study lead to write the study objective."
   });
 
   // 3. Approve: write, review and publish the code
@@ -399,5 +422,25 @@ export function resolveStudySteps(snapshot: StepsSnapshot, can: StepPermissions)
   const waiting = (step: Step) => ran && step.tone === "warn" && (step.key === "approve" || step.key === "deploy" || step.key === "execute");
   const currentStep = settled.find((step) => step.tone !== "ok" && !waiting(step)) ?? null;
   const resolved = settled.map((step) => (step === currentStep && step.tone === "idle" ? { ...step, tone: "active" as const } : step));
-  return { current: currentStep?.key ?? null, steps: resolved };
+  return { current: currentStep?.key ?? null, steps: resolved, start: startInfo(snapshot, can) };
+}
+
+const START_PHRASES: Record<string, string> = {
+  "Study title": "Add a study title",
+  "Study objective": "Write the study objective",
+  "Ethics decision": "Record the ethics decision",
+  "At least one site": "Add your first site"
+};
+
+/** The start rule (the same function the server uses) in plain sentences. */
+export function startInfo(snapshot: StepsSnapshot, can: StepPermissions): StartInfo {
+  const gate = activationGate({
+    title: snapshot.study.title,
+    goal: snapshot.study.goal,
+    ethics: snapshot.ethics ? [{ status: snapshot.ethics.status as EthicsStatus, validUntil: snapshot.ethics.validUntil }] : [],
+    studySites: snapshot.sites,
+    questions: snapshot.questions
+  });
+  const missing = gate.missing.map((label) => START_PHRASES[label] ?? `Answer the study questions (${snapshot.questions.answered} of ${snapshot.questions.total} done)`);
+  return { started: snapshot.study.status === "ACTIVE", ready: gate.allowed, missing, canStart: Boolean(can.manage) };
 }

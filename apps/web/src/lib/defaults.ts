@@ -1,6 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
-import { slugify } from "@/lib/slug";
 
+/**
+ * Every account gets a profile and a personal workspace. It never gets a study: a person creates their own from
+ * Study management ("Create your first study"), and people who are invited work in the study they were invited to.
+ */
 export async function ensureUserDefaults(prisma: PrismaClient, userId: string): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -43,90 +46,5 @@ export async function ensureUserDefaults(prisma: PrismaClient, userId: string): 
         role: "ORG_ADMIN"
       }
     });
-
-    const existingDefaultStudy = await tx.study.findFirst({
-      where: { orgId: organization.id, createdById: user.id, defaultStudy: true },
-      select: { id: true }
-    });
-
-    // Someone who was invited (to a study or a site) works in that study: no empty study of their own, which would
-    // only sit in their study selector next to the real one. They can still create a study from Study management.
-    if (!existingDefaultStudy) {
-      const [membership, siteMembership, invitation] = await Promise.all([
-        tx.studyMember.findFirst({ where: { userId: user.id }, select: { id: true } }),
-        tx.siteMember.findFirst({ where: { userId: user.id }, select: { id: true } }),
-        user.email
-          ? tx.invitation.findFirst({
-              where: { email: { equals: user.email, mode: "insensitive" }, status: { in: ["PENDING", "ACCEPTED"] } },
-              select: { id: true }
-            })
-          : null
-      ]);
-      if (membership || siteMembership || invitation) return;
-    }
-
-    if (existingDefaultStudy) {
-      await tx.ethicsApproval.deleteMany({
-        where: {
-          studyId: existingDefaultStudy.id,
-          status: "PENDING",
-          approvalNumber: null,
-          approvingBody: null,
-          documentId: null,
-          notes: {
-            in: [
-              "Ethics status must be recorded before release approval.",
-              "Ethics approval must be completed before generated kits can be released."
-            ]
-          }
-        }
-      });
-      return;
-    }
-
-    const study = await tx.study.create({
-      data: {
-        orgId: organization.id,
-        // Named after the owner: every account gets one, and collaborators see several in the study selector.
-        title: `${displayName}'s study`,
-        slug: slugify(`${displayName} study`),
-        description: "Default governed study workspace.",
-        goal: "Define a governed health-AI federated learning pilot.",
-        researchQuestion: "Can participating sites coordinate a reproducible FL workflow without moving raw clinical data?",
-        hypothesis: "A governed federated workflow can coordinate reproducible health-AI training without centralizing raw clinical data.",
-        secondaryObjectives: "Assess site onboarding, pipeline approval, run monitoring, and governed release promotion.",
-        clinicalUseCase: "Health AI research workflow validation",
-        studyDesign: "Federated health-AI validation study using site-local data and governed model training workflows.",
-        population: "Site-described patient cohorts remain local to each institution.",
-        eligibilityCriteria:
-          "Participating sites enroll site-described cohorts that match the study population and apply local inclusion and exclusion rules before contributing to federated training.",
-        dataModalities: "Site-provided modality summary",
-        primaryOutcome: "Operational readiness and reproducible job execution",
-        primaryEndpointDetails:
-          "Operational readiness and reproducible job execution are assessed from approved run logs and aggregate outputs without transferring participant-level data.",
-        secondaryOutcomes: "Site readiness, policy acceptance, pipeline validation, and release auditability.",
-        sampleSizeRationale:
-          "Pilot sample size is determined by participating site availability and local cohort suitability rather than centralized record transfer.",
-        analysisPlan:
-          "Analyze federated run logs, validation metrics, and approved aggregate artifacts against the primary endpoint and pre-specified operational checks.",
-        dataHandlingPlan:
-          "Participant-level data remains at each site. Fedlify stores governance metadata, approved pipeline artifacts, logs, and aggregate outputs only.",
-        humanAiWorkflow: "Study teams review pipeline versions, run outputs, and releases before promotion.",
-        fairnessPlan: "Sites should review cohort representation and subgroup performance before promoting releases.",
-        disseminationPlan: "Share approved aggregate results and governed artifacts through Fedlify releases.",
-        intendedUse: "Research and platform validation only",
-        defaultStudy: true,
-        createdById: user.id
-      }
-    });
-
-    await tx.studyMember.createMany({
-      data: [
-        { studyId: study.id, userId: user.id, role: "PRINCIPAL_INVESTIGATOR" },
-        { studyId: study.id, userId: user.id, role: "DATA_SCIENTIST" }
-      ],
-      skipDuplicates: true
-    });
-
   });
 }

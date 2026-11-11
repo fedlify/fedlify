@@ -1,13 +1,14 @@
 "use client";
 
-import { Alert, Button, Checkbox, Popconfirm, Tag, Typography } from "antd";
+import { Alert, Button, Checkbox, Popconfirm, Typography } from "antd";
 import { useState } from "react";
 import { ApprovalLine, SecondCheckBanner } from "@/components/AssistantControlParts";
 import type { PlanDto } from "@/lib/agent-thread-types";
 import { isEnforced, reasonRequired } from "@/lib/assistant-control-client";
+import { StatusTag, type StatusTone } from "@/components/StatusTag";
 import { PLAN_STATUS_LABEL, assumptionsNeedingAck, canApprovePlan, effectivePlanStatus, initialApprovedSteps, toggleStep } from "@/lib/agent-thread-client";
 
-const STATUS_COLOR: Record<string, string> = { DRAFT: "purple", APPROVED: "blue", EXECUTED: "green", STALE: "orange", REJECTED: "default", SUPERSEDED: "default" };
+const STATUS_TONE: Record<string, StatusTone> = { DRAFT: "info", APPROVED: "info", EXECUTED: "success", STALE: "warning", REJECTED: "neutral", SUPERSEDED: "neutral" };
 
 /** A plan inline in the chat: toggle steps, acknowledge assumptions, approve. Approval is recorded intent; the diff is still reviewed and accepted separately. */
 export function PlanStepsCard({
@@ -58,7 +59,7 @@ export function PlanStepsCard({
     <div className="fedlify-ws-card" role="group" aria-label={`Plan version ${plan.version}`} data-testid="plan-card">
       <div className="fedlify-ws-card-head">
         <strong>{`Plan v${plan.version}`}</strong>
-        <Tag color={STATUS_COLOR[status]}>{PLAN_STATUS_LABEL[status]}</Tag>
+        <StatusTag tone={STATUS_TONE[status]} label={PLAN_STATUS_LABEL[status]} />
       </div>
       <p className="fedlify-ws-msg-text">{plan.summary}</p>
       <ul className="fedlify-ws-plan-steps">
@@ -67,7 +68,7 @@ export function PlanStepsCard({
             <Checkbox checked={chosen.includes(step.id)} disabled={!editable || busy} onChange={() => setSelected((s) => toggleStep(s, step.id))}>
               <strong>{`${i + 1}. ${step.title}`}</strong>
               {step.optional ? <em className="fedlify-muted"> (optional)</em> : null}
-              {step.risk !== "low" ? <Tag color={step.risk === "high" ? "red" : "gold"}>{`${step.risk} risk`}</Tag> : null}
+              {step.risk !== "low" ? <StatusTag tone={step.risk === "high" ? "danger" : "warning"} label={`${step.risk} risk`} /> : null}
             </Checkbox>
             <div className="fedlify-ws-plan-paths">
               <em>{step.action}</em> {step.paths.map((path) => <code key={path} title={path}>{path}</code>)}

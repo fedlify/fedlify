@@ -150,17 +150,6 @@ export async function POST(request: NextRequest) {
         governanceStatus: activationGate({
           title: parsed.data.title,
           goal: parsed.data.goal,
-          researchQuestion: parsed.data.researchQuestion,
-          studyDesign: parsed.data.studyDesign,
-          clinicalUseCase: parsed.data.clinicalUseCase,
-          population: parsed.data.population,
-          eligibilityCriteria: parsed.data.eligibilityCriteria,
-          dataModalities: parsed.data.dataModalities,
-          primaryOutcome: parsed.data.primaryOutcome,
-          primaryEndpointDetails: parsed.data.primaryEndpointDetails,
-          analysisPlan: parsed.data.analysisPlan,
-          dataHandlingPlan: parsed.data.dataHandlingPlan,
-          intendedUse: parsed.data.intendedUse,
           ethics: [],
           studySites: [],
           requirementResponses: []

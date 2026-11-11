@@ -16,6 +16,7 @@ import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { RecordTable } from "@/components/RecordTable";
 import { Details } from "@/components/Details";
 import type { AuditEventDto } from "@/lib/audit-query";
+import { formatDateTime } from "@/lib/format";
 import { auditActionLabel } from "@/lib/terms";
 import { ApiError, apiCall } from "@/lib/web-api";
 
@@ -210,7 +211,7 @@ export default function StudyAuditPage() {
               {
                 title: "Time",
                 dataIndex: "createdAt",
-                render: (value: string) => new Date(value).toLocaleString(),
+                render: (value: string) => formatDateTime(value),
               },
               {
                 title: "Person",

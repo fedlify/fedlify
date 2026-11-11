@@ -2,6 +2,7 @@
 
 import { ClearOutlined, CloseCircleFilled, CloseOutlined, FullscreenExitOutlined, FullscreenOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ReloadOutlined, RobotOutlined, ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
 import { Alert, Button, Input, Modal, Popconfirm, Segmented, Tag, Tooltip, Typography } from "antd";
+import { StatusTag, type StatusTone } from "@/components/StatusTag";
 import { AgentHistoryPopover } from "@/components/AgentHistoryPopover";
 import { ACCEPT_EXPLAIN, PLAN_APPROVE_EXPLAIN, ApprovalLine, ProceedReasonModal, SecondCheckBanner, StopNoticeCard } from "@/components/AssistantControlParts";
 import { ChangesTimeline } from "@/components/ChangesTimeline";
@@ -134,7 +135,7 @@ const PROPOSE_PROMPTS = [
 ];
 
 const STATUS_LABEL: Record<ProposalStatus, string> = { PROPOSED: "Proposed", ACCEPTED: "Accepted", REJECTED: "Rejected", STALE: "Out of date" };
-const STATUS_COLOR: Record<ProposalStatus, string> = { PROPOSED: "purple", ACCEPTED: "green", REJECTED: "default", STALE: "orange" };
+const STATUS_TONE: Record<ProposalStatus, StatusTone> = { PROPOSED: "info", ACCEPTED: "success", REJECTED: "neutral", STALE: "warning" };
 
 function ProposalCard({
   proposal,
@@ -175,10 +176,11 @@ function ProposalCard({
     <div className="fedlify-ws-proposal" role="group" aria-label={`Proposal: ${proposal.title}`}>
       <div className="fedlify-ws-proposal-head">
         <strong>{proposal.title}</strong>
-        <Tag color={STATUS_COLOR[status]} title={status === "ACCEPTED" && proposal.acceptedCommit ? `Commit ${proposal.acceptedCommit.slice(0, 8)}` : undefined}>
-          {STATUS_LABEL[status]}
-          {partial ? ` (${applied.size} of ${proposal.files.length} files)` : ""}
-        </Tag>
+        <StatusTag
+          tone={STATUS_TONE[status]}
+          title={status === "ACCEPTED" && proposal.acceptedCommit ? `Commit ${proposal.acceptedCommit.slice(0, 8)}` : undefined}
+          label={`${STATUS_LABEL[status]}${partial ? ` (${applied.size} of ${proposal.files.length} files)` : ""}`}
+        />
       </div>
       <p className="fedlify-ws-msg-text">{proposal.rationale}</p>
       <ul className="fedlify-ws-proposal-files">
@@ -1377,10 +1379,11 @@ export function AssistantPanel({
       ) : (
       <div className="fedlify-ws-composer">
         <div className="fedlify-ws-chips" aria-label="Context sent with your next message">
-          <Tooltip title="Protocol fields, your study question answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
-            <Tag color={context && context.answered < context.total ? "orange" : "purple"}>
-              {context ? `Study context ${context.answered}/${context.total}` : "Study context"}
-            </Tag>
+          <Tooltip title="Study details, your study question answers, sites and data profiles, fedlify-pipeline.json, AGENTS.md and the file list.">
+            <StatusTag
+              tone={context && context.answered < context.total ? "warning" : "info"}
+              label={context ? `Study context ${context.answered}/${context.total}` : "Study context"}
+            />
           </Tooltip>
           <Tag title={commit ? `Commit ${commit.slice(0, 8)}` : undefined}>{commit ? "Latest saved code" : "Nothing saved yet"}</Tag>
           {attachedPath ? (

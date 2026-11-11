@@ -1,7 +1,7 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Popover, Tag } from "antd";
+import { Alert, Button, Popover } from "antd";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Details } from "@/components/Details";
@@ -38,16 +38,14 @@ function CodeVersionCell({ row }: { row: SiteOverviewRow }) {
           </ol>
         }
       >
-        <Tag color="orange" style={{ cursor: "help" }}>
-          {row.imageState === "OUTDATED" ? "Needs update" : "Not reported"}
-        </Tag>
+        <StatusTag tone="warning" style={{ cursor: "help" }} label={row.imageState === "OUTDATED" ? "Needs update" : "Not reported"} />
       </Popover>
     );
   }
   return row.imageState === "CURRENT" ? (
-    <Tag color="green">Up to date</Tag>
+    <StatusTag tone="success" label="Up to date" />
   ) : (
-    <Tag>Not yet seen</Tag>
+    <StatusTag label="Not yet seen" />
   );
 }
 
@@ -60,11 +58,11 @@ function RunnerCell({
 }) {
   // Code & run knows live from the study server; the Sites page shows what the site last reported.
   if (live !== undefined) {
-    if (live === null) return <Tag>{TERMS.runnerNotReporting}</Tag>;
+    if (live === null) return <StatusTag label={TERMS.runnerNotReporting} />;
     return live ? (
-      <Tag color="green">{TERMS.runnerConnected}</Tag>
+      <StatusTag tone="success" label={TERMS.runnerConnected} />
     ) : (
-      <Tag>{TERMS.runnerNotConnected}</Tag>
+      <StatusTag label={TERMS.runnerNotConnected} />
     );
   }
   return (

@@ -1,7 +1,8 @@
 "use client";
 
 import { CheckCircleOutlined, CloseOutlined, FullscreenExitOutlined, FullscreenOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
-import { Alert, Button, Checkbox, Segmented, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Checkbox, Segmented, Tooltip, Typography } from "antd";
+import { StatusTag } from "@/components/StatusTag";
 import { useEffect, useState, type ReactNode } from "react";
 import { statusLabel } from "@/lib/terms";
 import { SCAN_NOTICE, type ProposalFileSummary, type ProposalStatus } from "@/lib/agent-proposal-client";
@@ -75,7 +76,7 @@ export function ProposalReviewView({ proposal, currentPath, stale, filesUnknown,
       <header className="fedlify-proposal-review-head">
         <div className="fedlify-proposal-review-title">
           <Typography.Text strong ellipsis={{ tooltip: proposal.title }}>{proposal.title}</Typography.Text>
-          <Tag color={isAccepted ? "green" : decided ? "default" : stale ? "orange" : "purple"} title={isAccepted && proposal.acceptedCommit ? `Commit ${proposal.acceptedCommit.slice(0, 8)}` : undefined}>{tag}</Tag>
+          <StatusTag tone={isAccepted ? "success" : decided ? "neutral" : stale ? "warning" : "info"} title={isAccepted && proposal.acceptedCommit ? `Commit ${proposal.acceptedCommit.slice(0, 8)}` : undefined} label={tag} />
           <span className="fedlify-proposal-counts"><span className="is-add">+{totals.added}</span> <span className="is-del">-{totals.removed}</span></span>
         </div>
         <div className="fedlify-proposal-review-tools">

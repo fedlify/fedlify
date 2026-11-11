@@ -2,8 +2,9 @@
 
 import { CopyOutlined, FolderOpenOutlined } from "@ant-design/icons";
 import { Button, Space, Table, Tag, Typography } from "antd";
+import { StatusTag } from "@/components/StatusTag";
 import type { ListJob, ListProject } from "@/lib/pipeline-start";
-import { statusLabel } from "@/lib/terms";
+import { formatDate } from "@/lib/format";
 import { pipelineRows, type PipelineRow } from "@/lib/pipeline-start";
 
 type Props = {
@@ -11,13 +12,12 @@ type Props = {
   liveVersionId: string | null | undefined;
   jobs: ListJob[];
   openId: string | null;
-  statusColor: Record<string, string>;
   onOpen: (id: string) => void;
   onCopy: (id: string) => void;
 };
 
 /** The study's pipelines as a table: name, source, latest version and state, live marker, last run, lineage. */
-export function PipelinesList({ projects, liveVersionId, jobs, openId, statusColor, onOpen, onCopy }: Props) {
+export function PipelinesList({ projects, liveVersionId, jobs, openId, onOpen, onCopy }: Props) {
   const rows = pipelineRows(projects, liveVersionId, jobs);
   return (
     <Table<PipelineRow>
@@ -34,7 +34,7 @@ export function PipelinesList({ projects, liveVersionId, jobs, openId, statusCol
           render: (value: string, row) => (
             <Space size={6} wrap>
               <strong>{value}</strong>
-              {row.id === openId ? <Tag color="purple">open</Tag> : null}
+              {row.id === openId ? <Tag>open</Tag> : null}
             </Space>
           )
         },
@@ -44,22 +44,22 @@ export function PipelinesList({ projects, liveVersionId, jobs, openId, statusCol
           render: (_, row) => (
             <Space size={6} wrap>
               <span>{row.latestVersion ?? "none"}</span>
-              <Tag color={statusColor[row.state] ?? "default"}>{statusLabel(row.state)}</Tag>
+              <StatusTag value={row.state} />
             </Space>
           )
         },
         {
           title: "Live",
-          render: (_, row) => (row.live ? <Tag color="green">live {row.liveVersion}</Tag> : <Typography.Text type="secondary">no</Typography.Text>)
+          render: (_, row) => (row.live ? <StatusTag tone="success" label={`Live ${row.liveVersion}`} /> : <Typography.Text type="secondary">no</Typography.Text>)
         },
         {
           title: "Last run",
           render: (_, row) =>
             row.lastRun ? (
               <Space size={6} wrap>
-                <Tag color={statusColor[row.lastRun.status] ?? "default"}>{statusLabel(row.lastRun.status)}</Tag>
+                <StatusTag value={row.lastRun.status} />
                 <span className="fedlify-muted">
-                  {row.lastRun.version ?? ""} {new Date(row.lastRun.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  {row.lastRun.version ?? ""} {formatDate(row.lastRun.at)}
                 </span>
               </Space>
             ) : (

@@ -18,13 +18,15 @@ const completeProtocol = {
 };
 
 describe("governance gates", () => {
-  it("requires core study protocol fields before activation", () => {
-    expect(missingProtocolFields({ title: "Only title" })).toContain("goal");
+  it("requires only a title and an objective in the study's own text", () => {
+    expect(missingProtocolFields({ title: "Only title" })).toEqual(["goal"]);
+    expect(missingProtocolFields({ goal: "Only goal" })).toEqual(["title"]);
+    expect(missingProtocolFields({ title: "A title", goal: "<p> </p>" })).toEqual(["goal"]);
+    expect(missingProtocolFields({ title: "A title", goal: "<p>Real objective</p>" })).toEqual([]);
   });
 
-  it("requires Health AI core fields before activation", () => {
-    expect(missingProtocolFields({ ...completeProtocol, analysisPlan: "" })).toContain("analysisPlan");
-    expect(missingProtocolFields({ ...completeProtocol, dataHandlingPlan: null })).toContain("dataHandlingPlan");
+  it("does not require the long design fields any more", () => {
+    expect(missingProtocolFields({ title: "T", goal: "G", analysisPlan: "", dataHandlingPlan: null })).toEqual([]);
   });
 
   it("does not require optional best-practice fields before activation", () => {
@@ -52,7 +54,7 @@ describe("governance gates", () => {
       requirementResponses: [{ requirementId: "R01" }, { requirementId: "R02" }]
     });
     expect(partial.allowed).toBe(false);
-    expect(partial.missing).toEqual(["requirements (2/29 answered)"]);
+    expect(partial.missing).toEqual(["Study questions (2 of 29 answered)"]);
 
     const complete = activationGate({
       ...completeProtocol,
@@ -61,6 +63,12 @@ describe("governance gates", () => {
       requirementResponses: Array.from({ length: 29 }, (_, index) => ({ requirementId: `R${String(index + 1).padStart(2, "0")}` }))
     });
     expect(complete.allowed).toBe(true);
+  });
+
+  it("lists what is missing in plain words, never raw keys", () => {
+    const gate = activationGate({ title: "", goal: null, ethics: [], studySites: [], questions: { answered: 28 } });
+    expect(gate.allowed).toBe(false);
+    expect(gate.missing).toEqual(["Study title", "Study objective", "Ethics decision", "At least one site", "Study questions (28 of 29 answered)"]);
   });
 
   it("allows activation only after study design, site, and ethics clearance", () => {
@@ -169,7 +177,7 @@ describe("ethics decision expiry", () => {
   });
   it("blocks activation and execution with an expired approval", () => {
     const expired = [{ status: "APPROVED" as const, validUntil: new Date(Date.now() - 86_400_000) }];
-    expect(activationGate({ ...completeProtocol, ethics: expired, studySites: [{}] }).missing).toContain("ethicsApproval");
+    expect(activationGate({ ...completeProtocol, ethics: expired, studySites: [{}] }).missing).toContain("Ethics decision");
     const gate = pipelineExecutionGate({
       ethicsStatus: "APPROVED",
       ethicsValidUntil: new Date(Date.now() - 86_400_000),

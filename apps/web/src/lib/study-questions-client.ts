@@ -2,6 +2,7 @@
  * Pure helpers for the "Study questions" tab: plain labels, filters, grouping and the sentences the screen shows.
  * No React and no network code, so they are easy to test. Types only are imported from study-questions.ts.
  */
+import { formatDate } from "@/lib/format";
 import type { PlanQuestion } from "@/lib/agent-thread-types";
 import type { ChecklistItem, ChecklistStatus } from "@/lib/study-questions";
 
@@ -94,14 +95,12 @@ export function originLabel(item: Pick<ChecklistItem, "evidenceClass" | "sourceN
   return null;
 }
 
-const shortDate = (at: string | null) => (at ? new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
-
 /** Who gave an answer, in one short line under the status tag. */
 export function answeredByLine(item: Pick<ChecklistItem, "status" | "confirmedByName" | "confirmedAt" | "sourceNote">): string | null {
   if (item.status !== "ANSWERED" && item.status !== "ASSUMED") return null;
   if (!item.confirmedAt && !item.confirmedByName) return "Earlier answer (not checked)";
   const who = item.confirmedByName ?? "A team member";
-  const when = shortDate(item.confirmedAt);
+  const when = formatDate(item.confirmedAt);
   return `${item.sourceNote ? "Accepted from the assistant by" : "Answered by"} ${who}${when ? `, ${when}` : ""}`;
 }
 
@@ -177,6 +176,6 @@ export function confirmState(counts: { total: number; answered: number; assumed:
 }
 
 export function confirmedLine(name: string | null, at: string | null): string {
-  const when = at ? new Date(at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
+  const when = formatDate(at);
   return `Confirmed by ${name ?? "a study lead"}${when ? ` on ${when}` : ""}`;
 }

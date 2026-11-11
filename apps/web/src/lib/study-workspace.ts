@@ -7,8 +7,8 @@ export const STUDY_WORKSPACE_SECTIONS = [
   },
   {
     key: "protocol",
-    label: "Protocol",
-    title: "Study protocol",
+    label: "Study setup",
+    title: "Study setup",
     subtitle: "The study's details, ethics decision, documents and questions."
   },
   {
@@ -85,10 +85,10 @@ export const LEGACY_SECTION_REDIRECTS: Record<string, (studyId: string) => strin
 
 export type StudyNavKey = "overview" | "protocol" | "sites" | "team" | "code" | "results" | "audit";
 
-/** The sidebar: Summary, Protocol, Sites, Team, Code & run, Results, Audit. One item per destination. */
+/** The sidebar: Summary, Study setup, Sites, Team, Code & run, Results, Audit. One item per destination. */
 export const STUDY_NAV_ITEMS: ReadonlyArray<{ key: StudyNavKey; label: string }> = [
   { key: "overview", label: "Summary" },
-  { key: "protocol", label: "Protocol" },
+  { key: "protocol", label: "Study setup" },
   { key: "sites", label: "Sites" },
   { key: "team", label: "Team" },
   { key: "code", label: "Code & run" },
@@ -130,4 +130,27 @@ export function sidebarMode(me: { landing?: string | null; sites?: unknown[] | n
 /** The sidebar entry that "My site" highlights for a pathname. */
 export function isMySitePath(pathname: string): boolean {
   return pathname === "/my-site" || pathname.startsWith("/my-site/") || pathname.startsWith("/sites/");
+}
+
+/** The three tabs of Study setup. */
+export type StudySetupTab = "details" | "ethics" | "requirements";
+
+/**
+ * Which tab a link (`?section=protocol&tab=...`) opens. Links from before the simplification keep working: `documents`
+ * now lives on the ethics tab, `metadata` and `details` are the details tab, and `review` (the removed Progress tab)
+ * and anything unknown return null, which means "open the first tab that is not finished".
+ */
+export function studySetupTabFromLink(value?: string | null): StudySetupTab | null {
+  if (value === "details" || value === "metadata") return "details";
+  if (value === "ethics" || value === "documents") return "ethics";
+  if (value === "requirements" || value === "questions") return "requirements";
+  return null;
+}
+
+/** The first tab with something left to do; the details tab when everything is done. */
+export function firstIncompleteSetupTab(done: { details: boolean; ethics: boolean; questions: boolean }): StudySetupTab {
+  if (!done.details) return "details";
+  if (!done.ethics) return "ethics";
+  if (!done.questions) return "requirements";
+  return "details";
 }

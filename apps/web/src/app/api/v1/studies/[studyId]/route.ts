@@ -88,8 +88,8 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
       invitations: { omit: { tokenHash: true }, orderBy: { createdAt: "desc" } },
       ethics: { orderBy: { createdAt: "desc" } },
       documents: { orderBy: { createdAt: "desc" } },
-      // Only answers a person gave count as answered on the Summary; suggestions, gaps and disagreements are listed under Study questions.
-      requirementResponses: { where: { status: { in: ["ANSWERED", "ASSUMED"] } }, select: { requirementId: true, updatedAt: true }, orderBy: { requirementId: "asc" } },
+      // Every row with its status: the client counts what a person answered with the shared counter (countsAsAnswered).
+      requirementResponses: { select: { requirementId: true, status: true, updatedAt: true }, orderBy: { requirementId: "asc" } },
       sites: { include: { studySite: true } },
       studySites: {
         include: {
@@ -175,27 +175,17 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
         }
       : current;
 
+  // The same start rule as everywhere else (lib/governance.ts): title, objective, ethics, a site, all study questions.
   const gate = activationGate({
     title: updateData.title,
     goal: updateData.goal,
-    researchQuestion: updateData.researchQuestion,
-    studyDesign: updateData.studyDesign,
-    clinicalUseCase: updateData.clinicalUseCase,
-    population: updateData.population,
-    eligibilityCriteria: updateData.eligibilityCriteria,
-    dataModalities: updateData.dataModalities,
-    primaryOutcome: updateData.primaryOutcome,
-    primaryEndpointDetails: updateData.primaryEndpointDetails,
-    analysisPlan: updateData.analysisPlan,
-    dataHandlingPlan: updateData.dataHandlingPlan,
-    intendedUse: updateData.intendedUse,
     ethics: current.ethics,
     studySites: current.studySites,
     requirementResponses: await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true, status: true } })
   });
 
   if (parsed.data.action === "activate" && !gate.allowed) {
-    return problem(409, `Study activation is blocked by missing requirements: ${gate.missing.join(", ")}.`, "activation_gate");
+    return problem(409, `The study cannot start yet. Still needed: ${gate.missing.join(", ")}.`, "activation_gate");
   }
 
   const data =

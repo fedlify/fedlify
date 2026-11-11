@@ -1,9 +1,10 @@
 "use client";
 
 import { message } from "antd";
-import { useCallback, useState, type ReactNode } from "react";
-import { normalizeRichTextValue, richTextHasText } from "@/components/RichTextEditor";
-import { missingProtocolFields as missingCoreProtocolFields } from "@/lib/governance";
+import { useCallback, useState } from "react";
+import { CLINICAL_USE_CASE_OPTIONS, governanceOptionLabel, INTENDED_USE_OPTIONS } from "@/lib/governance-options";
+import { formatDate as formatDateValue } from "@/lib/format";
+import { countsAsAnswered, ethicsCleared, meaningfulProtocolText, missingProtocolFields as missingCoreProtocolFields } from "@/lib/governance";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
 
 /** Types, wording helpers and the request hook shared by the study page and its sections. */
@@ -58,8 +59,7 @@ export function status(value: unknown, fallback = "PENDING") {
 }
 
 export function formatDate(value: unknown) {
-  if (!value || typeof value !== "string") return "Not recorded";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+  return formatDateValue(typeof value === "string" ? value : null, "Not recorded");
 }
 
 export function displayEnum(value: unknown, fallback = "Not set") {
@@ -71,111 +71,51 @@ export function displayEnum(value: unknown, fallback = "Not set") {
     .replace("Pdf", "PDF");
 }
 
-const STUDY_PROTOCOL_FIELD_LABELS: Record<string, string> = {
-  title: "Study title",
-  goal: "Primary objective",
-  researchQuestion: "Research question",
-  studyDesign: "Type of study",
-  clinicalUseCase: "Clinical use case",
-  population: "Population",
-  eligibilityCriteria: "Eligibility criteria",
-  dataModalities: "Data modalities",
-  primaryOutcome: "Primary endpoint",
-  primaryEndpointDetails: "Endpoint details",
-  analysisPlan: "Analysis plan",
-  dataHandlingPlan: "Data handling plan",
-  intendedUse: "Intended use"
-};
-
-const RICH_STUDY_DESIGN_FIELDS = [
-  "description",
-  "goal",
-  "researchQuestion",
-  "hypothesis",
-  "secondaryObjectives",
-  "studyDesign",
-  "eligibilityCriteria",
-  "primaryEndpointDetails",
-  "secondaryOutcomes",
-  "sampleSizeRationale",
-  "analysisPlan",
-  "dataHandlingPlan",
-  "humanAiWorkflow",
-  "fairnessPlan",
-  "disseminationPlan"
+/** Study details from before the simplification. They are kept and shown read-only; the form no longer edits them. */
+export const EARLIER_DESIGN_NOTES: Array<{ field: keyof StudyDetail; label: string }> = [
+  { field: "hypothesis", label: "Hypothesis" },
+  { field: "secondaryObjectives", label: "Secondary objectives" },
+  { field: "studyDesign", label: "Type of study" },
+  { field: "eligibilityCriteria", label: "Eligibility criteria" },
+  { field: "primaryEndpointDetails", label: "Endpoint details" },
+  { field: "secondaryOutcomes", label: "Secondary outcomes" },
+  { field: "sampleSizeRationale", label: "Sample size / rationale" },
+  { field: "analysisPlan", label: "Analysis plan" },
+  { field: "dataHandlingPlan", label: "Data handling plan" },
+  { field: "humanAiWorkflow", label: "How people and the AI work together" },
+  { field: "fairnessPlan", label: "Fairness / subgroup plan" },
+  { field: "disseminationPlan", label: "Dissemination plan" }
 ];
 
-export function normalizeStudyDesignPayload(values: Record<string, unknown>) {
-  return RICH_STUDY_DESIGN_FIELDS.reduce(
-    (payload, field) => ({
-      ...payload,
-      [field]: normalizeRichTextValue(values[field])
-    }),
-    { ...values }
-  );
+/** Stored text without markup (older studies saved rich text); empty string when there is nothing to show. */
+export function plainText(value: unknown): string {
+  return meaningfulProtocolText(value);
 }
 
-function readableList(items: string[]) {
-  if (items.length <= 1) return items[0] ?? "";
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
-}
-
-export function summarizeMissingLabels(items: string[], maxItems = 3) {
-  if (items.length <= maxItems) return readableList(items);
-  return `${readableList(items.slice(0, maxItems))}, and ${items.length - maxItems} more`;
-}
-
-export const REQUIRED_RICH_TEXT_RULE = {
-  validator: (_: unknown, value: unknown) =>
-    richTextHasText(value) ? Promise.resolve() : Promise.reject(new Error("This field is required."))
-};
-
-export function GovernanceSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="fedlify-governance-section">
-      <div className="fedlify-governance-section-title">{title}</div>
-      {children}
-    </section>
-  );
-}
-
-export function latestEthicsStatus(study?: StudyDetail | null) {
-  return study?.ethics?.[0]?.status;
+/** Intended use is one field now. Studies from before kept a separate clinical use case; show both when only the old one exists. */
+export function intendedUseText(study: Pick<StudyDetail, "intendedUse" | "clinicalUseCase">): string {
+  // Older studies stored an option value ("RESEARCH_ONLY"); show its label.
+  const intended = plainText(governanceOptionLabel(INTENDED_USE_OPTIONS, plainText(study.intendedUse)));
+  const clinical = plainText(governanceOptionLabel(CLINICAL_USE_CASE_OPTIONS, plainText(study.clinicalUseCase)));
+  if (intended && clinical && !intended.toLowerCase().includes(clinical.toLowerCase())) return `${intended}. ${clinical}`;
+  return intended || clinical;
 }
 
 export function ethicsGatePassed(study?: StudyDetail | null) {
-  const latest = latestEthicsStatus(study);
-  return latest === "APPROVED" || latest === "NOT_REQUIRED";
+  const latest = study?.ethics?.[0];
+  return ethicsCleared(latest?.status, latest?.validUntil);
 }
 
-/** What is still missing before the study can be activated. */
+/** What is still missing before the study can start. Uses the same rule and counter as the server (lib/governance.ts). */
 export function protocolStatus(study: StudyDetail) {
-  const missingProtocolFields = missingCoreProtocolFields(study);
-  const missingProtocolFieldLabels = missingProtocolFields.map((field) => STUDY_PROTOCOL_FIELD_LABELS[field] ?? displayEnum(field));
-  const protocolMetadataReady = missingProtocolFields.length === 0;
+  const missingFields = missingCoreProtocolFields(study);
+  const detailsReady = missingFields.length === 0;
   const ethicsReady = ethicsGatePassed(study);
   const siteCount = study.studySites?.length ?? study.sites.length;
   const hasSite = siteCount > 0;
-  const requirementsAnswered = study.requirementResponses?.length ?? 0;
+  const requirementsAnswered = new Set((study.requirementResponses ?? []).filter((row) => countsAsAnswered(row.status)).map((row) => row.requirementId)).size;
   const requirementsReady = requirementsAnswered >= REQUIREMENTS_TOTAL;
-  const missingActivationItems = [
-    ...missingProtocolFieldLabels,
-    ethicsReady ? null : "Ethics decision",
-    hasSite ? null : "Site",
-    requirementsReady ? null : `Study questions (${requirementsAnswered}/${REQUIREMENTS_TOTAL} answered)`
-  ].filter(Boolean) as string[];
-  return {
-    missingProtocolFieldLabels,
-    missingActivationItems,
-    protocolMetadataReady,
-    ethicsReady,
-    siteCount,
-    hasSite,
-    requirementsAnswered,
-    requirementsReady,
-    activationReady: protocolMetadataReady && ethicsReady && hasSite && requirementsReady
-  };
+  return { missingFields, detailsReady, ethicsReady, siteCount, hasSite, requirementsAnswered, requirementsReady };
 }
 
 /**

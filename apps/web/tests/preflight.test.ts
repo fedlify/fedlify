@@ -51,7 +51,7 @@ describe("evaluatePreflight publish", () => {
     const byCode = Object.fromEntries(result.items.map((i) => [i.code, i]));
     expect(byCode.ethics).toMatchObject({ text: "Record the ethics decision", owner: "study", fixHref: "/studies/s1?section=protocol&tab=ethics" });
     expect(byCode.study_questions.text).toBe("Answer the remaining study questions (3 left)");
-    expect(byCode.study_questions.detail).toBe("3 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Protocol, then Study questions.");
+    expect(byCode.study_questions.detail).toBe("3 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Study setup, then Questions.");
     expect(byCode.sites.fixHref).toBe("/studies/s1?section=sites");
     expect(byCode.saved_code.fixHref).toBe("/studies/s1/projects");
     expect(byCode.publish_idle.owner).toBe("system");
@@ -59,7 +59,7 @@ describe("evaluatePreflight publish", () => {
 
   it("says one question left in the singular", () => {
     const result = evaluatePreflight("publish", publishSnap({ questions: { answered: 28, total: 29 } }));
-    expect(result.items.find((i) => i.code === "study_questions")?.detail).toBe("1 study question needs an answer or a decision. Suggested answers count only after you accept them. Open Protocol, then Study questions.");
+    expect(result.items.find((i) => i.code === "study_questions")?.detail).toBe("1 study question needs an answer or a decision. Suggested answers count only after you accept them. Open Study setup, then Questions.");
   });
 
   it("leaves out items that were not checked", () => {

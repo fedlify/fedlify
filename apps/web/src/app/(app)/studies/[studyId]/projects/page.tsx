@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppPage, AppPageHeader, SectionHeader } from "@/components/AppPage";
+import { formatDateTime } from "@/lib/format";
 import { ACCEPT_EXPLAIN, ProceedReasonModal } from "@/components/AssistantControlParts";
 import { AssistantPanel, type AskRequest, type ProposalActionResult, type ProposalSync } from "@/components/AssistantPanel";
 import { ChecksPanel } from "@/components/ChecksPanel";
@@ -92,18 +93,6 @@ const FILES_OPEN_KEY = "fedlify.workspace.filesOpen";
 /** Status wording for the pipeline version table: says what the status is about (publishing). */
 const PUBLISH_LABELS: Record<string, string> = { PASSED: "Published", FAILED: "Publishing failed", QUEUED: "Waiting to start", RUNNING: "In progress" };
 const ACTIVE_JOB = new Set(["SUBMITTED", "SCHEDULED", "RUNNING"]);
-const statusColor: Record<string, string> = {
-  PASSED: "green",
-  ACTIVE: "green",
-  COMPLETED: "green",
-  RUNNING: "blue",
-  QUEUED: "blue",
-  SUBMITTED: "blue",
-  FAILED: "red",
-  ABORTED: "orange",
-  DRAFT: "default"
-};
-
 function short(value?: string | null, length = 12) {
   return value ? value.slice(0, length) : "—";
 }
@@ -744,10 +733,10 @@ export default function StudyProjectsPage() {
             render: (value: string, row) => (
               <Space size={4} wrap>
                 {value}
-                {row.id === overview?.aggregator?.pipelineVersionId ? <Tag color="green">Live</Tag> : null}
+                {row.id === overview?.aggregator?.pipelineVersionId ? <StatusTag tone="success" label="Live" /> : null}
                 {row.agentProposal ? (
                   <Tooltip title={`This code was written by the assistant and accepted by a person${row.agentProposal.title ? `: ${row.agentProposal.title}` : ""}.`}>
-                    <Tag color="purple">Assistant</Tag>
+                    <Tag>Assistant</Tag>
                   </Tooltip>
                 ) : null}
               </Space>
@@ -774,7 +763,7 @@ export default function StudyProjectsPage() {
               );
             }
           },
-          { title: "Published", dataIndex: "publishedAt", render: (value: string | null) => (value ? new Date(value).toLocaleString() : "—") },
+          { title: "Published", dataIndex: "publishedAt", render: (value: string | null) => formatDateTime(value, "—") },
           {
             title: TERMS.details,
             render: (_, row) => (
@@ -855,7 +844,7 @@ export default function StudyProjectsPage() {
       {progress ? (
         <>
           <Typography.Paragraph type="secondary">
-            Run status: <Tag>{statusLabel(progress.nvflareStatus ?? "pending")}</Tag> {progress.rounds.length} round(s) reported.
+            Run status: <StatusTag value={progress.nvflareStatus ?? "pending"} /> {progress.rounds.length} round(s) reported.
           </Typography.Paragraph>
           <Table<RoundRow>
             size="small"
@@ -905,7 +894,7 @@ export default function StudyProjectsPage() {
             title: "Run",
             render: (_, row) => (
               <div>
-                <div>{new Date(row.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                <div>{formatDateTime(row.createdAt)}</div>
                 <span className="fedlify-muted">
                   <span title={row.nvflareJobId ? `Run ID ${row.nvflareJobId}` : undefined}>{row.pipelineVersion ? `Pipeline version ${row.pipelineVersion.version}` : "—"}</span>
                 </span>
@@ -931,7 +920,7 @@ export default function StudyProjectsPage() {
                     Save model
                   </Button>
                 ) : null}
-                {row.result ? <Tag color="green">Model saved</Tag> : null}
+                {row.result ? <StatusTag tone="success" label="Model saved" /> : null}
                 <Link href={`/studies/${studyId}/runs/${row.id}`}>Open run detail</Link>
               </Space>
             )
@@ -1030,7 +1019,6 @@ export default function StudyProjectsPage() {
             liveVersionId={overview.aggregator?.pipelineVersionId}
             jobs={overview.jobs}
             openId={projectId}
-            statusColor={statusColor}
             onOpen={(id) => {
               selectProject(id);
               setView("workspace");

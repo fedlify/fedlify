@@ -1,72 +1,32 @@
 "use client";
 
-import {
-  EditOutlined,
-  FolderOpenOutlined,
-  InboxOutlined,
-  MoreOutlined,
-  PlusOutlined,
-  RedoOutlined
-} from "@ant-design/icons";
-import {
-  Button,
-  Dropdown,
-  Form,
-  Input,
-  Segmented,
-  Select,
-  Space,
-  Typography,
-  message
-} from "antd";
+import { EditOutlined, FolderOpenOutlined, InboxOutlined, MoreOutlined, PlusOutlined, RedoOutlined } from "@ant-design/icons";
+import { Button, Dropdown, Form, Input, Modal, Segmented, Select, Space, Typography, message } from "antd";
 import type { MenuProps } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppPage, AppPageHeader } from "@/components/AppPage";
 import { CardListState } from "@/components/LoadStates";
 import { FormError } from "@/components/FormFeedback";
-import { IntakeSteps } from "@/components/IntakeSteps";
 import { PendingInvitationsCard } from "@/components/PendingInvitationsCard";
 import { StatusTag } from "@/components/StatusTag";
-import {
-  CLINICAL_USE_CASE_OPTIONS,
-  DATA_MODALITY_OPTIONS,
-  INTENDED_USE_OPTIONS,
-  normalizeMultiSelectValue
-} from "@/lib/governance-options";
+import { meaningfulProtocolText } from "@/lib/governance";
 import { SELECTED_STUDY_STORAGE_KEY, type StudyListStatusFilter, type StudySummary } from "@/lib/studies";
+import { statusLabel } from "@/lib/terms";
 
 type Organization = {
   id: string;
   name: string;
 };
 
-type StudyFormValues = {
-  orgId: string;
+type CreateValues = {
+  orgId?: string;
   title: string;
   description?: string;
-  goal?: string;
-  researchQuestion?: string;
-  clinicalUseCase?: string;
-  population?: string;
-  dataModalities?: string[];
-  primaryOutcome?: string;
-  riskLevel?: "LOW" | "MODERATE" | "HIGH";
-  intendedUse?: string;
 };
 
-function formatDate(value?: string) {
-  if (!value) return "Not updated";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
-}
-
-function displayEnum(value?: string | null, fallback = "Not recorded") {
-  if (!value) return fallback;
-  return value
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
+/** Where a new or opened study goes first: Study setup, Details. */
+const DETAILS_TAB = "section=protocol&tab=details";
 
 export default function ManageStudiesPage() {
   const router = useRouter();
@@ -74,17 +34,16 @@ export default function ManageStudiesPage() {
   const [filter, setFilter] = useState<StudyListStatusFilter>("active");
   const [studies, setStudies] = useState<StudySummary[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  // Every workspace the person belongs to (not only the ones they can create studies in).
+  const [workspaceCount, setWorkspaceCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [editingStudy, setEditingStudy] = useState<StudySummary | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [editSubmitting, setEditSubmitting] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [createForm] = Form.useForm<StudyFormValues>();
-  const [editForm] = Form.useForm<Pick<StudyFormValues, "title" | "description">>();
+  const [createForm] = Form.useForm<CreateValues>();
   const [messageApi, contextHolder] = message.useMessage();
+  const [modal, modalContextHolder] = Modal.useModal();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,18 +55,16 @@ export default function ManageStudiesPage() {
       ]);
       const studiesBody = await studiesResponse.json().catch(() => null);
       const meBody = await meResponse.json().catch(() => null);
-      if (!studiesResponse.ok) throw new Error(studiesBody?.error?.message ?? "Study workspaces could not be loaded.");
-      if (!meResponse.ok) throw new Error(meBody?.error?.message ?? "Institution memberships could not be loaded.");
+      if (!studiesResponse.ok) throw new Error(studiesBody?.error?.message ?? "Your studies could not be loaded.");
+      if (!meResponse.ok) throw new Error(meBody?.error?.message ?? "Your institutions could not be loaded.");
       setStudies(studiesBody?.studies ?? []);
-      setOrganizations(
-        meBody?.user?.orgMemberships
-          ?.filter((membership: { role: string }) => membership.role === "ORG_ADMIN")
-          ?.map((membership: { organization: Organization }) => membership.organization) ?? []
-      );
+      const memberships: Array<{ role: string; organization: Organization }> = meBody?.user?.orgMemberships ?? [];
+      setWorkspaceCount(memberships.length);
+      setOrganizations(memberships.filter((membership) => membership.role === "ORG_ADMIN").map((membership) => membership.organization));
     } catch (error) {
       setStudies([]);
       setOrganizations([]);
-      setLoadError(error instanceof Error ? error.message : "Study workspaces could not be loaded.");
+      setLoadError(error instanceof Error ? error.message : "Your studies could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -121,44 +78,54 @@ export default function ManageStudiesPage() {
     if (searchParams.get("new") === "1") setCreating(true);
   }, [searchParams]);
 
-  const organizationOptions = useMemo(
-    () => organizations.map((organization) => ({ value: organization.id, label: organization.name })),
-    [organizations]
-  );
+  const organizationOptions = useMemo(() => organizations.map((organization) => ({ value: organization.id, label: organization.name })), [organizations]);
 
   function announceStudyChange() {
     window.dispatchEvent(new Event("fedlify:studiesUpdated"));
   }
 
-  function openStudy(study: StudySummary) {
-    window.localStorage.setItem(SELECTED_STUDY_STORAGE_KEY, study.id);
-    router.push(`/studies/${study.id}`);
+  function closeCreate() {
+    setCreating(false);
+    setCreateError(null);
+    createForm.resetFields();
+    if (searchParams.get("new") === "1") router.replace("/studies/manage");
   }
 
-  async function createStudy(values: StudyFormValues) {
+  function openStudy(study: StudySummary, query = "") {
+    window.localStorage.setItem(SELECTED_STUDY_STORAGE_KEY, study.id);
+    router.push(`/studies/${study.id}${query ? `?${query}` : ""}`);
+  }
+
+  async function createStudy(values: CreateValues) {
+    const orgId = values.orgId ?? organizations[0]?.id;
+    if (!orgId) {
+      setCreateError("You need an institution to create a study. Ask an administrator to add you to one.");
+      return;
+    }
     setCreateSubmitting(true);
     setCreateError(null);
     try {
       const response = await fetch("/api/v1/studies", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...values,
-          dataModalities: normalizeMultiSelectValue(values.dataModalities)
-        })
+        body: JSON.stringify({ orgId, title: values.title, description: values.description?.trim() || undefined })
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error?.message ?? "The study workspace could not be created.");
-      messageApi.success("Study workspace created.");
-      createForm.resetFields();
-      setCreating(false);
-      setFilter("active");
+      if (!response.ok) throw new Error(body?.error?.message ?? "The study could not be created.");
+      const id = body?.study?.id as string | undefined;
+      messageApi.success("Study created.");
       announceStudyChange();
-      await load();
+      closeCreate();
+      if (id) {
+        window.localStorage.setItem(SELECTED_STUDY_STORAGE_KEY, id);
+        router.push(`/studies/${id}?${DETAILS_TAB}`);
+      } else {
+        setFilter("active");
+        await load();
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "The study workspace could not be created.";
-      setCreateError(message);
-      messageApi.error(message);
+      const text = error instanceof Error ? error.message : "The study could not be created.";
+      setCreateError(text);
     } finally {
       setCreateSubmitting(false);
     }
@@ -172,7 +139,7 @@ export default function ManageStudiesPage() {
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      messageApi.error(body?.error?.message ?? "The study workspace could not be updated.");
+      messageApi.error(body?.error?.message ?? "The study could not be updated.");
       return false;
     }
     messageApi.success(success);
@@ -181,295 +148,137 @@ export default function ManageStudiesPage() {
     return true;
   }
 
-  async function saveEdit(values: Pick<StudyFormValues, "title" | "description">) {
-    if (!editingStudy) return;
-    setEditSubmitting(true);
-    setEditError(null);
-    try {
-      const ok = await patchStudy(
-        editingStudy.id,
-        { action: "updateDetails", title: values.title, description: values.description ?? null },
-        "Study details updated."
-      );
-      if (ok) {
-        setEditingStudy(null);
-        editForm.resetFields();
-      } else {
-        setEditError("The study details could not be updated. Check your permissions and try again.");
-      }
-    } finally {
-      setEditSubmitting(false);
-    }
+  function confirmArchive(study: StudySummary) {
+    modal.confirm({
+      title: `Archive "${study.title}"?`,
+      content: "An archived study is hidden from your list and stops sites from pulling code. You can restore it later.",
+      okText: "Archive",
+      okButtonProps: { danger: true },
+      cancelText: "Cancel",
+      onOk: () => patchStudy(study.id, { action: "archive" }, "Study archived.")
+    });
   }
 
   function cardMenu(study: StudySummary): MenuProps["items"] {
     return [
-      {
-        key: "open",
-        icon: <FolderOpenOutlined />,
-        label: "Open study",
-        onClick: () => openStudy(study)
-      },
-      {
-        key: "edit",
-        icon: <EditOutlined />,
-        label: "Edit study details",
-        onClick: () => {
-          setEditingStudy(study);
-          editForm.setFieldsValue({ title: study.title, description: study.description ?? "" });
-        }
-      },
+      { key: "open", icon: <FolderOpenOutlined />, label: "Open", onClick: () => openStudy(study) },
+      { key: "edit", icon: <EditOutlined />, label: "Edit", onClick: () => openStudy(study, DETAILS_TAB) },
       study.status === "ARCHIVED"
-        ? {
-            key: "reactivate",
-            icon: <RedoOutlined />,
-            label: "Restore study",
-            onClick: () => void patchStudy(study.id, { action: "reactivate" }, "Study workspace restored.")
-          }
-        : {
-            key: "archive",
-            icon: <InboxOutlined />,
-            label: "Archive study",
-            danger: true,
-            onClick: () => void patchStudy(study.id, { action: "archive" }, "Study workspace archived.")
-          }
+        ? { key: "reactivate", icon: <RedoOutlined />, label: "Restore", onClick: () => void patchStudy(study.id, { action: "reactivate" }, "Study restored.") }
+        : { key: "archive", icon: <InboxOutlined />, label: "Archive", danger: true, onClick: () => confirmArchive(study) }
     ];
   }
+
+  const showFirstStudyPrompt = !loading && !loadError && studies.length === 0 && filter === "active";
+  const createButton = (
+    <Button type="primary" icon={<PlusOutlined />} className="fedlify-dark-action" onClick={() => setCreating(true)}>
+      Create study
+    </Button>
+  );
 
   return (
     <>
       {contextHolder}
+      {modalContextHolder}
       <AppPage>
-        {creating ? (
-          <>
-            <AppPageHeader
-              title="Create study"
-              subtitle="Define the institution, study objective, and governance boundary for a new workspace."
-              backLabel="Study management"
-              onBack={() => setCreating(false)}
-            />
-
-            <div className="fedlify-intake-shell">
-              <IntakeSteps
-                steps={[
-                  { title: "Definition", description: "Study details", state: "current" },
-                  { title: "Governance", description: "Confirm boundary" }
+        <PendingInvitationsCard
+          onAccepted={(studyId) => {
+            void load();
+            router.push(`/studies/${studyId}`);
+          }}
+        />
+        <AppPageHeader
+          title="Study management"
+          subtitle="Your studies. Open one to continue."
+          actions={
+            <>
+              <Segmented
+                className="fedlify-soft-segmented"
+                value={filter}
+                onChange={(value) => setFilter(value as StudyListStatusFilter)}
+                options={[
+                  { label: "Active", value: "active" },
+                  { label: "Archived", value: "archived" }
                 ]}
               />
+              {showFirstStudyPrompt ? null : createButton}
+            </>
+          }
+        />
 
-              <Form form={createForm} layout="vertical" onFinish={createStudy} className="fedlify-intake-form">
-                <FormError title="Study workspace was not created" message={createError} />
-                <div className="fedlify-form-section-title">
-                  <span />
-                  <strong>Study definition</strong>
-                  <span />
-                </div>
-                <div className="fedlify-intake-field-grid">
-                  <Form.Item name="orgId" label="Institution / workspace" rules={[{ required: true }]}>
-                    <Select size="large" options={organizationOptions} placeholder="Select institution" />
-                  </Form.Item>
-                  <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
-                    <Input size="large" placeholder="Enter study title" />
-                  </Form.Item>
-                  <Form.Item name="description" label="Study summary" className="fedlify-intake-full">
-                    <Input.TextArea rows={3} placeholder="Summarize the scientific or operational objective for this federated study." />
-                  </Form.Item>
-                  <Form.Item name="goal" label="Primary objective" className="fedlify-intake-full" rules={[{ required: true }]}>
-                    <Input.TextArea rows={2} placeholder="What should this study enable or prove?" />
-                  </Form.Item>
-                  <Form.Item name="researchQuestion" label="Research question" className="fedlify-intake-full" rules={[{ required: true }]}>
-                    <Input.TextArea rows={2} placeholder="State the health-AI question this federation should answer." />
-                  </Form.Item>
-                  <Form.Item name="clinicalUseCase" label="Clinical use case" rules={[{ required: true }]}>
-                    <Select
-                      showSearch
-                      options={CLINICAL_USE_CASE_OPTIONS}
-                      optionFilterProp="label"
-                      placeholder="Select clinical use case"
-                    />
-                  </Form.Item>
-                  <Form.Item name="population" label="Population" rules={[{ required: true }]}>
-                    <Input placeholder="Intended cohort or patient population" />
-                  </Form.Item>
-                  <Form.Item name="dataModalities" label="Data modalities" rules={[{ required: true }]}>
-                    <Select
-                      mode="tags"
-                      options={DATA_MODALITY_OPTIONS}
-                      optionFilterProp="label"
-                      placeholder="Select modalities"
-                    />
-                  </Form.Item>
-                  <Form.Item name="primaryOutcome" label="Primary endpoint / outcome" rules={[{ required: true }]}>
-                    <Input placeholder="Primary model or operational outcome" />
-                  </Form.Item>
-                  <Form.Item name="riskLevel" label="Risk level" initialValue="MODERATE">
-                    <Select
-                      options={[
-                        { value: "LOW", label: "Low" },
-                        { value: "MODERATE", label: "Moderate" },
-                        { value: "HIGH", label: "High" }
-                      ]}
-                    />
-                  </Form.Item>
-                  <Form.Item name="intendedUse" label="Intended use" rules={[{ required: true }]}>
-                    <Select
-                      showSearch
-                      options={INTENDED_USE_OPTIONS}
-                      optionFilterProp="label"
-                      placeholder="Select intended use"
-                    />
-                  </Form.Item>
-                </div>
-
-                <div className="fedlify-form-section-title">
-                  <span />
-                  <strong>Governance</strong>
-                  <span />
-                </div>
-                <Typography.Paragraph className="fedlify-muted">
-                  Fedlify coordinates the study control plane. Participant-level clinical data must remain at
-                  sites; a model release needs an ethics decision, sites set up, and a person&apos;s approval.
-                </Typography.Paragraph>
-
-                <Space style={{ justifyContent: "flex-end", width: "100%" }}>
-                  <Button onClick={() => setCreating(false)} disabled={createSubmitting}>
-                    Cancel
-                  </Button>
-                  <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={createSubmitting}>
-                    Create study
-                  </Button>
-                </Space>
-              </Form>
-            </div>
-          </>
-        ) : editingStudy ? (
-          <>
-            <AppPageHeader
-              title="Edit study"
-              subtitle="Update study details without changing membership, approvals, or releases."
-              backLabel="Study management"
-              onBack={() => {
-                setEditingStudy(null);
-                setEditError(null);
-              }}
-            />
-
-            <div className="fedlify-inline-create-card">
-              <Form form={editForm} layout="vertical" onFinish={saveEdit} className="fedlify-inline-create-form">
-                <FormError title="Study details were not updated" message={editError} />
-                <div className="fedlify-intake-field-grid">
-                  <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3 }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item name="description" label="Study summary" className="fedlify-intake-full">
-                    <Input.TextArea rows={3} />
-                  </Form.Item>
-                </div>
-                <Space className="fedlify-form-actions">
-                  <Button
-                    onClick={() => {
-                      setEditingStudy(null);
-                      setEditError(null);
-                    }}
-                    disabled={editSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={editSubmitting}>
-                    Save changes
-                  </Button>
-                </Space>
-              </Form>
-            </div>
-          </>
-        ) : (
-          <>
-            <PendingInvitationsCard
-              onAccepted={(studyId) => {
-                void load();
-                router.push(`/studies/${studyId}`);
-              }}
-            />
-            <AppPageHeader
-              title="Study management"
-              subtitle="Create, open, edit, archive, or restore governed study workspaces."
-              actions={
-                <>
-                <Segmented
-                  className="fedlify-soft-segmented"
-                  value={filter}
-                  onChange={(value) => setFilter(value as StudyListStatusFilter)}
-                  options={[
-                    { label: "Active", value: "active" },
-                    { label: "Archived", value: "archived" }
-                  ]}
-                />
-                <Button type="primary" icon={<PlusOutlined />} className="fedlify-dark-action" onClick={() => setCreating(true)}>
-                  Create study
-                </Button>
-                </>
-              }
-            />
-
-            <CardListState
-              loading={loading}
-              error={loadError}
-              onRetry={() => void load()}
-              isEmpty={studies.length === 0}
-              emptyTitle={filter === "archived" ? "No archived studies" : "No active studies"}
-              emptyDescription={
-                filter === "archived"
-                  ? "Archived studies remain available for restoration when work resumes."
-                  : "Create a study workspace before adding sites, documents, approvals, or releases."
-              }
-              emptyIcon={filter === "archived" ? <InboxOutlined /> : <PlusOutlined />}
-              skeletonClassName="fedlify-study-card-grid"
-            >
-              <div className="fedlify-study-card-grid">
-                {studies.map((study) => (
-                  <article
-                    key={study.id}
-                    className="fedlify-manage-study-card"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openStudy(study)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openStudy(study);
-                      }
-                    }}
-                  >
-                    <div className="fedlify-manage-study-top">
-                      <Typography.Title level={4}>{study.title}</Typography.Title>
-                      <Space>
-                        <StatusTag value={study.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE"} />
-                        <Dropdown menu={{ items: cardMenu(study) }} trigger={["click"]}>
-                          <Button
-                            type="text"
-                            icon={<MoreOutlined />}
-                            aria-label={`Manage ${study.title}`}
-                            onClick={(event) => event.stopPropagation()}
-                          />
-                        </Dropdown>
-                      </Space>
-                    </div>
-                    <div className="fedlify-manage-study-meta">
-                      <span>Updated</span>
-                      <strong>{formatDate(study.updatedAt)}</strong>
-                    </div>
-                    <div className="fedlify-manage-study-details">
-                      <span>{study.organization?.name}</span>
-                      <span>Ethics: {displayEnum(study.ethics?.[0]?.status, "Pending")}</span>
-                      <span>{study._count?.sites ?? 0} sites</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </CardListState>
-          </>
-        )}
+        <CardListState
+          loading={loading}
+          error={loadError}
+          onRetry={() => void load()}
+          isEmpty={studies.length === 0}
+          emptyTitle={filter === "archived" ? "No archived studies" : "Create your first study"}
+          emptyDescription={filter === "archived" ? "Archived studies can be restored when work resumes." : "Give it a title and a one-line summary. You add the details next."}
+          emptyIcon={filter === "archived" ? <InboxOutlined /> : <PlusOutlined />}
+          emptyAction={filter === "archived" ? undefined : createButton}
+        >
+          <div className="fl-grid">
+            {studies.map((study) => {
+              const summary = meaningfulProtocolText(study.description);
+              return (
+                <article
+                  key={study.id}
+                  className="fedlify-manage-study-card fl-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openStudy(study)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openStudy(study);
+                    }
+                  }}
+                >
+                  <div className="fedlify-manage-study-top">
+                    <Typography.Title level={4}>{study.title}</Typography.Title>
+                    <Space>
+                      {study.status === "ARCHIVED" ? <StatusTag value="ARCHIVED" /> : null}
+                      <Dropdown menu={{ items: cardMenu(study) }} trigger={["click"]}>
+                        <Button type="text" icon={<MoreOutlined />} aria-label={`Manage ${study.title}`} onClick={(event) => event.stopPropagation()} />
+                      </Dropdown>
+                    </Space>
+                  </div>
+                  {summary ? <p className="fedlify-manage-study-summary">{summary}</p> : null}
+                  <div className="fedlify-manage-study-details">
+                    <span>Sites {study._count?.sites ?? 0}</span>
+                    <span>Ethics: {statusLabel(study.ethics?.[0]?.status ?? "PENDING")}</span>
+                    {workspaceCount > 1 && study.organization?.name ? <span>{study.organization.name}</span> : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </CardListState>
       </AppPage>
+
+      <Modal title="Create study" open={creating} onCancel={closeCreate} footer={null} width={520} destroyOnClose maskClosable={false}>
+        <Form form={createForm} layout="vertical" onFinish={createStudy} className="fedlify-inline-create-form">
+          <FormError title="The study was not created" message={createError} />
+          {organizations.length > 1 ? (
+            <Form.Item name="orgId" label="Institution" rules={[{ required: true, message: "Choose an institution." }]} initialValue={organizations[0]?.id}>
+              <Select options={organizationOptions} />
+            </Form.Item>
+          ) : null}
+          <Form.Item name="title" label="Study title" rules={[{ required: true, min: 3, message: "Enter a title of at least 3 characters." }]}>
+            <Input autoFocus />
+          </Form.Item>
+          <Form.Item name="description" label="Summary">
+            <Input placeholder="One line about the study" />
+          </Form.Item>
+          <Space className="fedlify-form-actions">
+            <Button onClick={closeCreate} disabled={createSubmitting}>
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit" className="fedlify-dark-action" loading={createSubmitting}>
+              Create study
+            </Button>
+          </Space>
+        </Form>
+      </Modal>
     </>
   );
 }
