@@ -85,3 +85,20 @@ export async function analyzeIntakeThroughOrchestrator(body: {
 export async function verifyThroughOrchestrator(body: { workItem: unknown; proposal: unknown; profile?: "hosted" | "local" }, options: { timeoutMs: number }) {
   return verificationResponseSchema.parse(await orchestratorRequest("/v1/work-items/verify", { profile: "hosted", ...body }, options));
 }
+
+/**
+ * POST to the orchestrator and return the raw Response (for streams). The caller owns the deadline and the abort signal.
+ * Throws only when the orchestrator is not configured or the connection fails.
+ */
+export async function orchestratorFetch(path: string, body: unknown, options: { signal?: AbortSignal } = {}): Promise<Response> {
+  const baseUrl = process.env.FEDLIFY_ORCHESTRATOR_URL;
+  const token = process.env.FEDLIFY_ORCHESTRATOR_TOKEN;
+  if (!baseUrl || !token) throw new Error("Fedlify agent orchestrator is not configured.");
+  return fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: options.signal,
+    cache: "no-store"
+  });
+}

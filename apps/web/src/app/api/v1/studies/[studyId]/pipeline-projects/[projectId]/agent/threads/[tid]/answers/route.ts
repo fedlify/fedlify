@@ -14,7 +14,7 @@ import { openThreadRoute, writableThreadOrResponse } from "@/lib/agent-thread-ro
 import { runPlanTurn } from "@/lib/agent-thread-runner";
 import type { PlanQuestion, QuestionsPayload } from "@/lib/agent-thread-types";
 import { prisma } from "@/lib/prisma";
-import { openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { assistantModelConfig } from "@/lib/runtime-config";
 
 type Params = { params: Promise<{ studyId: string; projectId: string; tid: string }> };
 
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const checked = validateAnswers(questions, body.answers, body.skipped === true);
   if (!checked.ok) return problem(400, checked.message);
 
-  const config = openAiCodeAgentConfig();
+  const config = assistantModelConfig();
   if (!config) return problem(503, "The assistant is not configured. Set OPENAI_API_KEY to enable it.", "ai_not_configured");
 
   return runPlanTurn({

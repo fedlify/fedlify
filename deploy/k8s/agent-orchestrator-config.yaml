@@ -11,3 +11,10 @@ data:
   FEDLIFY_CODEX_MODEL: "gpt-5.3-codex"
   FEDLIFY_AGENT_TIMEOUT_MS: "120000"
   FEDLIFY_COORDINATOR_MAX_OUTPUT_TOKENS: "2000"
+  # /v1/work-items/respond: models the web app may request (must include the web OPENAI_CODE_AGENT_MODEL), body and time ceilings.
+  FEDLIFY_RESPOND_MODELS: "gpt-4.1"
+  FEDLIFY_RESPOND_MAX_BODY: "8000000"
+  FEDLIFY_RESPOND_MAX_MS: "300000"
+  FEDLIFY_RESPOND_BINDING_TTL_SECONDS: "60"
+  # Per work item: at most this many model calls. Input + output tokens of all calls are capped by the signed tokenBudget.
+  FEDLIFY_RESPOND_MAX_CALLS: "6"

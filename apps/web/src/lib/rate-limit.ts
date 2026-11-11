@@ -30,6 +30,11 @@ export function rateLimit(key: string, limit: number, windowMs: number, options:
 }
 
 /** Give back one unit of budget taken by a consuming `rateLimit` call (e.g. an attempt that turned out to be legitimate). */
+/** Tests only: forget every counter. */
+export function __resetRateLimitsForTests(): void {
+  buckets.clear();
+}
+
 export function refundRateLimit(key: string): void {
   const current = buckets.get(key);
   if (!current) return;

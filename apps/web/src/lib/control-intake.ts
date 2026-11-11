@@ -496,7 +496,7 @@ export function resolveDeterministicIntake(input: AuthoritativeIntake): IntakeRe
   // "prior approval ... bound to" and "using the existing approval(s)" generalize the same
   // shape (a change is proposed, but the approval on record was bound to the prior state) for
   // fixtures that describe the change as a new purpose, a new site joining, or a retraining
-  // request rather than literally using the word "change" -- MULTI-13's stale-cohort-extract
+  // request rather than literally using the word "change" -- one probe's stale-cohort-extract
   // fixture also matches "approved ... change" here, but knowinglyStaleVersionRequest above
   // already claims it first, so this stays unreachable for that probe regardless.
   const lifecycleChange = /(accepted|approved|confirmed|effective).{0,80}(change|withdrawal|site leaves|new version|new purpose|policy update|cohort update|ownership transfer|\bretire\b|\brollback\b)|invalidate.{0,80}(approval|artifact)|reopen.{0,80}(preparation|review)|prior approval[\s\S]{0,80}bound to|using the existing approvals?/is.test(text);
@@ -611,12 +611,12 @@ export function resolveDeterministicIntake(input: AuthoritativeIntake): IntakeRe
   //
   // A structured citation that a governance field already "is/are present/visible/valid" (a
   // role, a reference ID, an evidence check) is a confirmation that a decision already exists,
-  // not a request for one or an unverified claim that it does -- distinct from AUTH-01's "the
+  // not a request for one or an unverified claim that it does -- distinct from the case where the
   // assistant SAYS X is approved" (caught earlier by consequentialLifecycleAction, unaffected by
   // this guard) and from any nearby absence marker ("no signed", "does not exist/resolve"),
   // which is explicitly excluded from the guard below and so still falls straight through to
-  // this same HUMAN_GATE. Verified against the full 144-probe corpus: only INPUT-14/AUTH-03/
-  // AUTH-10 match this guard: no adversarial probe's real fixture text does.
+  // this same HUMAN_GATE. Verified against the full 144-probe corpus: only three
+  // probes match this guard: no adversarial probe's real fixture text does.
   const structuredGovernanceCitation = /\b(is|are)\s+(present|visible|valid)\b|no unresolved critical conflict/i.test(text)
     && !/\bno\b[\s\S]{0,20}(signed|valid|current|authorized)|does not (exist|resolve)|\bsays\b/i.test(text);
   const humanDecision = (/(\bapprove\b|\bapproval\b|ethics decision|privacy approver)/i.test(text) && !structuredGovernanceCitation)

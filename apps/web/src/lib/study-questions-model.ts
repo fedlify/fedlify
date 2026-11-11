@@ -9,6 +9,7 @@
  * Route files may only export HTTP handlers, so this lives in lib.
  */
 import { z } from "zod";
+import { AssistantModelError, callAssistantModel, usageOf, type ModelUsage } from "@/lib/assistant-model";
 import { REQUIREMENT_ORDER, REQUIREMENTS, type RequirementId } from "@/lib/requirements-catalog";
 import {
   ANSWER_MAX,
@@ -260,7 +261,7 @@ export function openItemsForPrompt(rows: StoredQuestionRow[], ids: RequirementId
 // ---------- the call ----------
 
 export type ModelFailure = { ok: false; code: "upstream_error" | "unreadable" | "timeout"; message: string };
-export type ModelSuccess = { ok: true; value: unknown };
+export type ModelSuccess = { ok: true; value: unknown; usage: ModelUsage | null };
 
 function outputText(body: unknown): { text: string } | { error: string } {
   const response = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
@@ -283,25 +284,28 @@ function outputText(body: unknown): { text: string } | { error: string } {
 /** One structured, non-stored Responses API call. Never throws. */
 export async function callStructuredModel(
   config: { apiKey: string; model: string },
-  call: { input: unknown; schemaName: string; schema: object; maxOutputTokens: number; timeoutMs: number; signal?: AbortSignal; label: string }
+  call: { input: unknown; schemaName: string; schema: object; maxOutputTokens: number; timeoutMs: number; signal?: AbortSignal; label: string; studyId?: string; workItemId?: string | null }
 ): Promise<ModelSuccess | ModelFailure> {
   let upstream: Response;
   try {
-    upstream = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { authorization: `Bearer ${config.apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({
+    upstream = await callAssistantModel({
+      config,
+      studyId: call.studyId ?? "",
+      workItemId: call.workItemId,
+      stream: false,
+      request: {
         model: config.model,
         input: call.input,
         max_output_tokens: call.maxOutputTokens,
         store: false,
         text: { format: { type: "json_schema", name: call.schemaName, strict: true, schema: call.schema } }
-      }),
+      },
       signal: call.signal ? AbortSignal.any([call.signal, AbortSignal.timeout(call.timeoutMs)]) : AbortSignal.timeout(call.timeoutMs)
     });
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
     console.error(`${call.label}: upstream request failed`, error instanceof Error ? error.name : "unknown error");
+    if (error instanceof AssistantModelError) return { ok: false, code: "upstream_error", message: error.message };
     return timedOut
       ? { ok: false, code: "timeout", message: "The assistant took too long. Try again shortly." }
       : { ok: false, code: "upstream_error", message: "The assistant could not reach the model provider. Try again shortly." };
@@ -314,7 +318,7 @@ export async function callStructuredModel(
   const extracted = outputText(body);
   if ("error" in extracted) return { ok: false, code: "unreadable", message: extracted.error };
   try {
-    return { ok: true, value: JSON.parse(extracted.text) };
+    return { ok: true, value: JSON.parse(extracted.text), usage: usageOf(body) };
   } catch {
     return { ok: false, code: "unreadable", message: "The assistant returned an answer that could not be read. Try again." };
   }

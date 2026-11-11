@@ -14,7 +14,7 @@ import { json, problem } from "@/lib/json";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
-import { openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { assistantModelConfig } from "@/lib/runtime-config";
 import { isPersonAnswer, nextOpenItems } from "@/lib/study-questions";
 import {
   buildQuestionsInput,
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   const openCount = nextOpenItems(rows, 29).length;
   const fallback = (reason?: string) => json({ questions: openIds.map(fallbackQuestion), source: "catalog", openCount, ...(reason ? { notice: reason } : {}) });
 
-  const config = openAiCodeAgentConfig();
+  const config = assistantModelConfig();
   if (!config) return fallback();
   if (!rateLimit(`study-questions-ask:${authResult.userId}`, 20, 60_000)) return fallback();
 
@@ -61,7 +61,10 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
     maxOutputTokens: QUESTIONS_MAX_OUTPUT_TOKENS,
     timeoutMs: QUESTIONS_TIMEOUT_MS,
     signal: request.signal,
-    label: "study-questions-ask"
+    label: "study-questions-ask",
+    studyId
+    // No assistant-control work item exists for this call, so with ASSISTANT_MODEL_ROUTE=orchestrator it cannot be signed
+    // and falls back to the standard questions below.
   });
   if (!result.ok) return fallback("The assistant could not word these questions just now, so the standard questions are shown.");
   return json({ questions: normalizeQuestions(result.value, openIds), source: "assistant", openCount });

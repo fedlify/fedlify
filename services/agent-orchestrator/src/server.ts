@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { executeCodexWorkItem } from "./codex-worker.js";
 import { analyzeIntake, executeWorkItem, verifyProposal } from "./orchestrator.js";
 import { preflightProvider } from "./providers.js";
+import { bearerAuthorized } from "./auth.js";
+import { handleRespond, respondLimits } from "./respond.js";
 
 type PreflightState = { status: "checking" | "available" | "unavailable"; checkedAt?: string; profile?: unknown; error?: string };
 let hostedPreflight: PreflightState = { status: "checking" };
@@ -20,21 +22,47 @@ async function refreshHostedPreflight() {
   return hostedPreflight;
 }
 
-async function readBody(request: import("node:http").IncomingMessage): Promise<unknown> {
+async function readBody(request: import("node:http").IncomingMessage, limit = 2_000_000): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk);
     size += buffer.length;
-    if (size > 2_000_000) throw new Error("Request body exceeds 2 MB.");
+    if (size > limit) throw new Error(`Request body exceeds ${Math.round(limit / 1_000_000)} MB.`);
     chunks.push(buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
 function authorized(request: import("node:http").IncomingMessage): boolean {
-  const token = process.env.FEDLIFY_ORCHESTRATOR_TOKEN;
-  return Boolean(token && request.headers.authorization === `Bearer ${token}`);
+  return bearerAuthorized(request.headers.authorization, process.env.FEDLIFY_ORCHESTRATOR_TOKEN);
+}
+
+async function serveRespond(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse) {
+  const abort = new AbortController();
+  response.on("close", () => { if (!response.writableFinished) abort.abort(); });
+  try {
+    const body = await readBody(request, respondLimits().maxBodyBytes);
+    const result = await handleRespond(body, {}, abort.signal);
+    if (result.kind === "json") {
+      response.statusCode = result.status;
+      return response.end(JSON.stringify(result.body));
+    }
+    response.statusCode = 200;
+    response.setHeader("content-type", "text/event-stream");
+    response.setHeader("cache-control", "no-cache");
+    response.setHeader("x-accel-buffering", "no");
+    response.flushHeaders();
+    for await (const chunk of result.chunks) {
+      if (response.destroyed) break;
+      response.write(chunk);
+    }
+    response.end();
+  } catch (error) {
+    if (response.headersSent) return response.end();
+    response.statusCode = 422;
+    response.end(JSON.stringify({ error: error instanceof Error ? error.message : "execution_failed" }));
+  }
 }
 
 const server = createServer(async (request, response) => {
@@ -50,10 +78,12 @@ const server = createServer(async (request, response) => {
       hostedProvider: { status: hostedPreflight.status, checkedAt: hostedPreflight.checkedAt }
     }));
   }
-  if (request.method !== "POST" || !authorized(request)) {
-    response.statusCode = authorized(request) ? 404 : 401;
+  const isAuthorized = authorized(request);
+  if (request.method !== "POST" || !isAuthorized) {
+    response.statusCode = isAuthorized ? 404 : 401;
     return response.end(JSON.stringify({ error: "unauthorized_or_not_found" }));
   }
+  if (request.url === "/v1/work-items/respond") return serveRespond(request, response);
   try {
     const body = await readBody(request) as Record<string, unknown>;
     const profile = typeof body.profile === "string" ? body.profile : "hosted";

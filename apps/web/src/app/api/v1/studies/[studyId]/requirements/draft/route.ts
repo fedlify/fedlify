@@ -21,7 +21,8 @@ import { prisma } from "@/lib/prisma";
 import { acquireSlot, rateLimit } from "@/lib/rate-limit";
 import { assertStudyAccess, isForbiddenError } from "@/lib/rbac";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
-import { openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { tokensOf } from "@/lib/assistant-model";
+import { assistantModelConfig } from "@/lib/runtime-config";
 import { DRAFT_MAX_CHARS, isPersonAnswer, isPersonMark, type StoredQuestionRow } from "@/lib/study-questions";
 import {
   buildDraftInput,
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
   const study = await prisma.study.findUnique({ where: { id: studyId }, select: { orgId: true } });
   if (!study) return problem(404, "Study not found.", "not_found");
 
-  const config = openAiCodeAgentConfig();
+  const config = assistantModelConfig();
   if (!config) return problem(503, "The assistant is not set up on this server. You can still answer the questions yourself.", "assistant_unavailable");
 
   if (!rateLimit(`study-questions-draft:${userId}`, 6, 60_000)) return problem(429, "You have asked for several drafts in a short time. Wait a minute and try again.", "rate_limited");
@@ -112,7 +113,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       maxOutputTokens: DRAFT_MAX_OUTPUT_TOKENS,
       timeoutMs: DRAFT_TIMEOUT_MS,
       signal: request.signal,
-      label: "study-questions-draft"
+      label: "study-questions-draft",
+      studyId,
+      workItemId: gate.enforced ? gate.workItemId : null
     });
     if (!result.ok) {
       void control.done("error", { model: config.model });
@@ -190,7 +193,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       metadata: { textHash: sha256(text), chars: text.length, ...counts, model: config.model, promptVersion: DRAFT_PROMPT_VERSION },
       request
     }).catch((error) => console.error("study-questions-draft audit failed", error instanceof Error ? error.message : error));
-    void control.done("done", { model: config.model });
+    void control.done("done", { model: config.model, tokens: tokensOf(result.usage) });
 
     const checklist = await loadChecklist(studyId);
     return json({ ...checklist, summary: counts, conflictNotes });

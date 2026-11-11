@@ -39,6 +39,7 @@ import {
   type TurnMode
 } from "@/lib/agent-thread-types";
 import { sha256 } from "@/lib/crypto";
+import { AssistantModelError, callAssistantModel, tokensOf, usageOf, type ModelUsage } from "@/lib/assistant-model";
 import { randomUUID } from "node:crypto";
 import { guardAssistantTurn, openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
 import { invalidateApprovalBinding, recordPlanControl } from "@/lib/assistant-artifacts";
@@ -243,21 +244,17 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
 
     let upstream: Response;
     try {
-      upstream = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { authorization: `Bearer ${config.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          model: config.model,
-          input: buildAgentInput({ context, history, message: input.message }),
-          max_output_tokens: ASK_MAX_OUTPUT_TOKENS,
-          store: false,
-          stream: true
-        }),
+      upstream = await callAssistantModel({
+        config,
+        studyId,
+        workItemId: gate.enforced && !gate.blocked ? gate.workItemId : null,
+        stream: true,
+        request: { model: config.model, input: buildAgentInput({ context, history, message: input.message }), max_output_tokens: ASK_MAX_OUTPUT_TOKENS, store: false },
         signal: request.signal
       });
     } catch (error) {
       console.error("project-agent: upstream request failed", error instanceof Error ? error.message : "unknown error");
-      return await fail("The assistant could not reach the model provider. Try again shortly.", "upstream_error");
+      return await fail(error instanceof AssistantModelError ? error.message : "The assistant could not reach the model provider. Try again shortly.", "upstream_error");
     }
     if (!upstream.ok || !upstream.body) {
       const errorBody = (await upstream.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -269,11 +266,12 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
     const turnEvent: TurnEventData = { threadId: thread.id, userTurnId: userTurn.id, userSeq: userTurn.seq, assistantTurnId: assistantTurn.id, assistantSeq: assistantTurn.seq };
     let text = "";
     let finalized = false;
+    let usage: ModelUsage | null = null;
     const finish = async (status: "done" | "error" | "stopped") => {
       if (finalized) return;
       finalized = true;
       await finalizeTurn(assistantTurn.id, { status, content: text }).catch((error) => console.error("agent thread: finalize failed", error instanceof Error ? error.message : "unknown error"));
-      void control.done(status, { model: config.model });
+      void control.done(status, { model: config.model, tokens: tokensOf(usage) });
     };
 
     const stream = new ReadableStream<Uint8Array>({
@@ -292,7 +290,13 @@ export async function runAskTurn(input: AskTurnInput): Promise<Response> {
             const data = trimmed.slice(5).trim();
             if (!data || data === "[DONE]") return;
             try {
-              const event = JSON.parse(data) as { type?: string; delta?: string; message?: string; error?: { message?: string }; response?: { error?: { message?: string }; incomplete_details?: { reason?: string } } };
+              const event = JSON.parse(data) as { type?: string; delta?: string; message?: string; error?: { message?: string }; response?: { error?: { message?: string }; incomplete_details?: { reason?: string }; usage?: unknown }; execution?: { inputTokens?: number; outputTokens?: number } };
+              // The orchestrator's accounting event is for this server only.
+              if (event.type === "fedlify.usage") {
+                if (event.execution) usage = { inputTokens: Number(event.execution.inputTokens) || 0, outputTokens: Number(event.execution.outputTokens) || 0 };
+                return;
+              }
+              if ((event.type === "response.completed" || event.type === "response.incomplete") && !usage) usage = usageOf(event.response);
               if (event.type !== "error" && event.type !== "response.failed") controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
               if (event.type === "response.output_text.delta" && typeof event.delta === "string" && text.length < LIMITS.turnContentChars) text += event.delta;
               if (event.type === "response.completed") completed = true;
@@ -516,7 +520,8 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
         turnIds: [userTurn.id]
       });
     }
-    const finishControl = (outcome: AssistantOutcome, assistantTurnId?: string) => void control.done(outcome, { model: config.model, turnIds: assistantTurnId ? [assistantTurnId] : [] });
+    let planUsage: ModelUsage | null = null;
+    const finishControl = (outcome: AssistantOutcome, assistantTurnId?: string) => void control.done(outcome, { model: config.model, turnIds: assistantTurnId ? [assistantTurnId] : [], tokens: tokensOf(planUsage) });
 
     const state = questionState(await loadQaTurns(thread.id));
     const history = boundHistory(await loadHistory(thread.id, { beforeSeq: userTurn.seq }));
@@ -544,21 +549,23 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
 
     let upstream: Response;
     try {
-      upstream = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { authorization: `Bearer ${config.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({
+      upstream = await callAssistantModel({
+        config,
+        studyId,
+        workItemId: gate.enforced ? gate.workItemId : null,
+        stream: false,
+        request: {
           model: config.model,
           input: buildPlanInput({ context, history, message, qa: state.qa, blank: blankRequirements(responses), forcePlan: state.forcePlan }),
           max_output_tokens: PLAN_MAX_OUTPUT_TOKENS,
           store: false,
           text: { format: { type: "json_schema", name: "fedlify_change_plan", strict: true, schema: PLAN_JSON_SCHEMA } }
-        }),
+        },
         signal: AbortSignal.any([request.signal, AbortSignal.timeout(PLAN_TIMEOUT_MS)])
       });
     } catch (error) {
       console.error("project-agent-plan: upstream request failed", error instanceof Error ? error.message : "unknown error");
-      return notice("The assistant could not reach the model provider. Try again shortly.", "upstream_error", 502);
+      return notice(error instanceof AssistantModelError ? error.message : "The assistant could not reach the model provider. Try again shortly.", "upstream_error", 502);
     }
     const upstreamBody = (await upstream.json().catch(() => null)) as unknown;
     if (!upstream.ok) {
@@ -566,6 +573,7 @@ export async function runPlanTurn(input: PlanTurnInput): Promise<Response> {
       return notice("The model provider returned an error. Try again shortly.", "upstream_error", 502);
     }
 
+    planUsage = usageOf(upstreamBody);
     const parsed = parsePlanResponse(upstreamBody);
     if (!parsed.ok) return notice(parsed.message, "plan_unreadable", 502);
     const result: NormalizedPlanResult = parsed.result;

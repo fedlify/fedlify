@@ -4,7 +4,7 @@ metadata:
   name: fedlify-agent-orchestrator
   namespace: fedlify
 spec:
-  replicas: 1
+  replicas: 1 # keep at 1: respond nonce replay and per-work-item budgets are kept in process memory
   selector:
     matchLabels:
       app: fedlify-agent-orchestrator

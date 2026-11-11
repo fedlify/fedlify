@@ -61,6 +61,13 @@ spec:
             # Enforcement is per study. Listed: the "Enforcement test study" only.
             - name: ASSISTANT_CONTROL_ENFORCE_STUDIES
               value: "cmwbfgjmx000nvi01v72csq7q"
+            # Where the assistant's model calls go: "direct" (web pod calls the provider) or "orchestrator" (signed
+            # /v1/work-items/respond; fails closed without a signed work item). Switch only after a live check.
+            - name: ASSISTANT_MODEL_ROUTE
+              value: "direct"
+            # Probe executor (evaluation only): OFF. Needs PROBE_EXECUTOR_TOKEN (secret, not here) and PROBE_EXECUTOR_USER_ID.
+            - name: PROBE_EXECUTOR_ENABLED
+              value: "false"
             # Strict study questions: "true" makes Publish also need the study specification to be confirmed. Default off.
             - name: STUDY_QUESTIONS_STRICT
               value: "false"

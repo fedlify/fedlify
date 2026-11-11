@@ -30,7 +30,8 @@ import { loadProjectRepo } from "@/lib/project-repo";
 import { prisma } from "@/lib/prisma";
 import { acquireSlot, rateLimit } from "@/lib/rate-limit";
 import { isSensitiveFilePath } from "@/lib/repo-checks";
-import { agentThreadsEnabled, effectiveControlMode, openAiCodeAgentConfig } from "@/lib/runtime-config";
+import { agentThreadsEnabled, assistantModelConfig, effectiveControlMode } from "@/lib/runtime-config";
+import { AssistantModelError, callAssistantModel, tokensOf, usageOf, type ModelUsage } from "@/lib/assistant-model";
 import { guardAssistantTurn, openAssistantTurn, type AssistantOutcome } from "@/lib/assistant-control";
 import { bindAssistantApproval, ensurePlanArtifact, invalidateApprovalBinding, recordProposalControl } from "@/lib/assistant-artifacts";
 import { storeStop } from "@/lib/assistant-stop";
@@ -95,7 +96,7 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
     return problem(429, "Too many proposal requests. Wait a minute and try again.", "rate_limited");
   }
 
-  const config = openAiCodeAgentConfig();
+  const config = assistantModelConfig();
   if (!config) return problem(503, "The assistant is not configured. Set OPENAI_API_KEY to enable it.", "ai_not_configured");
 
   const release = acquireSlot(`project-agent-proposals:${userId}`, 1);
@@ -107,6 +108,7 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
   let control: ReturnType<typeof openAssistantTurn> = { done: async () => undefined };
   let outcome: AssistantOutcome = "error";
   let controlTurnId: string | undefined;
+  let proposalUsage: ModelUsage | null = null;
   try {
     const repo = await loadProjectRepo(studyId, projectId);
     if (!repo.ok) return repo.response;
@@ -247,22 +249,24 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
 
     let upstream: Response;
     try {
-      upstream = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { authorization: `Bearer ${config.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({
+      upstream = await callAssistantModel({
+        config,
+        studyId,
+        workItemId: gate.enforced ? gate.workItemId : null,
+        stream: false,
+        request: {
           model: config.model,
           input: buildProposalInput({ context, shown, history, message }),
           max_output_tokens: MAX_OUTPUT_TOKENS,
           store: false,
           text: { format: { type: "json_schema", name: "fedlify_change_proposal", strict: true, schema: PROPOSAL_JSON_SCHEMA } }
-        }),
+        },
         signal: AbortSignal.any([request.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])
       });
     } catch (error) {
       console.error("project-agent-proposal: upstream request failed", error instanceof Error ? error.message : "unknown error");
-      await note("NOTICE", "The assistant could not reach the model provider.");
-      return problem(502, "The assistant could not reach the model provider. Try again shortly.", "upstream_error");
+      await note("NOTICE", error instanceof AssistantModelError ? error.message : "The assistant could not reach the model provider.");
+      return problem(502, error instanceof AssistantModelError ? error.message : "The assistant could not reach the model provider. Try again shortly.", "upstream_error");
     }
     const upstreamBody = (await upstream.json().catch(() => null)) as unknown;
     if (!upstream.ok) {
@@ -272,6 +276,7 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
       return problem(502, "The model provider returned an error. Try again shortly.", "upstream_error");
     }
 
+    proposalUsage = usageOf(upstreamBody);
     const result = parseProposalResponse(upstreamBody);
     if (!result.ok) {
       await note("NOTICE", result.message);
@@ -369,7 +374,7 @@ export async function runProposal(input: ProposalRunInput): Promise<Response> {
   } finally {
     if (claimedPlanId && !succeeded) await transitionPlan(claimedPlanId, ["EXECUTED"], "APPROVED").catch(() => undefined);
     // No-op when control was never opened; records "error" unless an outcome was set above.
-    void control.done(outcome, { model: config.model, turnIds: controlTurnId ? [controlTurnId] : [] });
+    void control.done(outcome, { model: config.model, turnIds: controlTurnId ? [controlTurnId] : [], tokens: tokensOf(proposalUsage) });
     release();
   }
 }

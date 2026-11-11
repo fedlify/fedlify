@@ -102,6 +102,26 @@ export function openAiCodeAgentConfig(): { apiKey: string; model: string } | nul
   };
 }
 
+export type AssistantModelRoute = "direct" | "orchestrator";
+
+/**
+ * Where the assistant's model calls go: ASSISTANT_MODEL_ROUTE = direct | orchestrator. Unset or unknown means direct.
+ * "orchestrator" sends every assistant call through the signed /v1/work-items/respond endpoint and never falls back.
+ */
+export function assistantModelRoute(): AssistantModelRoute {
+  return clean(process.env.ASSISTANT_MODEL_ROUTE)?.toLowerCase() === "orchestrator" ? "orchestrator" : "direct";
+}
+
+/**
+ * The model settings for the assistant call sites that use callAssistantModel. Direct: same as openAiCodeAgentConfig.
+ * Orchestrator: no provider key is needed here, only the orchestrator address and token (apiKey is then empty and unused).
+ */
+export function assistantModelConfig(): { apiKey: string; model: string } | null {
+  if (assistantModelRoute() === "direct") return openAiCodeAgentConfig();
+  if (!clean(process.env.FEDLIFY_ORCHESTRATOR_URL) || !clean(process.env.FEDLIFY_ORCHESTRATOR_TOKEN)) return null;
+  return { apiKey: "", model: clean(process.env.OPENAI_CODE_AGENT_MODEL) ?? "gpt-4.1" };
+}
+
 /**
  * Persisted assistant history, plan mode and the changes timeline.
  * Unset or any value other than true/1/on/yes means off, which keeps the stateless panel. The k8s deployment sets it to "true".
