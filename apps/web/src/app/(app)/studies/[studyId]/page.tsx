@@ -40,8 +40,8 @@ import { ArtifactList, EntityActionMenu, EntityDetailView, FieldGrid, FieldRow, 
 import { FormError } from "@/components/FormFeedback";
 import { CardGridSkeleton, EmptyState, InlineLoadError } from "@/components/LoadStates";
 import { normalizeRichTextValue, RichTextContent, RichTextEditor, richTextHasText } from "@/components/RichTextEditor";
-import { RequirementsChatWindow } from "@/components/RequirementsChatWindow";
 import { TeamSection, type TeamStudy } from "./sections/TeamSection";
+import { StudyQuestionsSection } from "./sections/StudyQuestionsSection";
 import { StatusTag } from "@/components/StatusTag";
 import { StudySitesTable } from "@/components/StudySitesTable";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
@@ -2193,7 +2193,7 @@ export default function StudyDetailPage() {
                 label: `Study questions (${requirementsAnswered}/${REQUIREMENTS_TOTAL})`,
                 children: (
                   <section className="fedlify-protocol-module is-wide">
-                    <RequirementsChatWindow studyId={studyId} onChange={() => void load(activeSection)} />
+                    <StudyQuestionsSection studyId={studyId} onChange={() => void load(activeSection)} />
                   </section>
                 )
               },

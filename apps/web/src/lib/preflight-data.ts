@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { canAccessStudy } from "@/lib/rbac";
 import { effectiveControlMode } from "@/lib/runtime-config";
 import { evaluateSecondApprover } from "@/lib/publish-approval";
+import { studyQuestionsStrict } from "@/lib/runtime-config";
 import { REQUIREMENT_ORDER } from "@/lib/requirements-catalog";
 import { checkSiteImages } from "@/lib/site-image";
 import { isSitePresent } from "@/lib/site-presence";
@@ -28,13 +29,16 @@ export function ethicsSnapshot(ethics: EthicsRows): PreflightSnapshot["ethics"] 
   return status ? { status, validUntil: latestEthicsValidUntil(ethics) } : null;
 }
 
-/** How many of the study questions are answered. */
-export async function loadQuestionProgress(studyId: string): Promise<{ answered: number; total: number }> {
-  const responses = await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true } });
-  return questionProgress(responses);
+/** How many of the study questions are answered, and (strict mode only) whether the study specification is confirmed. */
+export async function loadQuestionProgress(studyId: string): Promise<PreflightSnapshot["questions"]> {
+  const responses = await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true, status: true } });
+  const progress = questionProgress(responses);
+  if (!studyQuestionsStrict()) return progress;
+  const study = await prisma.study.findUnique({ where: { id: studyId }, select: { specificationConfirmedAt: true } });
+  return { ...progress, strict: true, confirmed: Boolean(study?.specificationConfirmedAt) };
 }
 
-export function questionProgress(responses: Array<{ requirementId: string }>): { answered: number; total: number } {
+export function questionProgress(responses: Array<{ requirementId: string; status?: string | null }>): { answered: number; total: number } {
   const gate = requirementsGate(responses);
   return { answered: REQUIREMENT_ORDER.length - gate.missing.length, total: REQUIREMENT_ORDER.length };
 }

@@ -50,7 +50,7 @@ describe("resolveStudySteps", () => {
     const result = resolveStudySteps(snap, ALL);
     expect(result.current).toBe("prepare");
     expect(result.steps[1].status).toBe("3 of 29 answered");
-    expect(result.steps[1].blockers[0].detail).toBe("26 study questions are not answered yet");
+    expect(result.steps[1].blockers[0].detail).toBe("26 study questions need an answer or a decision. Suggested answers count only after you accept them. Open Protocol, then Study questions.");
   });
 
   it("points a study with every question answered at the pipeline", () => {

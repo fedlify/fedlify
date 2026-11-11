@@ -6,6 +6,7 @@
 
 import { sha256 } from "@/lib/crypto";
 import { boundDiagnostics, type DiagnosticsContext } from "@/lib/diagnostics";
+import { countsAsAnswered } from "@/lib/governance";
 import { REQUIREMENT_ORDER, REQUIREMENTS } from "@/lib/requirements-catalog";
 import { isSensitiveFilePath, redactSecrets, type RepoFile } from "@/lib/repo-checks";
 
@@ -37,7 +38,7 @@ const DATA_PROFILE_FIELDS = [
 
 export type ContextInput = {
   study: Partial<Record<(typeof PROTOCOL_FIELDS)[number], string | null>>;
-  requirementResponses: Array<{ requirementId: string; answer: string }>;
+  requirementResponses: Array<{ requirementId: string; answer: string; status?: string | null }>;
   sites: Array<{
     code: string;
     name: string;
@@ -98,7 +99,8 @@ function assemble(input: ContextInput, scale: number, notes: Set<string>): Conte
     if (value) protocol[field] = value;
   }
 
-  const answers = new Map(input.requirementResponses.map((response) => [response.requirementId, response.answer]));
+  // Only answers a person gave: an assistant suggestion, a gap or a disagreement is not an answer.
+  const answers = new Map(input.requirementResponses.filter((response) => countsAsAnswered(response.status)).map((response) => [response.requirementId, response.answer]));
   const requirements = REQUIREMENT_ORDER.flatMap((id) => {
     const answer = answers.get(id);
     if (answer === undefined || !answer.trim()) return [];

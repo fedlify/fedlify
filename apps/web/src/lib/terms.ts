@@ -326,6 +326,14 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "study.publish.succeeded": "Published the study successfully",
   "study.publish.failed": "Study publishing failed",
   "study.requirement.answer": "Answered a study question",
+  "study.requirement.accept": "Accepted a suggested answer",
+  "study.requirement.accept_all": "Accepted all suggested answers",
+  "study.requirement.assume": "Marked an answer as an assumption",
+  "study.requirement.unknown": "Marked a study question as not decided yet",
+  "study.requirements.draft": "Asked the assistant to draft study answers",
+  "study.requirements.draft_stopped": "The assistant paused a study description",
+  "study.specification.confirm": "Confirmed the study specification",
+  "study.specification.cleared": "Cleared the study specification confirmation",
   "study_template.create": "Created a study template",
   "study_template.approve": "Approved a study template",
   "study_template.fork": "Copied a study template",
@@ -381,7 +389,7 @@ export const STOP_TEXT: Record<StopCode, StopText> = {
   SENSITIVE_CONTENT: {
     title: "The message looked like it held a secret",
     why: "It looked like it contained a password, key or other secret. Secrets are not sent to the assistant and are not kept in the chat.",
-    whoDecides: "You decide. Study owners can help if you are unsure.",
+    whoDecides: "You decide. A study lead can help if you are unsure.",
     nextAction: "Remove the secret and send the message again.",
     reason: "a password, key or other secret"
   },

@@ -8,6 +8,8 @@
 import { ethicsCleared, ethicsExpired, ethicsExpiredMessage, publishRequirementMessage } from "@/lib/governance";
 import type { SiteImageState } from "@/lib/site-image";
 
+const QUESTIONS_DETAIL_TAIL = "Suggested answers count only after you accept them. Open Protocol, then Study questions.";
+
 export type PreflightKind = "publish" | "run";
 export type PreflightOwner = "study" | "site" | "system";
 
@@ -46,7 +48,14 @@ export type PreflightSnapshot = {
   now?: Date;
   /** Latest ethics decision, or null when none is recorded. */
   ethics: { status: string; validUntil?: Date | string | null } | null;
-  questions: { answered: number; total: number };
+  questions: {
+    answered: number;
+    total: number;
+    /** Strict study questions (STUDY_QUESTIONS_STRICT): Publish also needs the study specification confirmed. */
+    strict?: boolean;
+    /** Strict only: the study specification is confirmed. */
+    confirmed?: boolean;
+  };
   /** Active (non-disabled) sites that take part. */
   sites: PreflightSite[];
 
@@ -79,6 +88,9 @@ export function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
 }
 
+/** Informational item (always ok) for a site that is not connected and so will not take part in a run. */
+export const PREFLIGHT_NOT_TAKING_PART_PREFIX = "site_not_taking_part:";
+
 export const PREFLIGHT_SITE_PREFIXES = {
   signedOff: "site_signed_off:",
   connected: "site_connected:",
@@ -109,14 +121,29 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
 
   if (kind === "publish") {
     const left = Math.max(0, snapshot.questions.total - snapshot.questions.answered);
-    items.push({
-      code: "study_questions",
-      ok: left === 0,
-      text: left === 0 ? "All study questions are answered" : publishRequirementMessage("studyQuestions", { remaining: left }),
-      ...(left === 0 ? {} : { detail: `${plural(left, "study question is", "study questions are")} not answered yet` }),
-      owner: "study",
-      fixHref: questionsHref
-    });
+    if (snapshot.questions.strict) {
+      const needsConfirm = left === 0 && !snapshot.questions.confirmed;
+      const ok = left === 0 && !needsConfirm;
+      items.push({
+        code: "study_questions",
+        ok,
+        text: ok ? "The study specification is confirmed" : left > 0 ? `${plural(left, "study question still needs", "study questions still need")} an answer` : "Confirm the study specification",
+        ...(ok
+          ? {}
+          : { detail: left > 0 ? `${left === 1 ? "1 study question needs" : `${left} study questions need`} an answer or a decision. ${QUESTIONS_DETAIL_TAIL}` : "Everything is answered. Check the answers and confirm the study specification." }),
+        owner: "study",
+        fixHref: questionsHref
+      });
+    } else {
+      items.push({
+        code: "study_questions",
+        ok: left === 0,
+        text: left === 0 ? "All study questions are answered" : publishRequirementMessage("studyQuestions", { remaining: left }),
+        ...(left === 0 ? {} : { detail: `${left === 1 ? "1 study question needs" : `${left} study questions need`} an answer or a decision. ${QUESTIONS_DETAIL_TAIL}` }),
+        owner: "study",
+        fixHref: questionsHref
+      });
+    }
   }
 
   // Sites (both kinds)
@@ -268,6 +295,20 @@ export function evaluatePreflight(kind: PreflightKind, snapshot: PreflightSnapsh
         ...(current ? {} : { detail: site.imageState === "NOT_REPORTED" ? `${label} has not reported a code version yet.` : `${label} runs an older code version than the study server.` }),
         owner: "site",
         fixHref: siteHref
+      });
+    }
+  }
+
+  // A site that is not connected will not take part. Say so for each one, so nobody is surprised; it never blocks.
+  if (!snapshot.serverUnreachable) {
+    for (const site of snapshot.sites) {
+      if (site.connected !== false) continue;
+      items.push({
+        code: `${PREFLIGHT_NOT_TAKING_PART_PREFIX}${site.studySiteId}`,
+        ok: true,
+        text: `${site.name || site.code} is not connected and will not take part in this run`,
+        owner: "site",
+        fixHref: `/sites/${site.siteId}`
       });
     }
   }

@@ -61,6 +61,9 @@ spec:
             # Enforcement is per study. Listed: the "Enforcement test study" only.
             - name: ASSISTANT_CONTROL_ENFORCE_STUDIES
               value: "cmwbfgjmx000nvi01v72csq7q"
+            # Strict study questions: "true" makes Publish also need the study specification to be confirmed. Default off.
+            - name: STUDY_QUESTIONS_STRICT
+              value: "false"
             - name: FEDLIFY_PIPELINE_WORKFLOW_TEMPLATE
               value: fedlify-study-pipeline-ci
             - name: GITEA_BASE_URL

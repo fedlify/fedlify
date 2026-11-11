@@ -12,6 +12,7 @@ export function PlanQuestionsCard({
   answered,
   disabled,
   busy,
+  hideRound,
   onSubmit
 }: {
   questions: PlanQuestion[];
@@ -19,6 +20,8 @@ export function PlanQuestionsCard({
   answered: AnswersPayload | null;
   disabled: boolean;
   busy: boolean;
+  /** Leave out the "round N" tag where there are no rounds (the study questions tab). */
+  hideRound?: boolean;
   onSubmit: (answers: Record<string, string | string[]>, skipped: boolean) => void;
 }) {
   const [draft, setDraft] = useState<AnswerDraft>(() => initialDraft(questions));
@@ -33,7 +36,7 @@ export function PlanQuestionsCard({
     <div className="fedlify-ws-card" role="group" aria-label="Questions from the assistant" data-testid="plan-questions">
       <div className="fedlify-ws-card-head">
         <strong>{answered ? (answered.skipped ? "Questions (skipped)" : "Questions (answered)") : `Questions ${questions.length > 1 ? `(${index + 1}/${questions.length})` : ""}`}</strong>
-        <Tag>{`round ${round}`}</Tag>
+        {hideRound ? null : <Tag>{`round ${round}`}</Tag>}
       </div>
       {questions.map((question, i) => {
         const entry = draft[question.id] ?? { selected: [], other: "" };

@@ -566,3 +566,38 @@ Problem: hospital staff could not get into their own site. Nothing assigned a si
 **Permissions hook.** `lib/use-permissions.ts`: `useStudyPermissions(studyId)` and `useSitePermissions(siteId)` read `GET /api/v1/studies/[id]/permissions` and `GET /api/v1/sites/[id]/permissions` (never 403; `can` is empty while loading, so buttons start disabled). The site answer also gives `backHref`. Screens show a button only when `can.x` is true. The Refine access control provider is now default-deny.
 
 **Known limits.** No invitation revoke and no study-member remove routes yet. Activity shows other actors as "Someone on the study team" until the site route includes actor names. Role grants a coordinator cannot make are rejected by the server rather than disabled up front.
+
+## Study questions (2026-11-14)
+
+The 29 study questions (R01 to R29, grouped C1 to C8) are the paper's stage 3: the assistant elicits against the list and drafts, proposes, never decides. A person can paste a description of the study, the assistant drafts a first answer for each question, and the person checks every one.
+
+**Statuses** (one per question, `RequirementResponse.status`):
+
+| Status | Who wrote it | Counts as answered |
+| --- | --- | --- |
+| ANSWERED | A person (also every row from before statuses existed) | Yes |
+| ASSUMED | A person, who marked the answer as an assumption (or accepted a guess) | Yes, and is listed back at confirmation |
+| SUGGESTED | The assistant ("Suggested: check it") | No |
+| UNKNOWN | The assistant or the person ("Not decided yet") | No |
+| CONFLICT | The assistant: the text disagrees with itself or with a confirmed answer ("Disagrees") | No |
+
+A question with no row is "missing" in the screen and does not count either.
+
+**Evidence classes** (`evidenceClass`): fact (the text states it; stored with a short quote that the server checks really appears in the text, otherwise it is downgraded to assumption), assumption (the assistant inferred it, or the person marked it), proposal, unknown, conflict. A person's own answer is stored as fact unless they tick "This is an assumption". `sourceNote` holds the quote or the reason, at most 500 characters.
+
+**Drafting.** `POST /api/v1/studies/{id}/requirements/draft` takes `{ text }` (up to 40,000 characters), makes one structured model call and stores the result as SUGGESTED, UNKNOWN or CONFLICT. It never overwrites an answer a person gave (ANSWERED or ASSUMED); a disagreement with one is only reported. The text goes through the control plane as the `assistant.requirements.v1` contract: shadow mode records it, enforce stops it before the model call when it holds secrets or patient-level rows. The text is not stored, only its hash and length. `POST .../requirements/questions` returns up to four open questions with options for "Ask me the open questions", with the catalog's own wording as the fallback.
+
+**What the gate counts.** In every mode, `requirementsGate` counts ANSWERED, ASSUMED and older rows. SUGGESTED, UNKNOWN and CONFLICT never count, because the assistant wrote them and a person has not. This feeds Publish (the study_questions pre-flight item), activation, code generation, the Summary count and the answers handed to the code assistant.
+
+**Strict mode.** `STUDY_QUESTIONS_STRICT` ("true" to turn on; default "false" in `deploy/k8s/web-deployment.yaml`). When on, Publish also needs the study specification confirmed. The pre-flight item then reads "3 study questions still need an answer", then "Confirm the study specification", then "The study specification is confirmed". When off, the item keeps its earlier wording.
+
+**Confirmation.** `POST .../requirements/confirm` is allowed only when all 29 are ANSWERED or ASSUMED. If any are assumptions the request must carry `ackAssumptions: true`; the refusal lists them. It writes who, when and a hash of the ordered answers on the study, a decision record `STUDY_SPECIFICATION_CONFIRMED` (hashes and counts only) and an audit event. Any later change to an answer clears the confirmation, and the response says so (`confirmationCleared`). Every accepted answer also records who and when (`confirmedById`, `confirmedAt`).
+
+**The screen.** Protocol > "Study questions" (`sections/StudyQuestionsSection.tsx`, pure helpers in `lib/study-questions-client.ts`). From top to bottom: a short intro; "Describe your study" (text area and "Draft answers", then one result line such as "The assistant suggested 14 answers, could not find 12, and found 3 that disagree"; a control-plane stop shows the existing stop card); the checklist, one table per plain category with the question, the answer (shortened, "Show more"), a status tag (Answered, Suggested: check it, Assumed, Not decided, Disagrees), the assistant's quote or reason under "Why the assistant said this", and a "Review" button that opens a modal with Edit answer, Accept suggestion, Mark as an assumption and Not decided yet; filter chips (All, Needs you, Answered), a progress line and "Accept all suggestions" with a confirmation that says how many; "Ask me the open questions" (up to four, reusing `PlanQuestionsCard`, answers saved as the person's own); and "Confirm study specification" (on only when nothing needs the person, lists assumptions to acknowledge, then shows "Confirmed by <name> on <date>"). People without the `manage` permission see the checklist read-only. Run pre-flight now also lists each connected-less site as an informational line ("<Site> is not connected and will not take part in this run") that never blocks.
+
+### Study questions: review follow-ups
+
+- A draft re-reads the answers after the model returns and writes only over rows the assistant wrote and no person has touched (conditional update, create with skip-duplicates). A person's "Not decided yet" carries who and when and is also left alone. The result line says how many earlier suggestions were replaced.
+- Accepting one or all suggestions sends what the person saw; if the stored suggestion changed since, the call returns 409 and nothing is accepted.
+- A "fact" needs a quote of at least 15 characters or 3 words that appears in the text as whole words. The quote shows the words exist, not that they support the answer; the person still checks.
+- The original `POST { requirementId, answer }` still works (same handler as `PATCH`).

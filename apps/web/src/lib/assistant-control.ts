@@ -43,7 +43,7 @@ import {
   type AuthoritativeLayer
 } from "@/lib/control-intake";
 
-export type AssistantMode = "ask" | "plan" | "agent" | "edit" | "answers";
+export type AssistantMode = "ask" | "plan" | "agent" | "edit" | "answers" | "requirements";
 export type AssistantOutcome = "done" | "error" | "stopped" | "no_changes" | "refused";
 export type AssistantReason = { code: string; layer: AuthoritativeLayer };
 
@@ -51,11 +51,12 @@ export const CONTROL_TIMEOUT_MS = 1500;
 /** In enforce the runner waits for the check, so it gets a longer (still bounded) deadline. */
 export const ENFORCE_TIMEOUT_MS = 3000;
 
-export type ContractKey = "assistant.ask.v1" | "assistant.plan.v1" | "assistant.change.v1" | "assistant.verify.v1";
+export type ContractKey = "assistant.ask.v1" | "assistant.plan.v1" | "assistant.requirements.v1" | "assistant.change.v1" | "assistant.verify.v1";
 
 const CONTRACTS: Record<ContractKey, { allowedTools: string[]; tokenBudget: number; timeBudgetSeconds: number; purpose: string }> = {
   "assistant.ask.v1": { allowedTools: [], tokenBudget: 16_000, timeBudgetSeconds: 180, purpose: "Assistant answer (read only)" },
   "assistant.plan.v1": { allowedTools: [], tokenBudget: 24_000, timeBudgetSeconds: 180, purpose: "Assistant plan (no code, no files)" },
+  "assistant.requirements.v1": { allowedTools: [], tokenBudget: 24_000, timeBudgetSeconds: 180, purpose: "Assistant draft of study answers (suggestions only, nothing is confirmed)" },
   "assistant.change.v1": { allowedTools: ["propose_file_changes"], tokenBudget: 60_000, timeBudgetSeconds: 240, purpose: "Assistant code proposal (nothing is saved until accepted)" },
   "assistant.verify.v1": { allowedTools: [], tokenBudget: 8_000, timeBudgetSeconds: 45, purpose: "Assistant second check (advice only)" }
 };
@@ -64,6 +65,7 @@ const MODE_CONTRACT: Record<AssistantMode, Exclude<ContractKey, "assistant.verif
   ask: "assistant.ask.v1",
   plan: "assistant.plan.v1",
   answers: "assistant.plan.v1",
+  requirements: "assistant.requirements.v1",
   agent: "assistant.change.v1",
   edit: "assistant.change.v1"
 };
@@ -323,7 +325,7 @@ async function recordTurn(
   enforce: boolean
 ) {
   const { studyId, userId, mode: assistantMode } = input;
-  const sourceType = input.threadId ? "agent_thread" : "agent_project";
+  const sourceType = input.threadId ? "agent_thread" : assistantMode === "requirements" ? "study_questions" : "agent_project";
   const sourceId = input.threadId ?? input.projectId;
   // Scoped to the thread (or project) so a reused client id in another thread cannot attach to this one's item.
   const baseKey = `turn:${sourceId}:${input.clientTurnId}`;

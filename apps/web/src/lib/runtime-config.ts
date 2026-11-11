@@ -111,6 +111,15 @@ export function agentThreadsEnabled(): boolean {
   return value === "true" || value === "1" || value === "on" || value === "yes";
 }
 
+/**
+ * Strict study questions: STUDY_QUESTIONS_STRICT = "true" (also 1, on, yes) makes Publish need the study specification
+ * to be confirmed as well as every question answered. Unset or anything else means off.
+ */
+export function studyQuestionsStrict(): boolean {
+  const value = clean(process.env.STUDY_QUESTIONS_STRICT)?.toLowerCase();
+  return value === "true" || value === "1" || value === "on" || value === "yes";
+}
+
 export type AssistantControlMode = "off" | "shadow" | "enforce";
 
 /**

@@ -4485,165 +4485,6 @@ h4.ant-typography {
   }
 }
 
-.fedlify-requirements-window {
-  border: 1px solid #ece7f5;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 8px 28px rgba(34, 23, 74, 0.06);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.fedlify-requirements-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-/* Two panes: grouped navigator (scrolls on its own) + fixed editor. No page scroll needed per answer. */
-.fedlify-requirements-layout {
-  display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.fedlify-requirements-nav {
-  max-height: 560px;
-  overflow-y: auto;
-  padding-right: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.fedlify-requirements-group-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 4px 6px 2px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--fedlify-muted);
-}
-
-.fedlify-requirements-group-count {
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.fedlify-requirements-row {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: transparent;
-  padding: 6px 8px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.fedlify-requirements-row:hover,
-.fedlify-requirements-row:focus-visible {
-  background: #f7f5fc;
-  outline: none;
-}
-
-.fedlify-requirements-row.is-active {
-  border-color: var(--fedlify-primary);
-  background: #fbfaff;
-}
-
-.fedlify-requirements-row-check {
-  color: #1a7a3a;
-  font-size: 14px;
-}
-
-.fedlify-requirements-row-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(133, 118, 181, 0.55);
-  justify-self: center;
-}
-
-.fedlify-requirements-row-id {
-  font-weight: 700;
-  font-size: 11px;
-  color: var(--fedlify-primary);
-}
-
-.fedlify-requirements-row-title {
-  font-size: 13px;
-  color: var(--fedlify-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fedlify-requirements-editor {
-  position: sticky;
-  top: 12px;
-  border: 1px solid #e8e1f3;
-  border-radius: 14px;
-  background: #fbfaff;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 360px;
-}
-
-.fedlify-requirements-editor-crumb {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-}
-
-.fedlify-requirements-active-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: var(--fedlify-primary);
-}
-
-.fedlify-requirements-active-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.fedlify-requirements-hint {
-  font-size: 12px;
-}
-
-@media (max-width: 900px) {
-  .fedlify-requirements-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .fedlify-requirements-nav {
-    max-height: 220px;
-  }
-
-  .fedlify-requirements-editor {
-    position: static;
-  }
-}
 
 @media (max-width: 760px) {
   .fedlify-pa-page.fedlify-workspace-panel {
@@ -6760,3 +6601,48 @@ h4.ant-typography {
 .fedlify-site-people li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .fedlify-site-problems { border: 1px solid var(--fedlify-line); border-radius: 12px; }
 .fedlify-site-problem { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+
+/* Study questions tab */
+.fedlify-sq {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fedlify-sq-card {
+  border: 1px solid #ece7f5;
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fedlify-sq-card h5 {
+  margin: 0;
+}
+
+.fedlify-sq-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fedlify-sq-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 460px;
+}
+
+.fedlify-sq-category td {
+  background: #faf8fe;
+  font-weight: 600;
+}
+
+.fedlify-sq-assumptions {
+  margin: 0;
+  padding-left: 18px;
+}

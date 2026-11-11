@@ -39,7 +39,7 @@ type StudyActivationInput = ProtocolMetadata & {
   studySites?: unknown[];
   // When provided, every one of the 29 requirements must be answered before activation
   // (requirements are part of protocol definition, so they are gathered before the study goes live).
-  requirementResponses?: Array<{ requirementId: string }>;
+  requirementResponses?: Array<{ requirementId: string; status?: string | null }>;
 };
 
 type PipelineExecutionInput = {
@@ -133,15 +133,21 @@ export function activationGate(study: StudyActivationInput): { allowed: boolean;
   return { allowed: true, missing: [], status: "APPROVED" };
 }
 
+/** A row counts as answered when a person put it there: ANSWERED, ASSUMED, or a row from before statuses existed (no status). */
+export function countsAsAnswered(status?: string | null): boolean {
+  return status == null || status === "ANSWERED" || status === "ASSUMED";
+}
+
 /**
  * Requires every one of the 29 operational requirements (requirements-catalog.ts, the same
- * catalog the probe suite scores against) to have a recorded response before code generation
- * can proceed. Forms and the requirements chat window both write responses; this gate is what
- * turns that gathered context into a stop/proceed decision -- code generation checks it, not
- * the other way around.
+ * catalog the probe suite scores against) to have an answer a person gave before code generation
+ * can proceed. What counts, in every mode: ANSWERED, ASSUMED, and older rows that have no status.
+ * What never counts: SUGGESTED (written by the assistant, not by a person), UNKNOWN and CONFLICT.
+ * Forms and the study questions screen both write responses; this gate is what turns that gathered
+ * context into a stop/proceed decision -- code generation checks it, not the other way around.
  */
-export function requirementsGate(responses: Array<{ requirementId: string }>): { allowed: boolean; missing: RequirementId[] } {
-  const answered = new Set(responses.map((response) => response.requirementId));
+export function requirementsGate(responses: Array<{ requirementId: string; status?: string | null }>): { allowed: boolean; missing: RequirementId[] } {
+  const answered = new Set(responses.filter((response) => countsAsAnswered(response.status)).map((response) => response.requirementId));
   const missing = REQUIREMENT_ORDER.filter((id) => !answered.has(id));
   return { allowed: missing.length === 0, missing };
 }

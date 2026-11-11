@@ -499,6 +499,10 @@ model OrgMembership {
 
 model Study {
   id                     String                 @id @default(cuid())
+  /// "Confirm study specification": who and when, and a hash of the ordered answers at that time. Any later change clears all three.
+  specificationConfirmedAt   DateTime?
+  specificationConfirmedById String?
+  specificationHash          String?
   orgId                  String
   title                  String
   slug                   String
@@ -788,6 +792,14 @@ model RequirementResponse {
   requirementId String
   answer        String
   respondedById String?
+  /// fact | assumption | proposal | unknown | conflict. Null on rows written before study questions had a draft step.
+  evidenceClass String?
+  /// ANSWERED | SUGGESTED | ASSUMED | UNKNOWN | CONFLICT. Only ANSWERED and ASSUMED were put there by a person.
+  status        String   @default("ANSWERED")
+  /// Short quote or reason from the assistant (capped at 500).
+  sourceNote    String?
+  confirmedById String?
+  confirmedAt   DateTime?
   study         Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

@@ -89,7 +89,8 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ st
       invitations: { omit: { tokenHash: true }, orderBy: { createdAt: "desc" } },
       ethics: { orderBy: { createdAt: "desc" } },
       documents: { orderBy: { createdAt: "desc" } },
-      requirementResponses: { select: { requirementId: true, updatedAt: true }, orderBy: { requirementId: "asc" } },
+      // Only answers a person gave count as answered on the Summary; suggestions, gaps and disagreements are listed under Study questions.
+      requirementResponses: { where: { status: { in: ["ANSWERED", "ASSUMED"] } }, select: { requirementId: true, updatedAt: true }, orderBy: { requirementId: "asc" } },
       sites: { include: { heartbeats: { orderBy: { createdAt: "desc" }, take: 1 }, studySite: true } },
       studySites: {
         include: {
@@ -229,7 +230,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
     intendedUse: updateData.intendedUse,
     ethics: current.ethics,
     studySites: current.studySites,
-    requirementResponses: await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true } })
+    requirementResponses: await prisma.requirementResponse.findMany({ where: { studyId }, select: { requirementId: true, status: true } })
   });
 
   if (parsed.data.action === "activate" && !gate.allowed) {

@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ st
       ethics: { orderBy: { createdAt: "desc" }, take: 1 },
       studySites: { include: { site: true } },
       nvflareDeployments: true,
-      requirementResponses: { select: { requirementId: true } }
+      requirementResponses: { select: { requirementId: true, status: true } }
     }
   });
   if (!study) return problem(404, "Study not found.", "not_found");
